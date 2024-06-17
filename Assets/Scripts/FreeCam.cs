@@ -12,6 +12,7 @@ public class FreeCam : MonoBehaviour
     public EventSystem es;
     public InputField panSpeed;
     public InputField movSpeed;
+    public float zoomSpeed = 10.0f;
     // Start is called before the first frame update
     void Start()
     {
@@ -21,30 +22,32 @@ public class FreeCam : MonoBehaviour
     }
 
     // Update is called once per frame
-    void FixedUpdate()
+void FixedUpdate()
+{
+    Vector3 diff = mousePosition - Input.mousePosition;
+    if (canMove)
     {
-        
-
-        Vector3 diff = mousePosition - Input.mousePosition;
-        if (canMove)
+        if (Input.GetMouseButton(1) && !es.IsPointerOverGameObject())
         {
-            if (Input.GetMouseButton(1) && !es.IsPointerOverGameObject())
-            {
-                transform.Rotate(new Vector3(diff.y * rSpeed, -diff.x * rSpeed, 0), Space.Self);
-                transform.eulerAngles = new Vector3(transform.eulerAngles.x, transform.eulerAngles.y, 0);
-            }
-
-            if (Input.GetKey(KeyCode.W))
-                transform.Translate(Vector3.forward * tSpeed, Space.Self);
-            if (Input.GetKey(KeyCode.S))
-                transform.Translate(-Vector3.forward * tSpeed, Space.Self);
-            if (Input.GetKey(KeyCode.A))
-                transform.Translate(-Vector3.right * tSpeed, Space.Self);
-            if (Input.GetKey(KeyCode.D))
-                transform.Translate(Vector3.right * tSpeed, Space.Self);
+            transform.Rotate(new Vector3(diff.y * rSpeed, -diff.x * rSpeed, 0), Space.Self);
+            transform.eulerAngles = new Vector3(transform.eulerAngles.x, transform.eulerAngles.y, 0);
         }
-        mousePosition = Input.mousePosition;
+
+        // マウスの中ボタンでカメラの上下左右移動
+        if (Input.GetMouseButton(2))
+        {
+            transform.Translate(new Vector3(diff.x * tSpeed, diff.y * tSpeed, 0), Space.Self);
+        }
+
+        // マウスホイールによるズームインとズームアウト
+        float scroll = Input.GetAxis("Mouse ScrollWheel");
+        if (scroll != 0.0f)
+        {
+            transform.Translate(Vector3.forward * scroll * zoomSpeed, Space.Self);
+        }
     }
+    mousePosition = Input.mousePosition;
+}
 
     public void updateSpeeds()
     {

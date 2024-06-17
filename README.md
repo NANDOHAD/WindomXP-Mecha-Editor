@@ -1,3 +1,3 @@
-#Windom XP Mecha Editor 
+The purpose of this repository is to localize "WindomXP-Mecha-Editor" into Japanese.
 
-Requires 2021 to build.   latest versions may work but bugs maybe present.
+https://github.com/MugenAttack/WindomXP-Mecha-Editor

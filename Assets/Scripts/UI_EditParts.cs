@@ -175,6 +175,17 @@ public class UI_EditParts : MonoBehaviour
         handle.type = HandleType.ROTATION;
     }
 
+
+    public void HundleChange(int s)
+    {
+        if (s == 0)
+            handle.type = HandleType.POSITION;
+        if (s == 1)
+            handle.type = HandleType.ROTATION;
+        if (s == 2)
+            handle.type = HandleType.SCALE;
+    }
+
     public void spaceChange(int s)
     {
         if (s == 0)
