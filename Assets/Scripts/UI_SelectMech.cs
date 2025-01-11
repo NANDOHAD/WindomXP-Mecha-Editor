@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 using UnityEngine.UI;
+using System;
+using System.Threading.Tasks;
 public class UI_SelectMech : MonoBehaviour
 {
     public Dropdown RoboDD;
@@ -22,11 +24,19 @@ public class UI_SelectMech : MonoBehaviour
     public UI_EditAni editAni;
     public string folder = "Windom_Data\\Robo";
     public GameObject prefPanel;
+    public GameObject loadingUI; // ローディングUIのGameObject
+    public Text lodingPerTxt;
+    public GameObject maskLoad;
+    
     // Start is called before the first frame update
     void Start()
     {
         robo.transcoder = new CypherTranscoder();
         RoboDD.ClearOptions();
+        if(maskLoad != null && !maskLoad.activeSelf)
+        {
+            maskLoad.SetActive(true);
+        }
         if (Directory.Exists(folder))
         {
             DirectoryInfo directory = new DirectoryInfo(folder);
@@ -43,18 +53,19 @@ public class UI_SelectMech : MonoBehaviour
                 selectedMech(0);
 
                 selectImage.material = selectMaterial;
+                enableTool = true;
             }
             else
             {
-                msgBox.Show("There is no Mechs in the Robo Folder.");
-                enableTool = false;
+                msgBox.Show("ディレクトリ内に機体データがみつかりません。");
+                enableTool = true;
             }
         }
         else
         {
             Directory.CreateDirectory(folder);
-            msgBox.Show("There is no Mechs in the Robo Folder.");
-            enableTool = false;
+            msgBox.Show("初期ディレクトリ（Windom_Data\\Robo）を作成しました。");
+            enableTool = true;
         }
     }
 
@@ -78,44 +89,21 @@ public class UI_SelectMech : MonoBehaviour
         //main.setPath(Path.Combine("Windom_Data\\Robo", list[RoboDD.value]));
     }
 
-    public void loadFile(string name)
+    public async void loadFile(string name)
     {
         if (enableTool)
         {
-            ani2 ani = new ani2();
-            ani.load(Path.Combine(folder, list[RoboDD.value], name));
-            robo.folder = Path.Combine(folder, list[RoboDD.value]);
-            robo.buildStructure(ani.structure);
-            if (name.Contains(".ani"))
+            // ローディング表示を開始 (例: ローディングUIをアクティブにする)
+            loadingUI.SetActive(true);
+            try
             {
-                robo.ani = ani;
-                robo.filename = name;
-                prevRobo.folder = robo.folder;
-                prevRobo.buildStructure(ani.structure);
-                foreach (GameObject prt in prevRobo.parts)
-                {
-                    prt.layer = 7;
-                }
-                saveAni.SetActive(true);
-                saveHod.SetActive(false);
-                editAni.populateAnimationList();
-                if (editTabs != null)
-                    editTabs.setTabActive(0, true);
-                if (modeSelect != null)
-                    modeSelect.SetActive(true);
-                
+                await LoadDataAsync(name);
             }
-            else
+            finally
             {
-                robo.filename = ani._filename;
-                saveAni.SetActive(false);
-                saveHod.SetActive(true);
-                if (editTabs != null)
-                    editTabs.setTabActive(0, false);
-                if (modeSelect != null)
-                    modeSelect.SetActive(false);
+            // ローディング表示を終了 (例: ローディングUIを非アクティブにする)
+            loadingUI.SetActive(false);
             }
-
             editParts.PopulatePartsList();
             this.gameObject.SetActive(false);
             vc.Menu.SetActive(true);
@@ -123,6 +111,60 @@ public class UI_SelectMech : MonoBehaviour
             prefPanel.SetActive(false);
         }
     }
+    private async Task LoadDataAsync(string name)
+    {
+        var progress = new Progress<int>(value => 
+        {
+            if(value == 100)
+            {
+                lodingPerTxt.text = "Loading Complete.";
+            }
+            else
+            {
+                // 進捗を受け取ったときの処理をここに記述
+                lodingPerTxt.text = $"NowLoading...{value}%"; // 進捗をテキストに設定
+            }
+        });
+        ani2 ani = new ani2();
+        await Task.Run(() => ani.load(Path.Combine(folder, list[RoboDD.value], name), progress)); // 非同期でロード
+        robo.folder = Path.Combine(folder, list[RoboDD.value]);
+        robo.buildStructure(ani.structure);
+        if (name.Contains(".ani"))
+        {
+            robo.ani = ani;
+            robo.filename = name;
+            prevRobo.folder = robo.folder;
+            prevRobo.buildStructure(ani.structure);
+            foreach (GameObject prt in prevRobo.parts)
+            {
+                prt.layer = 7;
+            }
+            saveAni.SetActive(true);
+            saveHod.SetActive(false);
+            editAni.populateAnimationList();
+            if (editTabs != null)
+                editTabs.setTabActive(0, true);
+            if (modeSelect != null)
+                modeSelect.SetActive(true);
+        }
+        else
+        {
+            robo.filename = ani._filename;
+            saveAni.SetActive(false);
+            saveHod.SetActive(true);
+            if (editTabs != null)
+                editTabs.setTabActive(0, false);
+            if (modeSelect != null)
+                modeSelect.SetActive(false);
+        }
+
+        editParts.PopulatePartsList();
+        this.gameObject.SetActive(false);
+        vc.Menu.SetActive(true);
+        vc.EditMode(true);
+        prefPanel.SetActive(false);
+    }
+        
 
     public void setFolder(string value)
     {
@@ -148,8 +190,8 @@ public class UI_SelectMech : MonoBehaviour
             }
             else
             {
-                msgBox.Show("There is no Mechs in the Robo Folder.");
-                enableTool = false;
+                msgBox.Show("ディレクトリ内に機体データがみつかりませんでした。");
+                enableTool = true;
             }
         }
         

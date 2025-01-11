@@ -12,6 +12,17 @@ PluginImporter:
   validateReferences: 1
   platformData:
   - first:
+      : Any
+    second:
+      enabled: 0
+      settings:
+        Exclude Editor: 0
+        Exclude Linux64: 1
+        Exclude OSXUniversal: 1
+        Exclude Win: 0
+        Exclude Win64: 0
+        Exclude WindowsStoreApps: 0
+  - first:
       : Linux
     second:
       enabled: 0
@@ -63,17 +74,17 @@ PluginImporter:
   - first:
       Editor: Editor
     second:
-      enabled: 0
+      enabled: 1
       settings:
         CPU: AnyCPU
         DefaultValueInitialized: true
-        OS: AnyOS
+        OS: Windows
   - first:
       Standalone: Linux64
     second:
       enabled: 0
       settings:
-        CPU: AnyCPU
+        CPU: None
   - first:
       Standalone: OSXUniversal
     second:
@@ -95,12 +106,13 @@ PluginImporter:
   - first:
       Windows Store Apps: WindowsStoreApps
     second:
-      enabled: 0
+      enabled: 1
       settings:
         CPU: AnyCPU
-        DontProcess: False
+        DontProcess: false
         PlaceholderPath: 
         SDK: AnySDK
+        ScriptingBackend: AnyScriptingBackend
   - first:
       iPhone: iOS
     second:

@@ -140,14 +140,18 @@ public class MechaAnimator : MonoBehaviour
                         {
                             hod2v1_Part mt = new hod2v1_Part();
                             if (prevRunner != null && transition < 1)
+                            {
                                 mt = InterpolateTransform(prevRunner.getMT(i), runner.getMT(i), transition);
-                            else
+                            }else{
                                 mt = runner.getMT(i);
+                            }
                             go.transform.localPosition = mt.position;
                             go.transform.localRotation = mt.rotation;
                             go.transform.localScale = mt.scale;
-                            if (mt.scale.x + mt.scale.y + mt.scale.z < 0.5)
-                                Debug.Log("Bug");
+                            if (mt.scale.x + mt.scale.y + mt.scale.z < 0.05){
+                                //Debug.Log("Bug: " + go.name);
+                            }
+                            
                         }
                     }
                     if (prevRunner != null && transition < 1)

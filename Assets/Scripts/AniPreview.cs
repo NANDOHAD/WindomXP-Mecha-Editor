@@ -17,6 +17,8 @@ public class AniPreview : MonoBehaviour
 
     [Header("Settings")]
     public Text txtPlay;
+    public string playTxt = "再生";
+    public string pauseTxt = "一時停止";
     public Toggle tglLoop;
     public InputField stepDirect;
     // Start is called before the first frame update
@@ -37,7 +39,7 @@ public class AniPreview : MonoBehaviour
         clear();
         int count = robo.ani.animations.Count;
         for (int i = 0; i < count; i++)
-            addItem(((i + 1).ToString() + " - " + robo.ani.animations[i].name));
+            addItem(((i).ToString() + " - " + robo.ani.animations[i].name));
 
     }
 
@@ -116,12 +118,12 @@ public class AniPreview : MonoBehaviour
         if (animator.play)
         {
             animator.play = false;
-            txtPlay.text = "Play";
+            txtPlay.text = playTxt;
         }
         else
         {
             animator.play = true;
-            txtPlay.text = "Pause";
+            txtPlay.text = pauseTxt;
         }
     }
 
@@ -167,6 +169,25 @@ public class AniPreview : MonoBehaviour
             }
         }
     }
+
+
+
+
+    public void stepEXArts1()
+    {
+        animator.run(new animation[] {robo.ani.animations[104]},0);
+    }
+
+    public void stepEXArts2()
+    {
+        animator.run(new animation[] {robo.ani.animations[105]},0);
+    }
+
+    public void stepEXArts3()
+    {
+        animator.run(new animation[] {robo.ani.animations[109]},0);
+    }
+
 
     public void tglChange()
     {

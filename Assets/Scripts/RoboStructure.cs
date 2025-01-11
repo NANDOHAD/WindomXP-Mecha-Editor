@@ -1,6 +1,8 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using System.Text.RegularExpressions;
 using System.IO;
 using Assets;
 using System.Linq;
@@ -114,9 +116,13 @@ public class RoboStructure : MonoBehaviour
             try
             {
                 string Modelpath = Path.GetDirectoryName(file);
-
                 var scen = Importer.ImportFile(file, Helper.PostProcessStepflags);
-                
+                if (scen == null)
+                {
+                    //Debug.LogWarning($"Failed to import model: {file}. Attempting partial import.");
+                    return;
+                }
+
                 Mesh mesh = new Mesh();
                 mesh.CombineMeshes(scen.Meshes.Select(x => new CombineInstance()
                 {
@@ -158,33 +164,90 @@ public class RoboStructure : MonoBehaviour
                 //part.AddComponent<MeshCollider>().sharedMesh = mesh; 
                 GO.AddComponent<MeshRenderer>().materials = materials;
             }
-            catch
+            catch (Exception e)
             {
+                //Debug.Log($"Error importing model {file}: {e.Message}. Attempting partial import.");
+                // ここで部分的なデータを取得するための処理を追加
             }
         }
     }
 
     void ImportModelEncrypted(GameObject GO, string file)
     {
-        Debug.Log("Encrypted");
-        if (File.Exists(file))
-        {
+        //Debug.Log($"Attempting to import encrypted model: {file}");
+        
+        //if (File.Exists(file))
+        //{
             try
             {
                 string Modelpath = Path.GetDirectoryName(file);
-
-                //var scen = Importer.ImportFile(file, Helper.PostProcessStepflags);
+                //Debug.Log("パス取得:" + file);
                 byte[] data = transcoder.Transcode(file);
-                MemoryStream ms = new MemoryStream(data);
-                var scen = Importer.ImportFileFromStream(ms, Helper.PostProcessStepflags, "x");
+                byte[] data3;
+                if (data != null && data.Length > 0)
+                {
+                    string data1 = System.Text.Encoding.GetEncoding("utf-8").GetString(data);
+                    //Debug.Log("未処理の" + file + "のデータ:" + data1);
+                    data1 = XfileStringConverter(data1);
+                    //Debug.Log("処理済みの" + file + "のデータ:" + data1);
+                    data3 = System.Text.Encoding.GetEncoding("utf-8").GetBytes(data1);
+                }
+                else
+                {
+                    //Debug.Log($"Failed to decrypt file: {file}. Attempting partial import.");
+                    return;
+                }
+                //Debug.Log("MemoryStream取得開始:" + file);
+                MemoryStream ms = new MemoryStream(data3);
+                //Debug.Log("MemoryStream取得完了:" + ms + data3);
+                //Debug.Log("SCEN取得開始:" + file);
+                Assimp.Scene scen = null;
+                try
+                {
+                    scen = Importer.ImportFileFromStream(ms, Helper.PostProcessStepflags, "x");
+                }
+                catch (System.Exception e)
+                {
+                    //Debug.Log($"なんかアカン {file}: {e.Message}");
+                }
+                //Debug.Log("SCEN取得完了:" + file);
+                if (scen == null)
+                {
+                    //Debug.Log($"Failed to import model from stream: {file}. Attempting partial import.");
+                    return;
+                }
+
+
 
                 Mesh mesh = new Mesh();
-                mesh.CombineMeshes(scen.Meshes.Select(x => new CombineInstance()
+                mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+                
+                try
                 {
-                    mesh = x.ToUnityMesh(),
-                    transform = scen.RootNode.Transform.ToUnityMatrix()
-                }).ToArray(), false);
+                    mesh.CombineMeshes(scen.Meshes.Select(x => {
+                        var transform = scen.RootNode.Transform;
+                        // 変換行列から負の値をチェックし、必要に応じて調整
+                        if (transform.A1 < 0 || transform.A2 < 0 || transform.A3 < 0 ||
+                            transform.B1 < 0 || transform.B2 < 0 || transform.B3 < 0 ||
+                            transform.C1 < 0 || transform.C2 < 0 || transform.C3 < 0)
+                        {
+                            // 負の値が含まれている場合は単位行列を使用
+                            transform = Assimp.Matrix4x4.Identity;
+                        }
 
+                        return new CombineInstance()
+                        {
+                            mesh = x.ToUnityMesh(),
+                            transform = transform.ToUnityMatrix()
+                        };
+                    }).ToArray(), false);
+                }
+                catch (System.Exception e)
+                {
+                    //Debug.Log($"Failed to combine meshes for {file}: {e.Message}");
+                    return;
+                }
+                
                 Material[] materials = new Material[scen.Meshes.Length];
 
                 for (int index = 0; index < materials.Length; index++)
@@ -206,23 +269,112 @@ public class RoboStructure : MonoBehaviour
                             {
                                 mat.mainTexture = Helper.LoadTextureEncrypted(Path.Combine(Modelpath, textures[0].FilePath), ref transcoder);
                             }
-                            catch
+                            catch (System.Exception e)
                             {
+                                //Debug.LogWarning($"Failed to load texture for {file}: {e.Message}");
                             }
                         }
                     }
 
                     materials[index] = mat;
                 }
-
                 GO.AddComponent<MeshFilter>().mesh = mesh;
                 //part.AddComponent<MeshCollider>().sharedMesh = mesh; 
                 GO.AddComponent<MeshRenderer>().materials = materials;
+                //Debug.Log($"Successfully imported model: {file}");
+
             }
-            catch
+            catch (Exception e)
             {
+                //Debug.Log($"Error processing model {file}: {e.Message}. Attempting partial import.");
+                
+                // ここで部分的なデータを取得するための処理を追加
+            }
+        //}
+        //else
+        //{
+        //    Debug.Log($"File not found: {file}");  
+        //}
+    }
+
+
+    public string XfileStringConverter(string data)
+    {
+        if (!data.Trim().EndsWith("}"))
+        {
+            //Debug.Log("文字化けを確認しました");
+            int lastBraceIndex = data.LastIndexOf('}');
+            if (lastBraceIndex != -1)
+            {
+                data = data.Substring(0, lastBraceIndex + 1); // 最後の波括弧を残す
+            }
+            data += "}"; // 新たに波括弧
+            //Debug.Log("文字化けを対応しました。");
+        }
+        // FrameTransformMatrixの部分を探す正規表現        
+        string pattern = @"FrameTransformMatrix\s*{([^}]*)}";
+        MatchCollection matches = Regex.Matches(data, pattern, RegexOptions.Singleline);
+
+        if (matches.Count >= 2) // 2回目のマッチが存在するか確認
+        {
+            
+            string matrixContent = matches[1].Groups[1].Value;
+            //Debug.Log("マッチしました:" + matrixContent);
+            // 4行目の数値を処理
+            string[] lines = matrixContent.Split(new[] {','}, StringSplitOptions.RemoveEmptyEntries);
+            //Debug.Log("要素数は" + lines.Length);
+            if (lines.Length >= 16) // 4行目の数値があるか確認
+            {
+                //Debug.Log("4行目を確認しました。");
+                for (int i = 13; i < 16; i++) // 4行目の数値（3つ）を処理
+                {
+                    lines[i] = lines[i].TrimStart('-'); // マイナス符号を取り除く
+                    //Debug.Log("符号排除処理をしました");
+                }
+
+                // 新しい内容を生成
+                string newMatrixContent = string.Join(",", lines);
+                string output = data.Replace(matrixContent, newMatrixContent);
+                //Debug.Log($"書き換えました: {output.Substring(output.Length - 10)}");
+                return output;
+            }
+            else
+            {
+                //Debug.Log("4行目の数値が見つかりませんでした。");
             }
         }
+        else
+        {
+            //Debug.Log("FrameTransformMatrixが見つかりませんでした。");
+        }
+
+
+
+        return data;
+    }
+
+
+    void OutputFrameTransformMatrix(Assimp.Node node, string fileName)
+    {
+        //Debug.Log($"ファイル: {fileName} ");
+        var transform = node.Transform;
+        try
+        {
+            if (transform.A1 < 0 || transform.A2 < 0 || transform.A3 < 0 ||
+            transform.B1 < 0 || transform.B2 < 0 || transform.B3 < 0 ||
+            transform.C1 < 0 || transform.C2 < 0 || transform.C3 < 0)
+            {
+                
+                //Debug.Log($"マイナス発見: {fileName} has negative Transform values: {transform}");
+            }else{
+                //Debug.Log($"マイナスなし: {fileName} has negative Transform values: {transform}");
+            }    
+        }catch (System.Exception e)
+                {
+                    //Debug.Log($"発見 {fileName}: {e.Message}");
+                    return;
+                }
+
     }
     public void setPose(hod2v0 pose)
     {

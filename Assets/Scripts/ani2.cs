@@ -3,67 +3,76 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using UnityEngine;
+using System.Threading.Tasks;
 public class ani2
 {
     public hod2v0 structure;
     public List<animation> animations;
     public string _filename;
-    public bool load(string filename)
+    private BinaryReader br; // BinaryReaderをクラスのフィールドとして定義
+
+    public async Task<bool> load(string filename, IProgress<int> progress = null) // IProgress<int>を追加
     {
         _filename = filename;
-        BinaryReader br = new BinaryReader(File.Open(filename, FileMode.Open, FileAccess.Read));
-        
-        string signature = new string(br.ReadChars(3));
-        if (signature == "AN2")
+        using (br = new BinaryReader(File.Open(filename, FileMode.Open, FileAccess.Read)))
         {
-            animations = new List<animation>();
-            //Encoding ShiftJis = Encoding.GetEncoding(932);
-            string robohod = USEncoder.ToEncoding.ToUnicode(br.ReadBytes(256)).TrimEnd('\0');
-            structure = new hod2v0(robohod);
-            structure.loadFromBinary(ref br);
-            
-            int aCount = br.ReadInt32();
-            for (int i = 0; i < aCount; i++)
+            return await Task.Run(() => 
             {
-                animation aData = new animation();
-                aData.loadFromAni(ref br, ref structure);
-                animations.Add(aData);
-            }
-        }
-        else if (signature == "ANI")
-        {
-            StreamWriter debug = new StreamWriter("debug.txt");
-            animations = new List<animation>();
-            //Encoding ShiftJis = Encoding.GetEncoding(932);
-            string robohod = USEncoder.ToEncoding.ToUnicode(br.ReadBytes(256)).TrimEnd('\0');
-            hod1 oldStructure = new hod1(robohod);
-            oldStructure.loadFromBinary(ref br);
-            structure = oldStructure.convertToHod2v0();
-            debug.WriteLine(br.BaseStream.Position.ToString());
-            debug.Close();
-            for (int i = 0; i < 200; i++)
-            { 
-                animation aData = new animation();
-                aData.loadFromAniOld(ref br);
-                animations.Add(aData);
-            }
-        }
-        else if (signature == "HOD")
-        {
-            br.BaseStream.Seek(0, SeekOrigin.Begin);
-            animations = new List<animation>();
-            hod1 hodfile = new hod1("HOD1 FILE");
-            hodfile.loadFromBinary(ref br);
-            structure = hodfile.convertToHod2v0();
-            animation aData = new animation();
-            aData.frames = new List<hod2v1>();
-            aData.frames.Add(hodfile.convertToHod2v1());
-            aData.scripts = new List<script>();
-            animations.Add(aData);
-        }
-        br.Close();
+                string signature = new string(br.ReadChars(3));
+                if (signature == "AN2")
+                {
+                    animations = new List<animation>();
+                    string robohod = USEncoder.ToEncoding.ToUnicode(br.ReadBytes(256)).TrimEnd('\0');
+                    structure = new hod2v0(robohod);
+                    structure.loadFromBinary(ref br); // refを使用して渡す
 
-        return true;
+                    int aCount = br.ReadInt32();
+                    for (int i = 0; i < aCount; i++)
+                    {
+                        animation aData = new animation();
+                        aData.loadFromAni(ref br, ref structure); // refを使用して渡す
+                        animations.Add(aData);
+                        progress?.Report((i + 1) * 100 / aCount); // 進捗を報告
+                    }
+                    return true; // 成功した場合は true を返す
+                }
+                else if (signature == "ANI")
+                {
+                    using (StreamWriter debug = new StreamWriter("debug.txt"))
+                    {
+                        animations = new List<animation>();
+                        string robohod = USEncoder.ToEncoding.ToUnicode(br.ReadBytes(256)).TrimEnd('\0');
+                        hod1 oldStructure = new hod1(robohod);
+                        oldStructure.loadFromBinary(ref br); // refを使用して渡す
+                        structure = oldStructure.convertToHod2v0();
+                        debug.WriteLine(br.BaseStream.Position.ToString());
+                    }
+                    for (int i = 0; i < 200; i++)
+                    { 
+                        animation aData = new animation();
+                        aData.loadFromAniOld(ref br); // refを使用して渡す
+                        animations.Add(aData);
+                        progress?.Report((i + 1) * 100 / 200); // 進捗を報告
+                    }
+                    return true; // 成功した場合は true を返す
+                }
+                else if (signature == "HOD")
+                {
+                    br.BaseStream.Seek(0, SeekOrigin.Begin);
+                    animations = new List<animation>();
+                    hod1 hodfile = new hod1("HOD1 FILE");
+                    hodfile.loadFromBinary(ref br); // refを使用して渡す
+                    structure = hodfile.convertToHod2v0();
+                    animation aData = new animation();
+                    aData.frames = new List<hod2v1>();
+                    aData.frames.Add(hodfile.convertToHod2v1());
+                    aData.scripts = new List<script>();
+                    animations.Add(aData);
+                    return true; // 成功した場合は true を返す
+                }
+                return false; // どの条件にも合致しない場合は false を返す
+            });
+        }
     }
 
     public void save(string filename = "")

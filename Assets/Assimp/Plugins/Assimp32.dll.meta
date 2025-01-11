@@ -1,76 +1,121 @@
 fileFormatVersion: 2
 guid: 6f986be01a5b5f846beea826ad999e26
-timeCreated: 1453534360
-licenseType: Free
 PluginImporter:
-  serializedVersion: 1
+  externalObjects: {}
+  serializedVersion: 2
   iconMap: {}
   executionOrder: {}
+  defineConstraints: []
   isPreloaded: 0
+  isOverridable: 0
+  isExplicitlyReferenced: 0
+  validateReferences: 1
   platformData:
-    Android:
+  - first:
+      : Any
+    second:
+      enabled: 0
+      settings:
+        Exclude Editor: 1
+        Exclude Linux64: 1
+        Exclude OSXUniversal: 1
+        Exclude Win: 1
+        Exclude Win64: 1
+        Exclude WindowsStoreApps: 1
+  - first:
+      : Linux
+    second:
+      enabled: 0
+      settings:
+        CPU: x86
+  - first:
+      : LinuxUniversal
+    second:
+      enabled: 0
+      settings:
+        CPU: None
+  - first:
+      : OSXIntel
+    second:
       enabled: 0
       settings:
         CPU: AnyCPU
-    Any:
+  - first:
+      : OSXIntel64
+    second:
+      enabled: 0
+      settings:
+        CPU: AnyCPU
+  - first:
+      : SamsungTV
+    second:
+      enabled: 0
+      settings:
+        STV_MODEL: STANDARD_13
+  - first:
+      : WP8
+    second:
+      enabled: 0
+      settings:
+        CPU: AnyCPU
+        DontProcess: False
+        PlaceholderPath: 
+  - first:
+      Android: Android
+    second:
+      enabled: 0
+      settings:
+        CPU: AnyCPU
+  - first:
+      Any: 
+    second:
       enabled: 1
       settings: {}
-    Editor:
+  - first:
+      Editor: Editor
+    second:
       enabled: 0
       settings:
         CPU: AnyCPU
         DefaultValueInitialized: true
         OS: AnyOS
-    Linux:
-      enabled: 0
-      settings:
-        CPU: x86
-    Linux64:
-      enabled: 0
-      settings:
-        CPU: x86_64
-    LinuxUniversal:
+  - first:
+      Standalone: Linux64
+    second:
       enabled: 0
       settings:
         CPU: None
-    OSXIntel:
-      enabled: 0
-      settings:
-        CPU: AnyCPU
-    OSXIntel64:
-      enabled: 0
-      settings:
-        CPU: AnyCPU
-    OSXUniversal:
+  - first:
+      Standalone: OSXUniversal
+    second:
       enabled: 0
       settings:
         CPU: None
-    SamsungTV:
+  - first:
+      Standalone: Win
+    second:
       enabled: 0
       settings:
-        STV_MODEL: STANDARD_13
-    WP8:
+        CPU: None
+  - first:
+      Standalone: Win64
+    second:
       enabled: 0
       settings:
-        CPU: AnyCPU
-        DontProcess: False
-        PlaceholderPath: 
-    Win:
-      enabled: 1
-      settings:
-        CPU: AnyCPU
-    Win64:
-      enabled: 1
-      settings:
-        CPU: AnyCPU
-    WindowsStoreApps:
+        CPU: None
+  - first:
+      Windows Store Apps: WindowsStoreApps
+    second:
       enabled: 0
       settings:
-        CPU: AnyCPU
-        DontProcess: False
+        CPU: X86
+        DontProcess: false
         PlaceholderPath: 
         SDK: AnySDK
-    iOS:
+        ScriptingBackend: AnyScriptingBackend
+  - first:
+      iPhone: iOS
+    second:
       enabled: 0
       settings:
         CompileFlags: 

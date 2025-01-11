@@ -26,7 +26,7 @@ public class animation
         try
         {
             name = USEncoder.ToEncoding.ToUnicode(br.ReadBytes(256)).TrimEnd('\0');
-            Debug.Log(name);
+            //Debug.Log(name);
         }
         catch
         {

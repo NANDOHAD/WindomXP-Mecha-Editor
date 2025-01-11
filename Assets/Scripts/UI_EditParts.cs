@@ -12,6 +12,7 @@ public class UI_EditParts : MonoBehaviour
 
     [Header("Parts List")]
     public int index = 0;
+    public Text selectedPartsText;
     List<string> list = new List<string>();
     List<GameObject> items = new List<GameObject>();
     List<bool> selected = new List<bool>();
@@ -135,6 +136,24 @@ public class UI_EditParts : MonoBehaviour
             items[i].GetComponent<Button>().colors = cb;
         }
         TransformTextUpdate();
+        UpdateSelectedPartsText(); // 追加: 選択されたパーツのテキストを更新
+    }
+
+    private void UpdateSelectedPartsText()
+    {
+        string selectedNames = "";
+        for (int i = 0; i < selected.Count; i++)
+        {
+            if (selected[i])
+            {
+                selectedNames += robo.parts[i].name + ", ";
+            }
+        }
+        if (selectedNames.Length > 0)
+        {
+            selectedNames = selectedNames.Substring(0, selectedNames.Length - 2); // 末尾の ", " を削除
+        }
+        selectedPartsText.text = selectedNames;
     }
 
     public void clear()
@@ -300,7 +319,7 @@ public class UI_EditParts : MonoBehaviour
     public void addParts()
     {
         addPartsPanel.SetActive(true);
-        addText.text = "New Part Parent will be " + robo.hod.parts[index].name;
+        addText.text = robo.hod.parts[index].name  + "の下に新規パーツを追加します。";
         DirectoryInfo di = new DirectoryInfo(robo.folder);
         FileInfo[] files = di.GetFiles();
         List<string> fName = new List<string>();
@@ -339,7 +358,7 @@ public class UI_EditParts : MonoBehaviour
     {
         if (!robo.removePart(index))
         {
-            msgBox.Show("You can't delete parts with children");
+            msgBox.Show("子パーツがある親パーツは削除できません。");
         }
         else
         {
@@ -360,10 +379,10 @@ public class UI_EditParts : MonoBehaviour
 
     public void renamePart()
     {
-        inputBox.openDialog("What part do you want to change/rename this too.  part must exist inorder for it to be shown.", robo.hod.parts[index].name, (string rText) =>
+        inputBox.openDialog("どのパーツの名前を変更しますか？", robo.hod.parts[index].name, (string rText) =>
         {
             if (!File.Exists(Path.Combine(robo.folder, rText)))
-                msgBox.Show("This part does not exist in the files");
+                msgBox.Show("指定名のパーツはフォルダに存在しません。空のパーツと入れ替えます。");
 
             robo.renamePart(index, rText);
             if (robo.ani != null)

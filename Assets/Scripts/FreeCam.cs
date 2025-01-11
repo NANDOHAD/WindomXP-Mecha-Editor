@@ -15,23 +15,39 @@ public class FreeCam : MonoBehaviour
     public float zoomSpeed = 10.0f;
     public Vector3 minPosition = new Vector3(-5f, 0f, -10f);
     public Vector3 maxPosition = new Vector3(5f, 10f, 10f);
+    public Transform target;
+    public Vector3 initialPosition;
+    public Quaternion initialRotation;
 
     void Start()
     {
+        initialPosition = transform.position;
+        initialRotation = transform.rotation;
+        es = EventSystem.current; // EventSystemへの参照を取得
         mousePosition = Input.mousePosition;
         panSpeed.text = (rSpeed * 100).ToString();
         movSpeed.text = (tSpeed * 100).ToString();
+        GameObject rootObject = GameObject.Find("Target");
+        if (rootObject != null)
+        {
+            target = rootObject.transform;
+            transform.LookAt(target);
+        }
+        
     }
 
     void FixedUpdate()
     {
+
+
         Vector3 diff = mousePosition - Input.mousePosition;
+        canMove = !es.IsPointerOverGameObject();
         if (canMove)
         {
             if (Input.GetMouseButton(1) && !es.IsPointerOverGameObject())
             {
-                transform.Rotate(new Vector3(diff.y * rSpeed, -diff.x * rSpeed, 0), Space.Self);
-                transform.eulerAngles = new Vector3(transform.eulerAngles.x, transform.eulerAngles.y, 0);
+                transform.RotateAround(target.position, Vector3.up, -diff.x * rSpeed);
+                transform.RotateAround(target.position, transform.right, diff.y * rSpeed);
             }
 
             if (Input.GetMouseButton(2))
@@ -47,8 +63,8 @@ public class FreeCam : MonoBehaviour
             float scroll = Input.GetAxis("Mouse ScrollWheel");
             if (scroll != 0.0f)
             {
-                Vector3 proposedZoom = Vector3.forward * -scroll * zoomSpeed;
-                Vector3 newPosition = transform.position + transform.TransformDirection(proposedZoom);
+                Vector3 proposedZoom = transform.forward * scroll * zoomSpeed;
+                Vector3 newPosition = transform.position + proposedZoom;
                 newPosition.z = Mathf.Clamp(newPosition.z, minPosition.z, maxPosition.z);
                 transform.position = newPosition;
             }
@@ -64,5 +80,11 @@ public class FreeCam : MonoBehaviour
 
         if (float.TryParse(movSpeed.text, out speed))
             tSpeed = speed / 100;
+    }
+
+    public void ResetCameraPosition()
+    {
+        transform.position = initialPosition;
+        transform.rotation = initialRotation;
     }
 }

@@ -3,6 +3,10 @@ using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.UI; // 追加
+using UnityEngine.EventSystems; // 追加
+using System.Linq; // 追加
+
 public class UI_EditAni : MonoBehaviour
 {
     public animation cAnim;
@@ -11,6 +15,8 @@ public class UI_EditAni : MonoBehaviour
     public UI_InputBox inputBox;
     public UI_MsgBox msgBox;
     public MechaAnimator ma;
+
+
     [Header("Select Hod Tab")]
     public Dropdown animDD;
     public Dropdown hodDD;
@@ -50,6 +56,36 @@ public class UI_EditAni : MonoBehaviour
         
     }
 
+
+
+    private void OnAnimationItemClicked(int index)
+    {
+        animDD.value = index; // ドロップダウンの値を更新
+        AnimationSelected(); // アニメーションを選択
+    }
+
+
+    public void RenameAnimation()
+    {
+        // 現在選択されているアニメーションのインデックスを取得
+        int selectedIndex = animDD.value;
+
+        // 現在のアニメーション名を取得
+        string currentName = robo.ani.animations[selectedIndex].name;
+
+        // UI_InputBoxを使用してダイアログを開く
+        inputBox.openDialog("新しいアニメーション名を入力してください", currentName, (string newName) =>
+        {
+            // 新しい名前を設定
+            robo.ani.animations[selectedIndex].name = newName;
+            Debug.Log("アニメーション名が変更されました: " + newName);
+            
+            // アニメーションリストを再表示する場合はここで呼び出す
+            populateAnimationList();
+        });
+    }
+
+
     public void populateAnimationList()
     {
         List<string> list = new List<string>();
@@ -58,7 +94,7 @@ public class UI_EditAni : MonoBehaviour
             string name = robo.ani.animations[i].name;
             if (name == "")
                 name = "Empty";
-            list.Add((i + 1).ToString() + " - " + name);
+            list.Add((i).ToString() + " - " + name);
         }
         animDD.ClearOptions();
         animDD.AddOptions(list);
