@@ -21,6 +21,15 @@ public class UI_InputBox : MonoBehaviour
         _callBack = callback;
         gameObject.SetActive(true);
     }
+
+    public void openNoTextBoxDialog(string message, call callback)
+    {
+        text.text = message;
+        _callBack = callback;
+        gameObject.SetActive(true);
+    }
+
+
     public void Ok()
     {
         _callBack(input.text);
@@ -31,4 +40,8 @@ public class UI_InputBox : MonoBehaviour
     {
         gameObject.SetActive(false);
     }
+
+    
+
+
 }

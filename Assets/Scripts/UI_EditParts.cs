@@ -50,6 +50,7 @@ public class UI_EditParts : MonoBehaviour
     public Text addText;
     public UI_MsgBox msgBox;
     public UI_InputBox inputBox;
+    public UI_InputBox kakuninBox;
     // Start is called before the first frame update
     void Start()
     {
@@ -356,25 +357,27 @@ public class UI_EditParts : MonoBehaviour
 
     public void removePart()
     {
-        if (!robo.removePart(index))
+        kakuninBox.openNoTextBoxDialog("選択パーツを削除します。", (string rText) =>
         {
-            msgBox.Show("子パーツがある親パーツは削除できません。");
-        }
-        else
-        {
-            if (robo.ani != null)
+            if (!robo.removePart(index))
             {
-                prevRobo.buildStructure(robo.ani.structure);
-                foreach (GameObject prt in prevRobo.parts)
-                {
-                    prt.layer = 7;
-                }
+                msgBox.Show("子パーツがある親パーツは削除できません。");
             }
-
-            PopulatePartsList();
-            robo.setPose(ea.animDD.value, ea.hodDD.value);
-        }
-        
+            else
+            {
+                if (robo.ani != null)
+                {
+                    
+                    prevRobo.buildStructure(robo.ani.structure);
+                    foreach (GameObject prt in prevRobo.parts)
+                    {
+                        prt.layer = 7;
+                    }
+                }
+                PopulatePartsList();
+                robo.setPose(ea.animDD.value, ea.hodDD.value);
+            }
+        });
     }
 
     public void renamePart()

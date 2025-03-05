@@ -15,12 +15,27 @@ public class UI_MsgBox : MonoBehaviour
         {
             Debug.LogError("Masukuオブジェクトがインスペクターで設定されていません。");
         }
+        else
+        {
+            // ゲームオブジェクトがアクティブなときにmasukuObjectをアクティブにする
+            masukuObject.SetActive(gameObject.activeSelf);
+        }
     }
+
+    private void OnEnable()
+    {
+        // ゲームオブジェクトがアクティブになったときにmasukuObjectをアクティブにする
+        if (masukuObject != null)
+        {
+            masukuObject.SetActive(true);
+        }
+    }
+
     public void Show(string message)
     {
         text.text = message;
         gameObject.SetActive(true);
-        // Masukuオブジェクトを表示
+        // masukuObjectをアクティブにする
         if (masukuObject != null)
         {
             masukuObject.SetActive(true);
@@ -32,6 +47,19 @@ public class UI_MsgBox : MonoBehaviour
         gameObject.SetActive(false);
         // Masukuオブジェクトを非表示
         if (masukuObject != null)
+        {
+            masukuObject.SetActive(false);
+        }
+    }
+
+    private void Update()
+    {
+        // ゲームオブジェクトがアクティブなときはmasukuObjectもアクティブにする
+        if (gameObject.activeSelf && masukuObject != null)
+        {
+            masukuObject.SetActive(true);
+        }
+        else if (masukuObject != null)
         {
             masukuObject.SetActive(false);
         }

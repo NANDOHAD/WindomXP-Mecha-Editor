@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.IO;
+using UnityEngine;
 
 public struct ctFileType
 {
@@ -55,7 +56,11 @@ public class CypherTranscoder
 
     public byte[] Transcode(string name)
     {
+        //Debug.log($"Starting transcoding for file: {name}");
+        
         byte[] bytes = File.ReadAllBytes(name);
+        //Debug.log($"Read {bytes.Length} bytes from file: {name}");
+
         for (int i = 0; i < bytes.Length; i += 4)
         {
             byte[] cypherBytes = BitConverter.GetBytes(cypher);
@@ -65,20 +70,39 @@ public class CypherTranscoder
                     bytes[i + b] ^= cypherBytes[b];
             }
         }
+
+        //Debug.log($"Completed transcoding for file: {name}");
         return bytes;
     }
 
     public byte[] Transcode(byte[] bytes)
     {
-        for (int i = 0; i < bytes.Length; i += 4)
+        //Debug.log($"Starting transcoding for byte array of length: {bytes.Length}");
+        
+        byte[] cypherBytes = BitConverter.GetBytes(cypher);
+        int fullBlocks = bytes.Length / 4; // 4バイトのブロック数
+
+        // 4バイトのブロックを処理
+        for (int i = 0; i < fullBlocks * 4; i += 4)
         {
-            byte[] cypherBytes = BitConverter.GetBytes(cypher);
             for (int b = 0; b < cypherBytes.Length; b++)
             {
-                if (i + 3 < bytes.Length)
-                    bytes[i + b] ^= cypherBytes[b];
+                bytes[i + b] ^= cypherBytes[b];
             }
         }
+
+        // 端数のバイトを処理
+        int remainingBytes = bytes.Length % 4;
+        if (remainingBytes > 0)
+        {
+            int start = fullBlocks * 4;
+            for (int b = 0; b < remainingBytes; b++)
+            {
+                bytes[start + b] ^= cypherBytes[b];
+            }
+        }
+
+        //Debug.log($"Completed transcoding for byte array of length: {bytes.Length}");
         return bytes;
     }
 }

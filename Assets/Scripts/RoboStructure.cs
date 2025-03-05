@@ -119,7 +119,7 @@ public class RoboStructure : MonoBehaviour
                 var scen = Importer.ImportFile(file, Helper.PostProcessStepflags);
                 if (scen == null)
                 {
-                    //Debug.LogWarning($"Failed to import model: {file}. Attempting partial import.");
+                    //Debug.logWarning($"Failed to import model: {file}. Assimp could not load the file.");
                     return;
                 }
 
@@ -136,25 +136,32 @@ public class RoboStructure : MonoBehaviour
                 {
                     var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
 
-                    if (scen.Materials[scen.Meshes[index].MaterialIndex] != null)
+                    if (scen.Meshes[index].MaterialIndex < scen.Materials.Length)
                     {
-                        mat.name = scen.Materials[scen.Meshes[index].MaterialIndex].Name;
-                        var textures = scen.Materials[scen.Meshes[index].MaterialIndex].GetAllTextures();
-                        var color = scen.Materials[scen.Meshes[index].MaterialIndex].ColorDiffuse;
-                        mat.color = new Color(color.R, color.G, color.B, color.A);
-                        mat.SetFloat("_Glossiness", scen.Materials[scen.Meshes[index].MaterialIndex].ShininessStrength);
-
-
-                        if (textures.Length > 0 && File.Exists(Path.Combine(Modelpath, textures[0].FilePath)))
+                        if (scen.Materials[scen.Meshes[index].MaterialIndex] != null)
                         {
-                            try
+                            mat.name = scen.Materials[scen.Meshes[index].MaterialIndex].Name;
+                            var textures = scen.Materials[scen.Meshes[index].MaterialIndex].GetAllTextures();
+                            var color = scen.Materials[scen.Meshes[index].MaterialIndex].ColorDiffuse;
+                            mat.color = new Color(color.R, color.G, color.B, color.A);
+                            mat.SetFloat("_Glossiness", scen.Materials[scen.Meshes[index].MaterialIndex].ShininessStrength);
+
+
+                            if (textures.Length > 0 && File.Exists(Path.Combine(Modelpath, textures[0].FilePath)))
                             {
-                                mat.mainTexture = Helper.LoadTexture(Path.Combine(Modelpath, textures[0].FilePath));
-                            }
-                            catch
-                            {
+                                try
+                                {
+                                    mat.mainTexture = Helper.LoadTexture(Path.Combine(Modelpath, textures[0].FilePath));
+                                }
+                                catch
+                                {
+                                }
                             }
                         }
+                    }
+                    else
+                    {
+                        //Debug.logWarning($"Invalid material index for mesh {index}: {scen.Meshes[index].MaterialIndex}");
                     }
 
                     materials[index] = mat;
@@ -166,41 +173,33 @@ public class RoboStructure : MonoBehaviour
             }
             catch (Exception e)
             {
-                //Debug.Log($"Error importing model {file}: {e.Message}. Attempting partial import.");
-                // ここで部分的なデータを取得するための処理を追加
+                //Debug.logError($"Error importing model {file}: {e.Message}. Assimp could not load the file.");
             }
         }
     }
 
     void ImportModelEncrypted(GameObject GO, string file)
     {
-        //Debug.Log($"Attempting to import encrypted model: {file}");
-        
-        //if (File.Exists(file))
-        //{
-            try
+        try
+        {
+            string Modelpath = Path.GetDirectoryName(file);
+            byte[] data = transcoder.Transcode(file);
+            if (data == null)
             {
-                string Modelpath = Path.GetDirectoryName(file);
-                //Debug.Log("パス取得:" + file);
-                byte[] data = transcoder.Transcode(file);
-                byte[] data3;
-                if (data != null && data.Length > 0)
-                {
-                    string data1 = System.Text.Encoding.GetEncoding("utf-8").GetString(data);
-                    //Debug.Log("未処理の" + file + "のデータ:" + data1);
-                    data1 = XfileStringConverter(data1);
-                    //Debug.Log("処理済みの" + file + "のデータ:" + data1);
-                    data3 = System.Text.Encoding.GetEncoding("utf-8").GetBytes(data1);
-                }
-                else
-                {
-                    //Debug.Log($"Failed to decrypt file: {file}. Attempting partial import.");
-                    return;
-                }
-                //Debug.Log("MemoryStream取得開始:" + file);
+                //Debug.logError($"Failed to transcode file: {file}. The result is null.");
+                return;
+            }
+            if (data.Length == 0)
+            {
+                //Debug.logError($"The transcoded data for file {file} is empty.");
+                return;
+            }
+            if (data.Length > 0)
+            {
+                string data1 = System.Text.Encoding.GetEncoding("utf-8").GetString(data);
+                data1 = XfileStringConverter(data1);
+                byte[] data3 = System.Text.Encoding.GetEncoding("utf-8").GetBytes(data1);
                 MemoryStream ms = new MemoryStream(data3);
-                //Debug.Log("MemoryStream取得完了:" + ms + data3);
-                //Debug.Log("SCEN取得開始:" + file);
                 Assimp.Scene scen = null;
                 try
                 {
@@ -208,12 +207,11 @@ public class RoboStructure : MonoBehaviour
                 }
                 catch (System.Exception e)
                 {
-                    //Debug.Log($"なんかアカン {file}: {e.Message}");
+                    //Debug.logError($"Error importing encrypted model {file}: {e.Message}. Assimp could not load the file.");
                 }
-                //Debug.Log("SCEN取得完了:" + file);
                 if (scen == null)
                 {
-                    //Debug.Log($"Failed to import model from stream: {file}. Attempting partial import.");
+                    //Debug.logWarning($"Failed to import encrypted model from stream: {file}. Assimp could not load the file.");
                     return;
                 }
 
@@ -244,7 +242,7 @@ public class RoboStructure : MonoBehaviour
                 }
                 catch (System.Exception e)
                 {
-                    //Debug.Log($"Failed to combine meshes for {file}: {e.Message}");
+                    //Debug.logError($"Failed to combine meshes for {file}: {e.Message}");
                     return;
                 }
                 
@@ -252,28 +250,50 @@ public class RoboStructure : MonoBehaviour
 
                 for (int index = 0; index < materials.Length; index++)
                 {
-                    var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-
-                    if (scen.Materials[scen.Meshes[index].MaterialIndex] != null)
+                    var mat = new Material(Shader.Find("Standard"));
+                    if (mat == null)
                     {
-                        mat.name = scen.Materials[scen.Meshes[index].MaterialIndex].Name;
-                        var textures = scen.Materials[scen.Meshes[index].MaterialIndex].GetAllTextures();
-                        var color = scen.Materials[scen.Meshes[index].MaterialIndex].ColorDiffuse;
-                        mat.color = new Color(color.R, color.G, color.B, color.A);
-                        mat.SetFloat("_Glossiness", scen.Materials[scen.Meshes[index].MaterialIndex].ShininessStrength);
+                        //Debug.logError($"Shader not found for material: {file}");
+                        return;
+                    }
 
-
-                        if (textures.Length > 0 && File.Exists(Path.Combine(Modelpath, textures[0].FilePath)))
+                    if (scen.Meshes[index].MaterialIndex < scen.Materials.Length)
+                    {
+                        if (scen.Materials[scen.Meshes[index].MaterialIndex] != null)
                         {
-                            try
+                            mat.name = scen.Materials[scen.Meshes[index].MaterialIndex].Name;
+                            var textures = scen.Materials[scen.Meshes[index].MaterialIndex].GetAllTextures();
+                            var color = scen.Materials[scen.Meshes[index].MaterialIndex].ColorDiffuse;
+                            mat.color = new Color(color.R, color.G, color.B, color.A);
+                            mat.SetFloat("_Glossiness", scen.Materials[scen.Meshes[index].MaterialIndex].ShininessStrength);
+
+                            // シェーダーが設定されていない場合、デフォルトのシェーダーを割り当てる
+                            if (string.IsNullOrEmpty(mat.shader.name) || mat.shader == null)
                             {
-                                mat.mainTexture = Helper.LoadTextureEncrypted(Path.Combine(Modelpath, textures[0].FilePath), ref transcoder);
+                                //Debug.logWarning($"Shader not set for material: {mat.name}. Assigning default shader.");
+                                mat.shader = Shader.Find("Standard"); // デフォルトのシェーダーを設定
                             }
-                            catch (System.Exception e)
+
+                            if (textures.Length > 0 && File.Exists(Path.Combine(Modelpath, textures[0].FilePath)))
                             {
-                                //Debug.LogWarning($"Failed to load texture for {file}: {e.Message}");
+                                try
+                                {
+                                    mat.mainTexture = Helper.LoadTextureEncrypted(Path.Combine(Modelpath, textures[0].FilePath), ref transcoder);
+                                }
+                                catch (System.Exception e)
+                                {
+                                    //Debug.logWarning($"Failed to load texture for {file}: {e.Message}");
+                                }
+                            }
+                            else
+                            {
+                                //Debug.logWarning($"No textures found for material index {scen.Meshes[index].MaterialIndex}");
                             }
                         }
+                    }
+                    else
+                    {
+                        //Debug.logWarning($"Invalid material index for mesh {index}: {scen.Meshes[index].MaterialIndex}");
                     }
 
                     materials[index] = mat;
@@ -281,20 +301,17 @@ public class RoboStructure : MonoBehaviour
                 GO.AddComponent<MeshFilter>().mesh = mesh;
                 //part.AddComponent<MeshCollider>().sharedMesh = mesh; 
                 GO.AddComponent<MeshRenderer>().materials = materials;
-                //Debug.Log($"Successfully imported model: {file}");
-
             }
-            catch (Exception e)
+            else
             {
-                //Debug.Log($"Error processing model {file}: {e.Message}. Attempting partial import.");
-                
-                // ここで部分的なデータを取得するための処理を追加
+                //Debug.logWarning($"Failed to decrypt file: {file}. Assimp could not load the file.");
+                return;
             }
-        //}
-        //else
-        //{
-        //    Debug.Log($"File not found: {file}");  
-        //}
+        }
+        catch (System.Exception e)
+        {
+            //Debug.logError($"Error processing encrypted model {file}: {e.Message}. Assimp could not load the file.");
+        }
     }
 
 
@@ -302,14 +319,14 @@ public class RoboStructure : MonoBehaviour
     {
         if (!data.Trim().EndsWith("}"))
         {
-            //Debug.Log("文字化けを確認しました");
+            //Debug.log("文字化けを確認しました");
             int lastBraceIndex = data.LastIndexOf('}');
             if (lastBraceIndex != -1)
             {
                 data = data.Substring(0, lastBraceIndex + 1); // 最後の波括弧を残す
             }
             data += "}"; // 新たに波括弧
-            //Debug.Log("文字化けを対応しました。");
+            //Debug.log("文字化けを対応しました。");
         }
         // FrameTransformMatrixの部分を探す正規表現        
         string pattern = @"FrameTransformMatrix\s*{([^}]*)}";
@@ -319,33 +336,33 @@ public class RoboStructure : MonoBehaviour
         {
             
             string matrixContent = matches[1].Groups[1].Value;
-            //Debug.Log("マッチしました:" + matrixContent);
+            //Debug.log("マッチしました:" + matrixContent);
             // 4行目の数値を処理
             string[] lines = matrixContent.Split(new[] {','}, StringSplitOptions.RemoveEmptyEntries);
-            //Debug.Log("要素数は" + lines.Length);
+            //Debug.log("要素数は" + lines.Length);
             if (lines.Length >= 16) // 4行目の数値があるか確認
             {
-                //Debug.Log("4行目を確認しました。");
+                //Debug.log("4行目を確認しました。");
                 for (int i = 13; i < 16; i++) // 4行目の数値（3つ）を処理
                 {
                     lines[i] = lines[i].TrimStart('-'); // マイナス符号を取り除く
-                    //Debug.Log("符号排除処理をしました");
+                    //Debug.log("符号排除処理をしました");
                 }
 
                 // 新しい内容を生成
                 string newMatrixContent = string.Join(",", lines);
                 string output = data.Replace(matrixContent, newMatrixContent);
-                //Debug.Log($"書き換えました: {output.Substring(output.Length - 10)}");
+                //Debug.log($"書き換えました: {output.Substring(output.Length - 10)}");
                 return output;
             }
             else
             {
-                //Debug.Log("4行目の数値が見つかりませんでした。");
+                //Debug.log("4行目の数値が見つかりませんでした。");
             }
         }
         else
         {
-            //Debug.Log("FrameTransformMatrixが見つかりませんでした。");
+            //Debug.log("FrameTransformMatrixが見つかりませんでした。");
         }
 
 
@@ -356,7 +373,7 @@ public class RoboStructure : MonoBehaviour
 
     void OutputFrameTransformMatrix(Assimp.Node node, string fileName)
     {
-        //Debug.Log($"ファイル: {fileName} ");
+        //Debug.log($"ファイル: {fileName} ");
         var transform = node.Transform;
         try
         {
@@ -365,13 +382,13 @@ public class RoboStructure : MonoBehaviour
             transform.C1 < 0 || transform.C2 < 0 || transform.C3 < 0)
             {
                 
-                //Debug.Log($"マイナス発見: {fileName} has negative Transform values: {transform}");
+                //Debug.log($"マイナス発見: {fileName} has negative Transform values: {transform}");
             }else{
-                //Debug.Log($"マイナスなし: {fileName} has negative Transform values: {transform}");
+                //Debug.log($"マイナスなし: {fileName} has negative Transform values: {transform}");
             }    
         }catch (System.Exception e)
                 {
-                    //Debug.Log($"発見 {fileName}: {e.Message}");
+                    //Debug.log($"発見 {fileName}: {e.Message}");
                     return;
                 }
 

@@ -1,14 +1,13 @@
 {
   "dependencies": {
     "com.kyub.emojisearch": "https://gitlab.com/KyubInteractive/emojisearchapi.git#com.kyub.emojisearch-1.1.5",
-    "com.shtif.runtimetransformhandle": "0.1.4",
+    "com.shtif.runtimetransformhandle": "file:C:/Users/Hibiki/Downloads/RuntimeTransformHandle-main/Assets/Plugins/RuntimeTransformHandle",
     "com.unity.2d.sprite": "1.0.0",
     "com.unity.collab-proxy": "2.1.0",
-    "com.unity.ide.rider": "3.0.21",
-    "com.unity.ide.visualstudio": "2.0.18",
+    "com.unity.ide.rider": "3.0.34",
+    "com.unity.ide.visualstudio": "2.0.22",
     "com.unity.ide.vscode": "1.2.5",
-    "com.unity.render-pipelines.universal": "12.1.11",
-    "com.unity.test-framework": "1.1.31",
+    "com.unity.test-framework": "1.1.33",
     "com.unity.textmeshpro": "3.0.9",
     "com.unity.timeline": "1.6.5",
     "com.unity.ugui": "1.0.0",
@@ -46,10 +45,10 @@
   },
   "scopedRegistries": [
     {
-      "name": "Shtif Registry",
-      "url": "http://package.binaryego.com:4873",
+      "name": "Frozen Storm Interactive",
+      "url": "https://upm.frozenstorminteractive.com",
       "scopes": [
-        "com.shtif"
+        "com.frozenstorminteractive"
       ]
     }
   ]

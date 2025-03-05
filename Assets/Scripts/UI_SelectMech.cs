@@ -77,16 +77,33 @@ public class UI_SelectMech : MonoBehaviour
 
     public void selectedMech(int value)
     {
-        if (File.Exists(Path.Combine(folder, list[RoboDD.value], "select.png")))
-        { 
-            robo.transcoder.findCypher(Path.Combine(folder, list[RoboDD.value], "select.png"));
-            Texture2D tex = Helper.LoadTextureEncrypted(Path.Combine(folder, list[RoboDD.value], "select.png"), ref robo.transcoder);
-            Sprite st = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0, 0));
+        // キャッシュをクリア
+        ClearTextureCache();
 
-            selectImage.sprite = st;
+        try
+        {
+            string filePath = Path.Combine(folder, list[RoboDD.value], "select.png");
+            
+            Debug.Log($"Checking file path: {filePath}");
+            
+            // ファイルの存在を確認
+            if (File.Exists(filePath))
+            {
+                //Debug.Log("select.pngファイルが見つかりました。");
+                robo.transcoder.findCypher(filePath);
+                Texture2D tex = Helper.LoadTextureEncrypted(filePath, ref robo.transcoder);
+                Sprite st = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0, 0));
+                selectImage.sprite = st;
+            }
+            else
+            {
+                //Debug.LogError("select.pngファイルが見つかりません。");
+            }
         }
-        //selectImage.material = selectMaterial;
-        //main.setPath(Path.Combine("Windom_Data\\Robo", list[RoboDD.value]));
+        catch (Exception ex)
+        {
+            //Debug.LogError($"select.pngの読み込み中にエラーが発生しました: {ex.Message}\n{ex.StackTrace}");
+        }
     }
 
     public async void loadFile(string name)
@@ -195,5 +212,11 @@ public class UI_SelectMech : MonoBehaviour
             }
         }
         
+    }
+
+    public void ClearTextureCache()
+    {
+        Helper.TextureCache.Clear();
+        //Debug.Log("Texture cache cleared.");
     }
 }

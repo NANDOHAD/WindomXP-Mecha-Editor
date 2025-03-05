@@ -23,38 +23,54 @@ public class hod1
     public bool loadFromBinary(ref BinaryReader br)
     {
         string signature = new string(br.ReadChars(3));
-        if (signature == "HOD")
+        if (signature != "HOD")
         {
-            parts = new List<hod1_Part>();
-            int partCount = br.ReadInt32();
-            for (int i = 0; i < partCount; i++)
-            {
-                hod1_Part nPart = new hod1_Part();
-                nPart.treeDepth = br.ReadInt32();
-                nPart.childCount = br.ReadInt32();
-                nPart.name = ASCIIEncoding.ASCII.GetString(br.ReadBytes(256)).TrimEnd('\0');
-                nPart.transform = new Matrix4x4();
-                nPart.transform.m00 = br.ReadSingle();
-                nPart.transform.m10 = br.ReadSingle();
-                nPart.transform.m20 = br.ReadSingle(); 
-                nPart.transform.m30 = br.ReadSingle();
-                nPart.transform.m01 = br.ReadSingle();
-                nPart.transform.m11 = br.ReadSingle();
-                nPart.transform.m21 = br.ReadSingle();
-                nPart.transform.m31 = br.ReadSingle();
-                nPart.transform.m02 = br.ReadSingle();
-                nPart.transform.m12 = br.ReadSingle();
-                nPart.transform.m22 = br.ReadSingle();
-                nPart.transform.m32 = br.ReadSingle();
-                nPart.transform.m03 = br.ReadSingle();
-                nPart.transform.m13 = br.ReadSingle();
-                nPart.transform.m23 = br.ReadSingle();
-                nPart.transform.m33 = br.ReadSingle();
-                parts.Add(nPart);
-            }
+            Debug.LogWarning("Warning: 署名が 'HOD' ではありません。強制的に 'HOD' として処理を続行します。");
+            // ここで署名を「HOD」として扱う
+            // 必要に応じて、他の処理を追加することもできます
         }
-        else
+        
+        parts = new List<hod1_Part>();
+        int partCount = br.ReadInt32();
+        
+        if (partCount <= 0)
+        {
+            Debug.LogError("Error: パーツ数が0または負の値です。");
             return false;
+        }
+
+        for (int i = 0; i < partCount; i++)
+        {
+            hod1_Part nPart = new hod1_Part();
+            nPart.treeDepth = br.ReadInt32();
+            nPart.childCount = br.ReadInt32();
+            nPart.name = ASCIIEncoding.ASCII.GetString(br.ReadBytes(256)).TrimEnd('\0');
+
+            if (string.IsNullOrEmpty(nPart.name))
+            {
+                Debug.LogWarning($"Warning: パーツ {i} の名前が空です。仮の名前 'NoNamedParts' を設定します。");
+                nPart.name = "NoNamedParts";
+            }
+
+            nPart.transform = new Matrix4x4();
+            nPart.transform.m00 = br.ReadSingle();
+            nPart.transform.m10 = br.ReadSingle();
+            nPart.transform.m20 = br.ReadSingle(); 
+            nPart.transform.m30 = br.ReadSingle();
+            nPart.transform.m01 = br.ReadSingle();
+            nPart.transform.m11 = br.ReadSingle();
+            nPart.transform.m21 = br.ReadSingle();
+            nPart.transform.m31 = br.ReadSingle();
+            nPart.transform.m02 = br.ReadSingle();
+            nPart.transform.m12 = br.ReadSingle();
+            nPart.transform.m22 = br.ReadSingle();
+            nPart.transform.m32 = br.ReadSingle();
+            nPart.transform.m03 = br.ReadSingle();
+            nPart.transform.m13 = br.ReadSingle();
+            nPart.transform.m23 = br.ReadSingle();
+            nPart.transform.m33 = br.ReadSingle();
+            parts.Add(nPart);
+        }
 
         return true;
     }

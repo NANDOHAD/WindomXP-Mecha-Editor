@@ -6,6 +6,7 @@ using UnityEngine.UI;
 using UnityEngine.UI; // 追加
 using UnityEngine.EventSystems; // 追加
 using System.Linq; // 追加
+using TMPro; // 追加
 
 public class UI_EditAni : MonoBehaviour
 {
@@ -13,6 +14,7 @@ public class UI_EditAni : MonoBehaviour
     public RoboStructure robo;
     public UI_EditParts ep;
     public UI_InputBox inputBox;
+    public UI_InputBox kakuninBox;
     public UI_MsgBox msgBox;
     public MechaAnimator ma;
 
@@ -207,7 +209,7 @@ public class UI_EditAni : MonoBehaviour
         //sData.squirrel = USEncoder.ToEncoding.ToUnicode(list.ToArray());
         sData.squirrel = scriptText.text;
         cAnim.scripts[scriptDD.value] = sData;
-        Debug.Log("Script Sync");
+        //Debug.Log("Script Sync");
     }
 
     public void addScript()
@@ -279,10 +281,10 @@ public class UI_EditAni : MonoBehaviour
 
     public void addHod()
     {
-        string dText = "New_Hod_File";
+        string dText = "新規HODファイル";
         if (cAnim.frames.Count > 0)
             dText = cAnim.frames[hodDD.value].filename.Replace(".hod", "");
-        inputBox.openDialog("What name do you want to give this hod file(exclude the .hod extension)", dText , (string rText) =>
+        inputBox.openDialog("新しいHODファイルの名前を入力してください（拡張子.hodは除く）。", dText , (string rText) =>
             {
                 hod2v1 nFrame = new hod2v1(rText + ".hod");
                 nFrame.parts = new List<hod2v1_Part>();
@@ -318,7 +320,7 @@ public class UI_EditAni : MonoBehaviour
             populateHODList();
         }
         else
-            msgBox.Show("There is no Hod files in this Animation");
+            msgBox.Show("このアニメーションにHODファイルはありません。");
     }
 
     public void hodMoveUp()
@@ -353,7 +355,7 @@ public class UI_EditAni : MonoBehaviour
     public void hodRename()
     {
         inputBox.gameObject.SetActive(true);
-        inputBox.openDialog("What name do you want to change this hod to", cAnim.frames[hodDD.value].filename, (string rText) =>
+        inputBox.openDialog("HODファイルを改名します。新しい名前を入力してください。", cAnim.frames[hodDD.value].filename, (string rText) =>
         {
             cAnim.frames[hodDD.value].filename = rText;
             int ddPos = hodDD.value;
@@ -377,21 +379,24 @@ public class UI_EditAni : MonoBehaviour
     }
     public void syncPart()
     {
-        hod2v1_Part prt = cAnim.frames[hodDD.value].parts[ep.index];
-        int count = robo.ani.animations.Count;
-        for (int i = 0; i < count; i++)
+        kakuninBox.openNoTextBoxDialog("選択パーツの値を全てのHODに適用します。", (string rText) =>
         {
-            animation a = robo.ani.animations[i];
-            for (int j = 0; j < a.frames.Count; j++)
+            hod2v1_Part prt = cAnim.frames[hodDD.value].parts[ep.index];
+            int count = robo.ani.animations.Count;
+            for (int i = 0; i < count; i++)
             {
-                a.frames[j].parts[ep.index] = prt;
+                animation a = robo.ani.animations[i];
+                for (int j = 0; j < a.frames.Count; j++)
+                {
+                    a.frames[j].parts[ep.index] = prt;
+                }
             }
-        }
+        });
     }
 
     public void syncPartSpecific()
     {
-        inputBox.openDialog("Type in what animations you want the part to sync with separated by a comma. a dash between 2 animations will do a range.  example: 1,2, 6-10", "", (string rText) =>
+        inputBox.openDialog("同期させたいアニメーションをカンマで区切って入力してください。2つのアニメーションの間にダッシュを入れると、範囲を指定できます。  ex: 1,2, 6-10", "", (string rText) =>
         {
             string[] selections = rText.Split(',');
             hod2v1_Part prt = cAnim.frames[hodDD.value].parts[ep.index];

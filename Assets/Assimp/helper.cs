@@ -42,7 +42,22 @@ public static class Helper
             if (!TextureCache.TryGetValue(path, out result))
             {
                 result = new Texture2D(0, 0);
-                result.LoadImage(transcoder.Transcode(path));
+                byte[] imageData = transcoder.Transcode(path);
+                
+                if (imageData == null || imageData.Length == 0)
+                {
+                    //Debug.logError($"Transcoding failed for {path}. No data returned.");
+                    return null; // エラー処理
+                }
+
+                //Debug.log($"Transcoded data length for {path}: {imageData.Length} bytes");
+
+                if (!result.LoadImage(imageData))
+                {
+                    //Debug.logError($"Failed to load image from transcoded data for {path}.");
+                    return null; // エラー処理
+                }
+
                 result.name = Path.GetFileNameWithoutExtension(path);
                 TextureCache[path] = result;
             }
