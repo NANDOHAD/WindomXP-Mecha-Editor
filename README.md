@@ -1,7 +1,8 @@
 # WindomXP-Mecha-Editor
 
 ## 日本語
-このリポジトリは、「WindomXP-Mecha-Editor（<https://github.com/MugenAttack/WindomXP-Mecha-Editor>）」を日本語にローカライズすることを目的としています。>
+このリポジトリは、「WindomXP-Mecha-Editor（<https://github.com/MugenAttack/WindomXP-Mecha-Editor>）」を日本語にローカライズすることを目的としています。
+そのほか、UIの最適化やモデルのローディングに関するエラー等についてはバグフィックスを行っています。
 
 ### 最新版
 - こちらからご確認ください。
