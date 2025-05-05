@@ -394,6 +394,138 @@ public class UI_EditAni : MonoBehaviour
         });
     }
 
+    public void syncPartSpecificPosition(string axis)
+    {
+        kakuninBox.openNoTextBoxDialog("選択値を全てのHODに適用します。", (string rText) =>
+        {
+        // 現在の選択パーツを取得
+            hod2v1_Part selectedPart = cAnim.frames[hodDD.value].parts[ep.index];
+
+            // すべてのアニメーションをループ
+            foreach (var animation in robo.ani.animations)
+            {
+                // すべてのフレームをループ
+                foreach (var frame in animation.frames)
+                {
+                    // 選択パーツのインデックスに基づいて同期
+                    if (ep.index < frame.parts.Count)
+                    {
+                        // 一時変数にパーツを格納
+                        hod2v1_Part part = frame.parts[ep.index];
+
+                        // 指定された軸に基づいてpositionの値を適用
+                        switch (axis.ToLower())
+                        {
+                            case "x":
+                                part.position.x = selectedPart.position.x;
+                                break;
+                            case "y":
+                                part.position.y = selectedPart.position.y;
+                                break;
+                            case "z":
+                                part.position.z = selectedPart.position.z;
+                                break;
+                            default:
+                                Debug.LogWarning("指定された軸は存在しません: " + axis);
+                                break;
+                        }
+
+                        // 変更したパーツをリストに戻す
+                        frame.parts[ep.index] = part;
+                    }
+                }
+            }
+        });
+    }
+
+        public void syncPartSpecificRotation(string axis)
+    {
+        kakuninBox.openNoTextBoxDialog("選択値を全てのHODに適用します。", (string rText) =>
+        {
+        // 現在の選択パーツを取得
+            hod2v1_Part selectedPart = cAnim.frames[hodDD.value].parts[ep.index];
+
+            // すべてのアニメーションをループ
+            foreach (var animation in robo.ani.animations)
+            {
+                // すべてのフレームをループ
+                foreach (var frame in animation.frames)
+                {
+                    // 選択パーツのインデックスに基づいて同期
+                    if (ep.index < frame.parts.Count)
+                    {
+                        // 一時変数にパーツを格納
+                        hod2v1_Part part = frame.parts[ep.index];
+
+                        // 指定された軸に基づいてrotationの値を適用
+                        switch (axis.ToLower())
+                        {
+                            case "x":
+                                part.rotation.x = selectedPart.rotation.x;
+                                break;
+                            case "y":
+                                part.rotation.y = selectedPart.rotation.y;
+                                break;
+                            case "z":
+                                part.rotation.z = selectedPart.rotation.z;
+                                break;
+                            default:
+                                Debug.LogWarning("指定された軸は存在しません: " + axis);
+                                break;
+                        }
+
+                        // 変更したパーツをリストに戻す
+                        frame.parts[ep.index] = part;
+                    }
+                }
+            }
+        });
+    }
+
+            public void syncPartSpecificScale(string axis)
+    {
+        kakuninBox.openNoTextBoxDialog("選択値を全てのHODに適用します。", (string rText) =>
+        {
+        // 現在の選択パーツを取得
+            hod2v1_Part selectedPart = cAnim.frames[hodDD.value].parts[ep.index];
+
+            // すべてのアニメーションをループ
+            foreach (var animation in robo.ani.animations)
+            {
+                // すべてのフレームをループ
+                foreach (var frame in animation.frames)
+                {
+                    // 選択パーツのインデックスに基づいて同期
+                    if (ep.index < frame.parts.Count)
+                    {
+                        // 一時変数にパーツを格納
+                        hod2v1_Part part = frame.parts[ep.index];
+
+                        // 指定された軸に基づいてscaleの値を適用
+                        switch (axis.ToLower())
+                        {
+                            case "x":
+                                part.scale.x = selectedPart.scale.x;
+                                break;
+                            case "y":
+                                part.scale.y = selectedPart.scale.y;
+                                break;
+                            case "z":
+                                part.scale.z = selectedPart.scale.z;
+                                break;
+                            default:
+                                Debug.LogWarning("指定された軸は存在しません: " + axis);
+                                break;
+                        }
+
+                        // 変更したパーツをリストに戻す
+                        frame.parts[ep.index] = part;
+                    }
+                }
+            }
+        });
+    }
+
     public void syncPartSpecific()
     {
         inputBox.openDialog("同期させたいアニメーションをカンマで区切って入力してください。2つのアニメーションの間にダッシュを入れると、範囲を指定できます。  ex: 1,2, 6-10", "", (string rText) =>
