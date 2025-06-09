@@ -9,12 +9,6 @@
       },
       "hash": "b240b89d333b04057812cff19a97a301de5e5090"
     },
-    "com.shtif.runtimetransformhandle": {
-      "version": "file:C:/Users/Hibiki/Downloads/RuntimeTransformHandle-main/Assets/Plugins/RuntimeTransformHandle",
-      "depth": 0,
-      "source": "local",
-      "dependencies": {}
-    },
     "com.unity.2d.sprite": {
       "version": "1.0.0",
       "depth": 0,

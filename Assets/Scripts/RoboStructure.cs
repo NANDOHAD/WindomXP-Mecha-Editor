@@ -6,10 +6,13 @@ using System.Text.RegularExpressions;
 using System.IO;
 using Assets;
 using System.Linq;
+using UnityEngine.UI;
 public delegate void Update_Event();
 public class RoboStructure : MonoBehaviour
 {
     public GameObject root;
+    public UI_InputBox inputBox;
+    public Text statusMessege;
     public List<GameObject> parts = new List<GameObject>();
     public List<bool> isTop = new List<bool>();
     public hod2v0 hod;
@@ -19,6 +22,7 @@ public class RoboStructure : MonoBehaviour
     public string filename;
     public List<Update_Event> updates = new List<Update_Event>();
     public CypherTranscoder transcoder;
+    
     // Start is called before the first frame update
     void Start()
     {
@@ -624,7 +628,6 @@ public class RoboStructure : MonoBehaviour
 
     public void saveHOD1()
     {
-        
         hod1 sHOD = new hod1("");
         for (int i = 0; i < parts.Count; i++)
         {
@@ -638,6 +641,169 @@ public class RoboStructure : MonoBehaviour
         BinaryWriter bw = new BinaryWriter(File.Open(filename, FileMode.OpenOrCreate, FileAccess.ReadWrite));
         sHOD.saveToBinary(ref bw);
         bw.Close();
+    }
+
+    public void saveHOD1(string customFilename)
+    {
+        string dText = "HODファイルを書き出す";
+        dText = customFilename;
+        inputBox.openDialog("新しいHODファイルの名前を入力してください（拡張子.hodは除く）。", dText , (string rText) =>
+        {
+            hod1 sHOD = new hod1("");
+            for (int i = 0; i < parts.Count; i++)
+            {
+                hod2v0_Part prt = hod.parts[i];
+                prt.position = parts[i].transform.localPosition;
+                prt.rotation = parts[i].transform.localRotation;
+                prt.scale = parts[i].transform.localScale;
+                hod.parts[i] = prt;
+            }
+            sHOD.createFromHod2v0(hod);
+            rText = rText + ".hod";
+            string savePath = Path.Combine(folder, rText);
+            BinaryWriter bw = new BinaryWriter(File.Open(savePath, FileMode.OpenOrCreate, FileAccess.ReadWrite));
+            sHOD.saveToBinary(ref bw);
+            bw.Close();
+         });
+    }
+
+    public void LoadHOD()
+    {
+        // folder内の.hodファイルを取得
+        string[] hodFiles = Directory.GetFiles(folder, "*.hod");
+        if (hodFiles.Length == 0)
+        {
+            Debug.LogError($"フォルダ内にHODファイルが見つかりません: {folder}");
+            statusMessege.text = $"フォルダ内にHODファイルが見つかりません: {folder}";
+            return;
+        }
+
+        // ファイル選択ダイアログを表示
+        List<string> fileNames = hodFiles.Select(f => Path.GetFileName(f)).ToList();
+        inputBox.openSelectDialog("読み込むHODファイルを選択してください", 
+            fileNames,
+            (string selectedFile) =>
+            {
+                string hodFilePath = Path.Combine(folder, selectedFile);
+                try
+                {
+                    BinaryReader br = new BinaryReader(File.Open(hodFilePath, FileMode.Open, FileAccess.Read));
+                    try
+                    {
+                        // シグネチャを確認
+                        string signature = new string(br.ReadChars(3));
+                        br.BaseStream.Seek(0, SeekOrigin.Begin); // ストリームを先頭に戻す
+
+                        hod2v1 nFrame = new hod2v1(selectedFile);
+                        nFrame.parts = new List<hod2v1_Part>();
+
+                        if (signature == "HOD")
+                        {
+                            // hod1形式の場合
+                            hod1 oldStructure = new hod1(selectedFile);
+                            if (oldStructure.loadFromBinary(ref br))
+                            {
+                                // hod2v0形式に変換
+                                hod2v0 convertedHOD = oldStructure.convertToHod2v0();
+                                // パーツ情報をコピー
+                                for (int i = 0; i < convertedHOD.parts.Count; i++)
+                                {
+                                    hod2v1_Part nPart = new hod2v1_Part();
+                                    nPart.name = convertedHOD.parts[i].name;
+                                    nPart.treeDepth = convertedHOD.parts[i].treeDepth;
+                                    nPart.childCount = convertedHOD.parts[i].childCount;
+                                    nPart.position = convertedHOD.parts[i].position;
+                                    nPart.rotation = convertedHOD.parts[i].rotation;
+                                    nPart.scale = convertedHOD.parts[i].scale;
+                                    nPart.unk1 = nPart.rotation;
+                                    nPart.unk2 = nPart.rotation;
+                                    nPart.unk3 = nPart.rotation;
+                                    nFrame.parts.Add(nPart);
+                                }
+                            }
+                            else
+                            {
+                                Debug.LogError($"HODファイルの読み込みに失敗しました: {selectedFile}");
+                                statusMessege.text = $"HODファイルの読み込みに失敗しました: {selectedFile}";
+                                return;
+                            }
+                        }
+                        else
+                        {
+                            // hod2v0形式の場合
+                            hod2v0 loadedHOD = new hod2v0(selectedFile);
+                            if (loadedHOD.loadFromBinary(ref br))
+                            {
+                                // パーツ情報をコピー
+                                for (int i = 0; i < loadedHOD.parts.Count; i++)
+                                {
+                                    hod2v1_Part nPart = new hod2v1_Part();
+                                    nPart.name = loadedHOD.parts[i].name;
+                                    nPart.treeDepth = loadedHOD.parts[i].treeDepth;
+                                    nPart.childCount = loadedHOD.parts[i].childCount;
+                                    nPart.position = loadedHOD.parts[i].position;
+                                    nPart.rotation = loadedHOD.parts[i].rotation;
+                                    nPart.scale = loadedHOD.parts[i].scale;
+                                    nPart.unk1 = nPart.rotation;
+                                    nPart.unk2 = nPart.rotation;
+                                    nPart.unk3 = nPart.rotation;
+                                    nFrame.parts.Add(nPart);
+                                }
+                            }
+                            else
+                            {
+                                Debug.LogError($"HODファイルの読み込みに失敗しました: {selectedFile}");
+                                statusMessege.text = $"HODファイルの読み込みに失敗しました: {selectedFile}";
+                                return;
+                            }
+                        }
+
+                        // パーツ数の比較
+                        if (nFrame.parts.Count != parts.Count)
+                        {
+                            Debug.LogWarning($"読み込んだHODファイルのパーツ数({nFrame.parts.Count})が現在のパーツ数({parts.Count})と異なります。読み込みを中止します。");
+                            statusMessege.text = $"読み込んだHODファイルのパーツ数({nFrame.parts.Count})が現在のパーツ数({parts.Count})と異なります。読み込みを中止します。";
+                            return;
+                        }
+                        
+                        // UI_EditAniから現在の選択位置を取得
+                        UI_EditAni editAni = FindObjectOfType<UI_EditAni>();
+                        if (editAni != null)
+                        {
+                            int currentAnimIndex = 0; // 現在選択されているアニメーションのインデックス
+                            int currentHodIndex = 0; // 現在選択されているHODのインデックス
+                            
+                            currentAnimIndex = editAni.animDD.value;
+                            currentHodIndex = editAni.hodDD.value;
+                            
+                            // 現在のアニメーションのフレームリストに新しいフレームを追加
+                            if (currentAnimIndex < ani.animations.Count)
+                            {
+                                if (ani.animations[currentAnimIndex].frames.Count > 0)
+                                {
+                                    ani.animations[currentAnimIndex].frames.Insert(currentHodIndex + 1, nFrame);
+                                }
+                                else
+                                {
+                                    ani.animations[currentAnimIndex].frames.Add(nFrame);
+                                }
+
+                                // HODリストを更新
+                                editAni.populateHODList();
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        br.Close();
+                    }
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError($"HODファイルの読み込み中にエラーが発生しました: {e.Message}");
+                    statusMessege.text = $"HODファイルの読み込み中にエラーが発生しました: {e.Message}";
+                }
+            });
     }
     
 }

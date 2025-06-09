@@ -1,7 +1,6 @@
 {
   "dependencies": {
     "com.kyub.emojisearch": "https://gitlab.com/KyubInteractive/emojisearchapi.git#com.kyub.emojisearch-1.1.5",
-    "com.shtif.runtimetransformhandle": "file:C:/Users/Hibiki/Downloads/RuntimeTransformHandle-main/Assets/Plugins/RuntimeTransformHandle",
     "com.unity.2d.sprite": "1.0.0",
     "com.unity.collab-proxy": "2.1.0",
     "com.unity.ide.rider": "3.0.34",
