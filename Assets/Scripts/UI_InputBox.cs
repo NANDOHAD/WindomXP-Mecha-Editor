@@ -23,8 +23,8 @@ public class UI_InputBox : MonoBehaviour
         text.text = message;
         input.text = defaultText;
         _callBack = callback;
-        input.gameObject.SetActive(true);
-        addPartsList.gameObject.SetActive(false);
+        //input.gameObject.SetActive(true);
+        //addPartsList.gameObject.SetActive(false);
         gameObject.SetActive(true);
     }
 
@@ -59,8 +59,6 @@ public class UI_InputBox : MonoBehaviour
         isDropdownMode = false;
         text.text = message;
         _callBack = callback;
-        input.gameObject.SetActive(false);
-        addPartsList.gameObject.SetActive(false);
         gameObject.SetActive(true);
     }
 
