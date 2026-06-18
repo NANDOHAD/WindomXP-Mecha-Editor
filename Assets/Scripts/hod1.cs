@@ -83,9 +83,7 @@ public class hod1
         {
             bw.Write(parts[i].treeDepth);
             bw.Write(parts[i].childCount);
-            byte[] text = ASCIIEncoding.ASCII.GetBytes(parts[i].name);
-            bw.Write(text);
-            bw.BaseStream.Seek(256 - text.Length, SeekOrigin.Current);
+            WriteFixedASCII(bw, parts[i].name, 256);
             bw.Write(parts[i].transform.m00);
             bw.Write(parts[i].transform.m10);
             bw.Write(parts[i].transform.m20);
@@ -103,6 +101,17 @@ public class hod1
             bw.Write(parts[i].transform.m23);
             bw.Write(parts[i].transform.m33);
         }
+    }
+
+    static void WriteFixedASCII(BinaryWriter bw, string value, int byteLength)
+    {
+        byte[] text = ASCIIEncoding.ASCII.GetBytes(value ?? "");
+        if (text.Length > byteLength)
+            throw new InvalidDataException($"Fixed string is too long: {text.Length}/{byteLength} bytes.");
+
+        bw.Write(text);
+        for (int i = text.Length; i < byteLength; i++)
+            bw.Write((byte)0);
     }
 
     public hod2v0 convertToHod2v0()
@@ -176,4 +185,3 @@ public class hod1
         }
     }
 }
-

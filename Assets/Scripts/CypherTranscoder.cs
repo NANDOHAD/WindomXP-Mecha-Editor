@@ -82,23 +82,13 @@ public class CypherTranscoder
         byte[] cypherBytes = BitConverter.GetBytes(cypher);
         int fullBlocks = bytes.Length / 4; // 4バイトのブロック数
 
-        // 4バイトのブロックを処理
+        // Transcode(string) と同じく、4バイト完全ブロックのみを処理する。
+        // 端数バイトまで変換すると、Script.spt 保存後の再読み込み時に末尾が復号されず文字化けする。
         for (int i = 0; i < fullBlocks * 4; i += 4)
         {
             for (int b = 0; b < cypherBytes.Length; b++)
             {
                 bytes[i + b] ^= cypherBytes[b];
-            }
-        }
-
-        // 端数のバイトを処理
-        int remainingBytes = bytes.Length % 4;
-        if (remainingBytes > 0)
-        {
-            int start = fullBlocks * 4;
-            for (int b = 0; b < remainingBytes; b++)
-            {
-                bytes[start + b] ^= cypherBytes[b];
             }
         }
 

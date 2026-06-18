@@ -97,10 +97,8 @@ public class animation
     public void saveToAni(ref BinaryWriter bw)
     {
         //Encoding ShiftJis = Encoding.GetEncoding(932);
-        byte[] shiftjistext = USEncoder.ToEncoding.ToSJIS(name);
-        bw.Write(shiftjistext);
-        bw.BaseStream.Seek(256 - shiftjistext.Length, SeekOrigin.Current);
-        shiftjistext = USEncoder.ToEncoding.ToSJIS(squirrelInit);
+        WriteFixedSJIS(bw, name, 256);
+        byte[] shiftjistext = USEncoder.ToEncoding.ToSJIS(squirrelInit);
         bw.Write(shiftjistext.Length);
         if (shiftjistext.Length > 0)
             bw.Write(shiftjistext);
@@ -124,12 +122,26 @@ public class animation
             list.AddRange(USEncoder.ToEncoding.ToSJIS(scripts[i].squirrel));
             for (int j = 0; j < list.Count; j++)
             {
-                if (list[j] == 0x0A && list[j - 1] != 0x0D)
+                if (list[j] == 0x0A && (j == 0 || list[j - 1] != 0x0D))
+                {
                     list.Insert(j, 0x0D);
+                    j++;
+                }
             }
             bw.Write(list.Count);
             bw.Write(list.ToArray());
         }
+    }
+
+    static void WriteFixedSJIS(BinaryWriter bw, string value, int byteLength)
+    {
+        byte[] text = USEncoder.ToEncoding.ToSJIS(value ?? "");
+        if (text.Length > byteLength)
+            throw new InvalidDataException($"Fixed string is too long: {text.Length}/{byteLength} bytes.");
+
+        bw.Write(text);
+        for (int i = text.Length; i < byteLength; i++)
+            bw.Write((byte)0);
     }
 
     public hod2v1_Part interpolatePart(int frame, int part, float time)

@@ -84,6 +84,8 @@ public class hod2v1
     {
         //Encoding ShiftJis = Encoding.GetEncoding(932);
         byte[] shiftjistext = USEncoder.ToEncoding.ToSJIS(filename);
+        if (shiftjistext.Length > short.MaxValue)
+            throw new InvalidDataException($"HOD filename is too long: {shiftjistext.Length} bytes.");
         bw.Write((short)shiftjistext.Length);
         bw.Write(shiftjistext);
         //bw.Write(data);

@@ -78,9 +78,7 @@ public class hod2v0
         {
             bw.Write(parts[i].treeDepth);
             bw.Write(parts[i].childCount);
-            byte[] text = ASCIIEncoding.ASCII.GetBytes(parts[i].name);
-            bw.Write(text);
-            bw.BaseStream.Seek(256 - text.Length, SeekOrigin.Current);
+            WriteFixedASCII(bw, parts[i].name, 256);
             bw.Write(parts[i].rotation.x);
             bw.Write(parts[i].rotation.y);
             bw.Write(parts[i].rotation.z);
@@ -98,6 +96,17 @@ public class hod2v0
             bw.BaseStream.Seek(82, SeekOrigin.Current);
         }
     }   
+
+    static void WriteFixedASCII(BinaryWriter bw, string value, int byteLength)
+    {
+        byte[] text = ASCIIEncoding.ASCII.GetBytes(value ?? "");
+        if (text.Length > byteLength)
+            throw new InvalidDataException($"Fixed string is too long: {text.Length}/{byteLength} bytes.");
+
+        bw.Write(text);
+        for (int i = text.Length; i < byteLength; i++)
+            bw.Write((byte)0);
+    }
 
 }
 
