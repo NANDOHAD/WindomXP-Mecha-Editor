@@ -106,6 +106,11 @@ public class UI_EditAni : MonoBehaviour
 
     public void AnimationSelected()
     {
+        if (robo == null || robo.ani == null || robo.ani.animations == null || robo.ani.animations.Count == 0)
+            return;
+        if (animDD.value < 0 || animDD.value >= robo.ani.animations.Count)
+            animDD.value = 0;
+
         cAnim = robo.ani.animations[animDD.value];
         populateHODList();
         populateScriptList();
@@ -115,7 +120,7 @@ public class UI_EditAni : MonoBehaviour
             ma.run(cAnim,true);
 
         animation nAnim = new animation();
-        if (animDD.value > 49 && animDD.value < 100)
+        if (animDD.value > 49 && animDD.value < 100 && animDD.value < robo.ani.animations.Count && animDD.value - 50 < robo.ani.animations.Count)
         {
             nAnim.frames = robo.ani.animations[animDD.value].frames;
             nAnim.scripts = robo.ani.animations[animDD.value - 50].scripts;
@@ -123,7 +128,7 @@ public class UI_EditAni : MonoBehaviour
                 ma.run(nAnim, true);
         }
 
-        if (animDD.value == 101 || animDD.value == 102)
+        if ((animDD.value == 101 || animDD.value == 102) && animDD.value < robo.ani.animations.Count && 100 < robo.ani.animations.Count)
         {
             nAnim.frames = robo.ani.animations[animDD.value].frames;
             nAnim.scripts = robo.ani.animations[100].scripts;
@@ -134,6 +139,9 @@ public class UI_EditAni : MonoBehaviour
 
     public void populateHODList(bool retainPos = false)
     {
+        if (cAnim == null || cAnim.frames == null)
+            return;
+
         List<string> list = new List<string>();
         for (int i = 0; i < cAnim.frames.Count; i++)
         {
@@ -150,16 +158,24 @@ public class UI_EditAni : MonoBehaviour
 
     public void selectHOD()
     {
+        if (cAnim == null || cAnim.frames == null)
+            return;
         if (cAnim.frames.Count != 0)
         {
+            if (hodDD.value < 0 || hodDD.value >= cAnim.frames.Count)
+                hodDD.value = 0;
             robo.setPose(cAnim.frames[hodDD.value]);
         }
 
-        ep.TransformTextUpdate();
+        if (ep != null)
+            ep.TransformTextUpdate();
     }
 
     public void populateScriptList()
     {
+        if (cAnim == null || cAnim.scripts == null)
+            return;
+
         scriptDD.ClearOptions();
         List<string> list = new List<string>();
         list.Clear();
@@ -182,6 +198,11 @@ public class UI_EditAni : MonoBehaviour
 
     public void scriptSelected()
     {
+        if (cAnim == null || cAnim.scripts == null || cAnim.scripts.Count == 0)
+            return;
+        if (scriptDD.value < 0 || scriptDD.value >= cAnim.scripts.Count)
+            scriptDD.value = 0;
+
         sData = cAnim.scripts[scriptDD.value];
         fLength.text = sData.unk.ToString();
         hDuration.text = sData.time.ToString();
@@ -220,18 +241,20 @@ public class UI_EditAni : MonoBehaviour
 
     public void removeScript()
     {
+        if (cAnim.scripts.Count == 0)
+            return;
         cAnim.scripts.RemoveAt(scriptDD.value);
         populateScriptList();
     }
 
     public void moveUpScript()
     {
-        if (scriptDD.value != 0)
-        {
-            script s = cAnim.scripts[scriptDD.value - 1];
-            cAnim.scripts[scriptDD.value - 1] = cAnim.scripts[scriptDD.value];
-            cAnim.scripts[scriptDD.value] = s;
-        }
+        if (cAnim.scripts.Count == 0 || scriptDD.value <= 0)
+            return;
+
+        script s = cAnim.scripts[scriptDD.value - 1];
+        cAnim.scripts[scriptDD.value - 1] = cAnim.scripts[scriptDD.value];
+        cAnim.scripts[scriptDD.value] = s;
 
         int ddPos = scriptDD.value;
         populateScriptList();
@@ -241,12 +264,12 @@ public class UI_EditAni : MonoBehaviour
 
     public void moveDownScript()
     {
-        if (scriptDD.value != cAnim.scripts.Count - 1)
-        {
-            script s = cAnim.scripts[scriptDD.value + 1];
-            cAnim.scripts[scriptDD.value + 1] = cAnim.scripts[scriptDD.value];
-            cAnim.scripts[scriptDD.value] = s;
-        }
+        if (cAnim.scripts.Count == 0 || scriptDD.value >= cAnim.scripts.Count - 1)
+            return;
+
+        script s = cAnim.scripts[scriptDD.value + 1];
+        cAnim.scripts[scriptDD.value + 1] = cAnim.scripts[scriptDD.value];
+        cAnim.scripts[scriptDD.value] = s;
 
         int ddPos = scriptDD.value;
         populateScriptList();
@@ -260,8 +283,11 @@ public class UI_EditAni : MonoBehaviour
         list.AddRange(USEncoder.ToEncoding.ToSJIS(initScript.text));
         for (int i = 0; i < list.Count; i++)
         {
-            if (list[i] == 0x0A && list[i - 1] != 0x0D)
+            if (list[i] == 0x0A && (i == 0 || list[i - 1] != 0x0D))
+            {
                 list.Insert(i, 0x0D);
+                i++;
+            }
         }
         cAnim.squirrelInit = USEncoder.ToEncoding.ToUnicode(list.ToArray());
     }
@@ -325,12 +351,13 @@ public class UI_EditAni : MonoBehaviour
 
     public void hodMoveUp()
     {
-        if (hodDD.value != 0)
-        {
-            hod2v1 prt = cAnim.frames[hodDD.value - 1];
-            cAnim.frames[hodDD.value - 1] = cAnim.frames[hodDD.value];
-            cAnim.frames[hodDD.value] = prt;
-        }
+        if (cAnim.frames.Count == 0 || hodDD.value <= 0)
+            return;
+
+        hod2v1 prt = cAnim.frames[hodDD.value - 1];
+        cAnim.frames[hodDD.value - 1] = cAnim.frames[hodDD.value];
+        cAnim.frames[hodDD.value] = prt;
+
         int ddPos = hodDD.value;
         populateHODList();
         hodDD.value = ddPos - 1;
@@ -339,12 +366,12 @@ public class UI_EditAni : MonoBehaviour
 
     public void hodMoveDown()
     {
-        if (hodDD.value != cAnim.frames.Count - 1)
-        {
-            hod2v1 prt = cAnim.frames[hodDD.value + 1];
-            cAnim.frames[hodDD.value + 1] = cAnim.frames[hodDD.value];
-            cAnim.frames[hodDD.value] = prt;
-        }
+        if (cAnim.frames.Count == 0 || hodDD.value >= cAnim.frames.Count - 1)
+            return;
+
+        hod2v1 prt = cAnim.frames[hodDD.value + 1];
+        cAnim.frames[hodDD.value + 1] = cAnim.frames[hodDD.value];
+        cAnim.frames[hodDD.value] = prt;
 
         int ddPos = hodDD.value;
         populateHODList();
@@ -543,6 +570,8 @@ public class UI_EditAni : MonoBehaviour
                     {
                         for (int j = l; j < t + 1; j++)
                         {
+                            if (j < 0 || j >= robo.ani.animations.Count)
+                                continue;
                             animation a = robo.ani.animations[j];
                             for (int k = 0; k < a.frames.Count; k++)
                             {
@@ -556,6 +585,8 @@ public class UI_EditAni : MonoBehaviour
                     int v = 0;
                     if (int.TryParse(selections[i], out v))
                     {
+                        if (v < 0 || v >= robo.ani.animations.Count)
+                            continue;
                         animation a = robo.ani.animations[v];
                         for (int k = 0; k < a.frames.Count; k++)
                         {
@@ -602,6 +633,13 @@ public class UI_EditAni : MonoBehaviour
 
     public void setConstraintText()
     {
+        if (cAnim == null || cAnim.frames == null || cAnim.frames.Count == 0)
+            return;
+        if (hodDD.value < 0 || hodDD.value >= cAnim.frames.Count)
+            return;
+        if (ep == null || ep.index < 0 || ep.index >= cAnim.frames[hodDD.value].parts.Count)
+            return;
+
         hod2v1_Part p = cAnim.frames[hodDD.value].parts[ep.index];
         Vector3 e = p.unk1.eulerAngles;
         RotC1X.text = e.x.ToString();

@@ -109,7 +109,10 @@ public class RoboStructure : MonoBehaviour
                     ImportModelEncrypted(parts[i], Path.Combine(folder, Robo.parts[i].name));
 
             }
-            catch { }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[RoboStructure] パーツモデルの読み込みに失敗しました: {Robo.parts[i].name} ({e.Message})");
+            }
         }
     }
 
@@ -177,7 +180,7 @@ public class RoboStructure : MonoBehaviour
             }
             catch (Exception e)
             {
-                //Debug.logError($"Error importing model {file}: {e.Message}. Assimp could not load the file.");
+                Debug.LogWarning($"[RoboStructure] モデル読み込みに失敗しました: {file} ({e.Message})");
             }
         }
     }
@@ -211,11 +214,11 @@ public class RoboStructure : MonoBehaviour
                 }
                 catch (System.Exception e)
                 {
-                    //Debug.logError($"Error importing encrypted model {file}: {e.Message}. Assimp could not load the file.");
+                    Debug.LogWarning($"[RoboStructure] 暗号化モデルのAssimp読み込みに失敗しました: {file} ({e.Message})");
                 }
                 if (scen == null)
                 {
-                    //Debug.logWarning($"Failed to import encrypted model from stream: {file}. Assimp could not load the file.");
+                    Debug.LogWarning($"[RoboStructure] 暗号化モデルを読み込めませんでした: {file}");
                     return;
                 }
 
@@ -246,7 +249,7 @@ public class RoboStructure : MonoBehaviour
                 }
                 catch (System.Exception e)
                 {
-                    //Debug.logError($"Failed to combine meshes for {file}: {e.Message}");
+                    Debug.LogWarning($"[RoboStructure] メッシュ結合に失敗しました: {file} ({e.Message})");
                     return;
                 }
                 
@@ -286,7 +289,7 @@ public class RoboStructure : MonoBehaviour
                                 }
                                 catch (System.Exception e)
                                 {
-                                    //Debug.logWarning($"Failed to load texture for {file}: {e.Message}");
+                                    Debug.LogWarning($"[RoboStructure] テクスチャ読み込みに失敗しました: {file} ({e.Message})");
                                 }
                             }
                             else
@@ -314,7 +317,7 @@ public class RoboStructure : MonoBehaviour
         }
         catch (System.Exception e)
         {
-            //Debug.logError($"Error processing encrypted model {file}: {e.Message}. Assimp could not load the file.");
+            Debug.LogWarning($"[RoboStructure] 暗号化モデル処理に失敗しました: {file} ({e.Message})");
         }
     }
 

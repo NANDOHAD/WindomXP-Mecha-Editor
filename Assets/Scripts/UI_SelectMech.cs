@@ -22,6 +22,7 @@ public class UI_SelectMech : MonoBehaviour
     public GameObject modeSelect;
     public UI_EditParts editParts;
     public UI_EditAni editAni;
+    public UI_SPT uiSPT;           // Script.spt の自動初期化に使用
     public string folder = "Windom_Data\\Robo";
     public GameObject prefPanel;
     public GameObject loadingUI; // ローディングUIのGameObject
@@ -82,27 +83,63 @@ public class UI_SelectMech : MonoBehaviour
 
         try
         {
+            if (RoboDD == null)
+            {
+                Debug.LogError("[UI_SelectMech] RoboDD が未設定のため select.png を読み込めません。");
+                return;
+            }
+
+            if (selectImage == null)
+            {
+                Debug.LogError("[UI_SelectMech] selectImage が未設定のため select.png を表示できません。");
+                return;
+            }
+
+            if (robo == null || robo.transcoder == null)
+            {
+                Debug.LogError("[UI_SelectMech] robo または transcoder が未設定のため select.png を復号できません。");
+                return;
+            }
+
+            if (RoboDD.value < 0 || RoboDD.value >= list.Count)
+            {
+                Debug.LogError($"[UI_SelectMech] Dropdown value が範囲外です。value={RoboDD.value}, listCount={list.Count}");
+                return;
+            }
+
             string filePath = Path.Combine(folder, list[RoboDD.value], "select.png");
-            
-            Debug.Log($"Checking file path: {filePath}");
+            Debug.Log($"[UI_SelectMech] select.png 読み込み開始: value={RoboDD.value}, mech='{list[RoboDD.value]}', path='{filePath}'");
             
             // ファイルの存在を確認
             if (File.Exists(filePath))
             {
-                //Debug.Log("select.pngファイルが見つかりました。");
-                robo.transcoder.findCypher(filePath);
+                FileInfo fi = new FileInfo(filePath);
+                Debug.Log($"[UI_SelectMech] select.png ファイル確認: length={fi.Length} bytes, material={(selectImage.material != null ? selectImage.material.name : "null")}");
+
+                bool foundCypher = robo.transcoder.findCypher(filePath);
+                Debug.Log($"[UI_SelectMech] select.png 復号キー検出: found={foundCypher}, cypher=0x{robo.transcoder.cypher:X8}");
+
                 Texture2D tex = Helper.LoadTextureEncrypted(filePath, ref robo.transcoder);
+                if (tex == null)
+                {
+                    Debug.LogError($"[UI_SelectMech] select.png の Texture2D 生成に失敗しました。path='{filePath}'");
+                    return;
+                }
+
+                Debug.Log($"[UI_SelectMech] select.png Texture2D 生成成功: name='{tex.name}', width={tex.width}, height={tex.height}, format={tex.format}");
+
                 Sprite st = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0, 0));
                 selectImage.sprite = st;
+                Debug.Log($"[UI_SelectMech] select.png Sprite 反映完了: sprite='{st.name}', imageEnabled={selectImage.enabled}, imageColor={selectImage.color}, preserveAspect={selectImage.preserveAspect}");
             }
             else
             {
-                //Debug.LogError("select.pngファイルが見つかりません。");
+                Debug.LogWarning($"[UI_SelectMech] select.png ファイルが見つかりません。path='{filePath}'");
             }
         }
         catch (Exception ex)
         {
-            //Debug.LogError($"select.pngの読み込み中にエラーが発生しました: {ex.Message}\n{ex.StackTrace}");
+            Debug.LogError($"[UI_SelectMech] select.png の読み込み中に例外が発生しました: {ex.Message}\n{ex.StackTrace}");
         }
     }
 
@@ -115,6 +152,13 @@ public class UI_SelectMech : MonoBehaviour
             try
             {
                 await LoadDataAsync(name);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"機体データの読み込みに失敗しました: {ex.Message}");
+                if (msgBox != null)
+                    msgBox.Show($"機体データの読み込みに失敗しました。\n{ex.Message}");
+                return;
             }
             finally
             {
@@ -143,8 +187,12 @@ public class UI_SelectMech : MonoBehaviour
             }
         });
         ani2 ani = new ani2();
-        await Task.Run(() => ani.load(Path.Combine(folder, list[RoboDD.value], name), progress)); // 非同期でロード
-        robo.folder = Path.Combine(folder, list[RoboDD.value]);
+        string selectedFolder = Path.Combine(folder, list[RoboDD.value]);
+        bool loaded = await ani.load(Path.Combine(selectedFolder, name), progress);
+        if (!loaded || ani.structure == null || ani.animations == null)
+            throw new InvalidDataException($"'{name}' を読み込めませんでした。");
+
+        robo.folder = selectedFolder;
         robo.buildStructure(ani.structure);
         if (name.Contains(".ani"))
         {
@@ -163,6 +211,20 @@ public class UI_SelectMech : MonoBehaviour
                 editTabs.setTabActive(0, true);
             if (modeSelect != null)
                 modeSelect.SetActive(true);
+
+            // .ani 読み込み完了後、Script.spt を自動で復号・パースして
+            // BURNER エフェクトを初期化する
+            if (uiSPT != null)
+            {
+                try
+                {
+                    uiSPT.loadSPTField();
+                }
+                catch (System.Exception ex)
+                {
+                    Debug.LogWarning($"[UI_SelectMech] Script.spt の自動読み込みに失敗しました: {ex.Message}");
+                }
+            }
         }
         else
         {

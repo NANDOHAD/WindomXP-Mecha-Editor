@@ -60,7 +60,14 @@ public class UI_EditParts : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-        if (!disableGOUpdates && ea.cAnim.frames.Count > 0 && Input.GetMouseButton(0))
+        if (!disableGOUpdates &&
+            robo != null &&
+            robo.ani != null &&
+            ea != null &&
+            ea.cAnim != null &&
+            ea.cAnim.frames != null &&
+            ea.cAnim.frames.Count > 0 &&
+            Input.GetMouseButton(0))
         {
             TransformTextUpdate();
             robo.updatePart(ea.animDD.value, ea.hodDD.value, index, syncContraints.isOn);
@@ -164,6 +171,7 @@ public class UI_EditParts : MonoBehaviour
 
         list.Clear();
         items.Clear();
+        selected.Clear();
     }
 
     public void addItem(GameObject prt, string item)
@@ -218,6 +226,11 @@ public class UI_EditParts : MonoBehaviour
     }
     public void TransformTextUpdate()
     {
+        if (robo == null || robo.parts == null || robo.parts.Count == 0)
+            return;
+        if (index < 0 || index >= robo.parts.Count)
+            index = 0;
+
         if (space == Space.Self)
         {
             PosX.text = robo.parts[index].transform.localPosition.x.ToString();
@@ -244,7 +257,7 @@ public class UI_EditParts : MonoBehaviour
         ScaleY.text = robo.parts[index].transform.localScale.y.ToString();
         ScaleZ.text = robo.parts[index].transform.localScale.z.ToString();
 
-        if (robo.ani != null)
+        if (robo.ani != null && ea != null && ea.cAnim != null)
             ea.setConstraintText();
 
     }
@@ -295,19 +308,22 @@ public class UI_EditParts : MonoBehaviour
 
     public void pasteValues()
     {
+        if (cpHod == null || cpHod.parts == null || cpSelected == null)
+            return;
+
         int count = selected.FindAll(x => x == true).Count;
         Debug.Log(count);
         if (count > 1)
         {
             for (int i = 0; i < list.Count; i++)
             {
-                if (cpSelected[i])
+                if (i < cpSelected.Length && i < cpHod.parts.Count && cpSelected[i])
                 {
                     robo.updatePart(i, cpHod.parts[i]);
                 }
             }
         }
-        else
+        else if (cpIndex >= 0 && cpIndex < cpHod.parts.Count)
         {
             robo.updatePart(index, cpHod.parts[cpIndex]);
         }
@@ -347,7 +363,8 @@ public class UI_EditParts : MonoBehaviour
         }
         addPartsPanel.SetActive(false);
         PopulatePartsList();
-        robo.setPose(ea.animDD.value, ea.hodDD.value);
+        if (robo.ani != null && ea != null)
+            robo.setPose(ea.animDD.value, ea.hodDD.value);
     }
 
     public void addPartsCancel()
@@ -375,7 +392,8 @@ public class UI_EditParts : MonoBehaviour
                     }
                 }
                 PopulatePartsList();
-                robo.setPose(ea.animDD.value, ea.hodDD.value);
+                if (robo.ani != null && ea != null)
+                    robo.setPose(ea.animDD.value, ea.hodDD.value);
             }
         });
     }
@@ -397,7 +415,8 @@ public class UI_EditParts : MonoBehaviour
                 }
             }
             PopulatePartsList();
-            robo.setPose(ea.animDD.value, ea.hodDD.value);
+            if (robo.ani != null && ea != null)
+                robo.setPose(ea.animDD.value, ea.hodDD.value);
         });
     }
 }
