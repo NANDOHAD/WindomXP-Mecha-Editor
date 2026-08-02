@@ -22,6 +22,8 @@ public class RoboStructure : MonoBehaviour
     public string filename;
     public List<Update_Event> updates = new List<Update_Event>();
     public CypherTranscoder transcoder;
+    public bool structureEditingAllowed { get; private set; } = true;
+    public string structureValidationWarning { get; private set; } = "";
     
     // Start is called before the first frame update
     void Start()
@@ -50,6 +52,7 @@ public class RoboStructure : MonoBehaviour
 
 
         hod = Robo;
+        ValidateStructureForEditing(Robo, true);
         if (root != null)
             GameObject.Destroy(root);
 
@@ -503,6 +506,13 @@ public class RoboStructure : MonoBehaviour
     }
     public void addPart(string partName, int parent)
     {
+        string warning;
+        if (!CanEditStructure(out warning))
+        {
+            ReportBlockedStructureEdit(warning);
+            return;
+        }
+
         if (ani != null)
         {
             ani.addPart(partName, parent);
@@ -546,6 +556,13 @@ public class RoboStructure : MonoBehaviour
 
     public bool removePart(int index)
     {
+        string warning;
+        if (!CanEditStructure(out warning))
+        {
+            ReportBlockedStructureEdit(warning);
+            return false;
+        }
+
         if (ani != null)
         {
             if (ani.removePart(index))
@@ -582,6 +599,43 @@ public class RoboStructure : MonoBehaviour
         }
         else
             return false;
+    }
+
+    public bool CanEditStructure(out string warning)
+    {
+        ValidateStructureForEditing(hod, false);
+        warning = structureValidationWarning;
+        return structureEditingAllowed;
+    }
+
+    void ValidateStructureForEditing(hod2v0 structure, bool reportWarning)
+    {
+        string details = "";
+        structureEditingAllowed = structure != null &&
+            HodHierarchyValidator.TryValidate(structure.parts, out details);
+
+        if (structureEditingAllowed)
+        {
+            structureValidationWarning = "";
+            return;
+        }
+
+        if (structure == null)
+            details = "HOD構造データがありません。";
+
+        structureValidationWarning =
+            "HODのパーツ階層に不整合があります。読み込みと表示は継続しますが、パーツの追加・削除はできません。\n" +
+            details;
+
+        if (reportWarning)
+            ReportBlockedStructureEdit(structureValidationWarning);
+    }
+
+    void ReportBlockedStructureEdit(string warning)
+    {
+        Debug.LogWarning("[RoboStructure] " + warning);
+        if (statusMessege != null)
+            statusMessege.text = warning;
     }
 
     public void renamePart(int index, string name)

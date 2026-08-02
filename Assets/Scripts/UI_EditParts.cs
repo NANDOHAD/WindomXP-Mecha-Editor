@@ -335,6 +335,13 @@ public class UI_EditParts : MonoBehaviour
 
     public void addParts()
     {
+        string warning;
+        if (!robo.CanEditStructure(out warning))
+        {
+            msgBox.Show(warning);
+            return;
+        }
+
         addPartsPanel.SetActive(true);
         addText.text = robo.hod.parts[index].name  + "の下に新規パーツを追加します。";
         DirectoryInfo di = new DirectoryInfo(robo.folder);
@@ -351,6 +358,14 @@ public class UI_EditParts : MonoBehaviour
 
     public void addParts2()
     {
+        string warning;
+        if (!robo.CanEditStructure(out warning))
+        {
+            msgBox.Show(warning);
+            addPartsPanel.SetActive(false);
+            return;
+        }
+
         //update internal hod if ani isn't loaded
         robo.addPart(addPartsList.options[addPartsList.value].text, index);
         if (robo.ani != null)
@@ -374,6 +389,13 @@ public class UI_EditParts : MonoBehaviour
 
     public void removePart()
     {
+        string warning;
+        if (!robo.CanEditStructure(out warning))
+        {
+            msgBox.Show(warning);
+            return;
+        }
+
         kakuninBox.openNoTextBoxDialog("選択パーツを削除します。", (string rText) =>
         {
             if (!robo.removePart(index))
