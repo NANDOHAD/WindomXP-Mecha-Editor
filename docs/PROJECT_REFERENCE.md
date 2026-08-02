@@ -68,6 +68,11 @@ HODはパーツ階層とトランスフォームを持つ姿勢データです�
 
 - パーツ階層は `treeDepth` と `childCount` の両方で表現されます。
 - `HodHierarchyValidator` が両値の整合性を検査します。不整合時も読み込みと表示は継続しますが、警告を表示し、階層破損を防ぐためパーツの追加・削除を抑止します。
+- 読み込み時に一方の表現だけが有効な場合は、`treeDepth` から `childCount`、または `childCount` から `treeDepth` を一意に再構築できます。確認ダイアログで「修復して読み込む」を選んだ場合だけ、構造HODと全アニメーションフレームをメモリ上で同期して修復します。元ファイルは自動上書きしません。
+- `treeDepth` と `childCount` が別々の有効な階層を表す場合は、読み込み時に「treeDepthを正として修復」または「childCountを正として修復」を選択できます。選んだ表現からもう一方を再計算し、構造HODと全アニメーションフレームへ同時適用します。
+- 両方が無効でも、`treeDepth` 上で親へ接続不能な孤立パーツまたは孤立子階層を一意に特定でき、全フレームのパーツ数・順序・階層値が構造HODと一致する場合は、「不整合パーツを除外して読み込む」を選択できます。構造HODと全フレームの同じインデックスを除外し、残った `treeDepth` から `childCount` を再構築します。
+- `treeDepth` と `childCount` の両方が無効でも、構造HODと全フレームのパーツ数・順序が一致する場合は「階層を手動修復」を選択できます。ルートをパーツ[0]に固定し、各パーツへ前方の親パーツを指定します。適用時は親子関係をpreorder順へ並べ直し、構造HODと全フレームへ同じ並べ替えと再計算した階層値を一括適用します。
+- 先頭ルートの異常、負の `treeDepth`、除外対象を一意に決められない不整合、またはフレーム間のパーツ数・順序不一致では自動除外しません。手動修復もフレーム間の対応を確認できない場合は開始しません。「読取専用で続行」では構造編集を抑止し、「キャンセル」では読み込みを中止します。修復・除外ともメモリ上だけで行い、元ファイルは自動上書きしません。
 - `hod2v0` はパーツ名を256バイト固定長ASCIIで保存します。
 - `hod2v1.saveToBinary()` は先頭にファイル名長 `short` とShift-JISファイル名を書き、その後に `HD2` version `1` を書きます。
 - 予約領域は `Seek(82)` / `Seek(83)` で飛ばされます。互換性維持のため削除しないでください。
@@ -110,9 +115,10 @@ HODはパーツ階層とトランスフォームを持つ姿勢データです�
 1. `UI_SelectMech` が `Windom_Data\Robo` 以下の機体フォルダを列挙する。
 2. 選択されたフォルダから `.ani` を読み込む。
 3. `ani2.load()` が `AN2` / `ANI` / `HOD` を判定し、`hod2v0 structure` と `animations` を作る。
-4. `RoboStructure.buildStructure()` が `hod2v0.parts` からGameObject階層を作る。
-5. 各パーツのモデルを暗号化解除し、AssimpでUnity Mesh/Materialへ変換する。
-6. `.ani` 読み込み後、`Script.spt` があれば `UI_SPT` 経由でランタイムへ反映する。
+4. HOD階層に不整合があれば、決定的な修復、曖昧時の正とする表現の選択、親指定による手動修復、孤立パーツ除外、読取専用、キャンセルから安全に利用できる選択肢を表示する。修復・除外時は構造HODと全フレームを同時更新する。
+5. `RoboStructure.buildStructure()` が `hod2v0.parts` からGameObject階層を作る。
+6. 各パーツのモデルを暗号化解除し、AssimpでUnity Mesh/Materialへ変換する。
+7. `.ani` 読み込み後、`Script.spt` があれば `UI_SPT` 経由でランタイムへ反映する。
 
 ### パーツ編集
 
@@ -152,6 +158,9 @@ HODはパーツ階層とトランスフォームを持つ姿勢データです�
 | `hod2v0.cs` | 現行構造HODの読み書き。 |
 | `hod2v1.cs` | 現行アニメーションフレームHODの読み書き。 |
 | `HodHierarchyValidator.cs` | `treeDepth`、親候補、ルート数、`childCount` の整合性検査。 |
+| `HodHierarchyRepair.cs` | HOD階層の決定的な修復計画、全フレーム事前検査、メモリ上の一括修復。 |
+| `HodHierarchyPrune.cs` | 親へ接続不能な孤立パーツ範囲の判定、全フレーム事前検査、メモリ上の一括除外。 |
+| `HodHierarchyManualRepair.cs` | 親指定の編集セッション、全フレーム事前検査、preorder並べ替えと階層値の一括再構築。 |
 | `CypherTranscoder.cs` | 暗号化 `.x` / `.png` のXORキー検出と変換。 |
 | `USEncoder.cs` | Shift-JIS/Unicode変換テーブル。大きいが重要。 |
 | `UI_SelectMech.cs` | 機体フォルダ選択とロード開始。 |

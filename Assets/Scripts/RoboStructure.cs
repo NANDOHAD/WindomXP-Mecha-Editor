@@ -718,6 +718,9 @@ public class RoboStructure : MonoBehaviour
             ReportBlockedStructureEdit(warning);
             return false;
         }
+        if (hod == null || hod.parts == null || index <= 0 || index >= hod.parts.Count)
+            return false;
+
         if (ani != null)
         {
             if (ani.removePart(index))
@@ -727,33 +730,32 @@ public class RoboStructure : MonoBehaviour
 
             return true;
         }
-        else if (hod.parts[index].childCount == 0)
-        {
-            for (int i = 0; i < hod.parts.Count; i++)
-            {
-                hod2v0_Part prt = hod.parts[i];
-                prt.position = parts[index].transform.localPosition;
-                prt.rotation = parts[index].transform.localRotation;
-                prt.scale = parts[index].transform.localScale;
-            }
 
-            int j = index;
-            for (; j >= 0; j--)
-            {
-                if (hod.parts[j].treeDepth < hod.parts[index].treeDepth)
-                {
-                    hod2v0_Part pHod = hod.parts[j];
-                    pHod.childCount--;
-                    hod.parts[j] = pHod;
-                    hod.parts.RemoveAt(index);
-                    break;
-                }
-            }
-            buildStructure(hod);
-            return true;
-        }
-        else
+        int parentIndex = FindParentIndex(hod.parts, index);
+        if (parentIndex < 0)
             return false;
+
+        int removeCount = GetSubtreeEndIndex(hod.parts, index) - index;
+        if (removeCount <= 0)
+            return false;
+
+        int transformCount = Math.Min(hod.parts.Count, parts.Count);
+        for (int i = 0; i < transformCount; i++)
+        {
+            hod2v0_Part prt = hod.parts[i];
+            prt.position = parts[i].transform.localPosition;
+            prt.rotation = parts[i].transform.localRotation;
+            prt.scale = parts[i].transform.localScale;
+            hod.parts[i] = prt;
+        }
+
+        hod2v0_Part parentPart = hod.parts[parentIndex];
+        parentPart.childCount--;
+        hod.parts[parentIndex] = parentPart;
+        hod.parts.RemoveRange(index, removeCount);
+
+        buildStructure(hod);
+        return true;
     }
 
     public bool CanEditStructure(out string warning)
@@ -1018,4 +1020,26 @@ public class RoboStructure : MonoBehaviour
             });
     }
     
+
+
+    static int GetSubtreeEndIndex(IList<hod2v0_Part> parts, int index)
+    {
+        int subtreeDepth = parts[index].treeDepth;
+        int endIndex = index + 1;
+        while (endIndex < parts.Count && parts[endIndex].treeDepth > subtreeDepth)
+            endIndex++;
+        return endIndex;
+    }
+
+
+    static int FindParentIndex(IList<hod2v0_Part> parts, int index)
+    {
+        int parentDepth = parts[index].treeDepth - 1;
+        for (int i = index - 1; i >= 0; i--)
+        {
+            if (parts[i].treeDepth == parentDepth)
+                return i;
+        }
+        return -1;
+    }
 }

@@ -372,17 +372,36 @@ public class UI_EditParts : MonoBehaviour
 
     public void removePart()
     {
+        if (robo == null || robo.hod == null || robo.hod.parts == null || index < 0 || index >= robo.hod.parts.Count)
+        {
+            msgBox.Show("削除するパーツを選択してください。");
+            return;
+        }
+
         string warning;
         if (!robo.CanEditStructure(out warning))
         {
             msgBox.Show(warning);
             return;
         }
-        kakuninBox.openNoTextBoxDialog("選択パーツを削除します。", (string rText) =>
+
+        if (index == 0)
         {
-            if (!robo.removePart(index))
+            msgBox.Show("ルートパーツは削除できません。");
+            return;
+        }
+
+        int partIndexToDelete = index;
+        int selectionAfterDelete = FindParentIndex(partIndexToDelete);
+        string confirmationMessage = robo.hod.parts[partIndexToDelete].childCount > 0
+            ? "子パーツごと削除しますがよろしいですか？"
+            : "選択パーツを削除します。";
+
+        kakuninBox.openNoTextBoxDialog(confirmationMessage, (string rText) =>
+        {
+            if (!robo.removePart(partIndexToDelete))
             {
-                msgBox.Show("子パーツがある親パーツは削除できません。");
+                msgBox.Show("パーツ情報の整合性を確認できないため削除できません。");
             }
             else
             {
@@ -390,6 +409,13 @@ public class UI_EditParts : MonoBehaviour
                 PopulatePartsList();
                 if (robo.ani != null && ea != null)
                     robo.setPose(ea.animDD.value, ea.hodDD.value);
+
+                if (robo.parts.Count > 0)
+                {
+                    int nextIndex = Mathf.Clamp(selectionAfterDelete, 0, robo.parts.Count - 1);
+                    index = -1;
+                    SelectedIndexChanged(nextIndex);
+                }
             }
         });
     }
@@ -417,5 +443,17 @@ public class UI_EditParts : MonoBehaviour
         prevRobo.buildStructureFromLoaded(robo, robo.ani.structure);
         foreach (GameObject prt in prevRobo.parts)
             prt.layer = 7;
+    }
+
+
+    int FindParentIndex(int partIndex)
+    {
+        int parentDepth = robo.hod.parts[partIndex].treeDepth - 1;
+        for (int i = partIndex - 1; i >= 0; i--)
+        {
+            if (robo.hod.parts[i].treeDepth == parentDepth)
+                return i;
+        }
+        return 0;
     }
 }

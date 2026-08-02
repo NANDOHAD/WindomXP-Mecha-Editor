@@ -218,34 +218,105 @@ public class ani2
 
     public bool removePart(int index)
     {
-        if (structure.parts[index].childCount == 0)
-        {
-            int i = index;
-            for (; i >= 0; i--)
-            {
-                if (structure.parts[i].treeDepth < structure.parts[index].treeDepth)
-                {
-                    hod2v0_Part pHod = structure.parts[i];
-                    pHod.childCount--;
-                    structure.parts[i] = pHod;
-                    structure.parts.RemoveAt(index);
-                    break;
-                }
-            }
+        if (structure == null || structure.parts == null || index <= 0 || index >= structure.parts.Count)
+            return false;
 
-            for (int j = 0; j < animations.Count; j++)
+        int parentIndex = FindParentIndex(structure.parts, index);
+        if (parentIndex < 0)
+            return false;
+
+        int removeCount = GetSubtreeEndIndex(structure.parts, index) - index;
+        if (!CanRemovePartRangeFromAllFrames(structure.parts, index, removeCount))
+        {
+            Debug.LogWarning("[ani2] HOD構造とアニメーションフレームのパーツ階層が一致しないため、パーツを削除できません。");
+            return false;
+        }
+
+        hod2v0_Part parentPart = structure.parts[parentIndex];
+        parentPart.childCount--;
+        structure.parts[parentIndex] = parentPart;
+
+        if (animations != null)
+        {
+            for (int animationIndex = 0; animationIndex < animations.Count; animationIndex++)
             {
-                for (int k = 0; k < animations[j].frames.Count; k++)
+                for (int frameIndex = 0; frameIndex < animations[animationIndex].frames.Count; frameIndex++)
                 {
-                    hod2v1_Part pHod1 = animations[j].frames[k].parts[i];
-                    pHod1.childCount--;
-                    animations[j].frames[k].parts[i] = pHod1;
-                    animations[j].frames[k].parts.RemoveAt(index);
+                    List<hod2v1_Part> frameParts = animations[animationIndex].frames[frameIndex].parts;
+                    hod2v1_Part frameParentPart = frameParts[parentIndex];
+                    frameParentPart.childCount = parentPart.childCount;
+                    frameParts[parentIndex] = frameParentPart;
                 }
             }
         }
-        else
-            return false;
+
+        structure.parts.RemoveRange(index, removeCount);
+
+        if (animations != null)
+        {
+            for (int animationIndex = 0; animationIndex < animations.Count; animationIndex++)
+            {
+                for (int frameIndex = 0; frameIndex < animations[animationIndex].frames.Count; frameIndex++)
+                {
+                    animations[animationIndex].frames[frameIndex].parts.RemoveRange(index, removeCount);
+                }
+            }
+        }
+
         return true;
+    }
+
+
+    bool CanRemovePartRangeFromAllFrames(IList<hod2v0_Part> structureParts, int index, int removeCount)
+    {
+        if (removeCount <= 0 || animations == null)
+            return removeCount > 0;
+
+        for (int animationIndex = 0; animationIndex < animations.Count; animationIndex++)
+        {
+            animation animationData = animations[animationIndex];
+            if (animationData == null || animationData.frames == null)
+                return false;
+
+            for (int frameIndex = 0; frameIndex < animationData.frames.Count; frameIndex++)
+            {
+                hod2v1 frame = animationData.frames[frameIndex];
+                if (frame == null || frame.parts == null || frame.parts.Count != structureParts.Count)
+                    return false;
+
+                for (int partIndex = 0; partIndex < structureParts.Count; partIndex++)
+                {
+                    if (frame.parts[partIndex].treeDepth != structureParts[partIndex].treeDepth ||
+                        frame.parts[partIndex].childCount != structureParts[partIndex].childCount)
+                    {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        return index + removeCount <= structureParts.Count;
+    }
+
+
+    static int GetSubtreeEndIndex(IList<hod2v0_Part> parts, int index)
+    {
+        int subtreeDepth = parts[index].treeDepth;
+        int endIndex = index + 1;
+        while (endIndex < parts.Count && parts[endIndex].treeDepth > subtreeDepth)
+            endIndex++;
+        return endIndex;
+    }
+
+
+    static int FindParentIndex(IList<hod2v0_Part> parts, int index)
+    {
+        int parentDepth = parts[index].treeDepth - 1;
+        for (int i = index - 1; i >= 0; i--)
+        {
+            if (parts[i].treeDepth == parentDepth)
+                return i;
+        }
+        return -1;
     }
 }

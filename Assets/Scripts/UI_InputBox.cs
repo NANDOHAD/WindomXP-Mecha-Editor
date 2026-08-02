@@ -8,6 +8,7 @@ public class UI_InputBox : MonoBehaviour
     public Text text;
     public InputField input;
     public call _callBack;
+    private call _cancelCallback;
     public Dropdown addPartsList;
     private bool isDropdownMode = false;
 
@@ -19,6 +20,7 @@ public class UI_InputBox : MonoBehaviour
 
     public void openDialog(string message, string defaultText, call callback)
     {
+        _cancelCallback = null;
         isDropdownMode = false;
         text.text = message;
         input.text = defaultText;
@@ -30,6 +32,7 @@ public class UI_InputBox : MonoBehaviour
 
     public void openSelectDialog(string message, string defaultText, call callback)
     {
+        _cancelCallback = null;
         isDropdownMode = true;
         text.text = message;
         addPartsList.ClearOptions();
@@ -43,19 +46,27 @@ public class UI_InputBox : MonoBehaviour
 
     public void openSelectDialog(string message, List<string> options, call callback)
     {
+        _cancelCallback = null;
         isDropdownMode = true;
         text.text = message;
         addPartsList.ClearOptions();
         addPartsList.AddOptions(options);
         addPartsList.value = 0;
-        _callBack = callback;  
+        _callBack = callback;
         input.gameObject.SetActive(false);
         addPartsList.gameObject.SetActive(true);
         gameObject.SetActive(true);
     }
 
+    public void openSelectDialog(string message, List<string> options, call callback, call cancelCallback)
+    {
+        openSelectDialog(message, options, callback);
+        _cancelCallback = cancelCallback;
+    }
+
     public void openNoTextBoxDialog(string message, call callback)
     {
+        _cancelCallback = null;
         isDropdownMode = false;
         text.text = message;
         _callBack = callback;
@@ -64,21 +75,21 @@ public class UI_InputBox : MonoBehaviour
 
     public void Ok()
     {
-        if (isDropdownMode)
-        {
-            // ドロップダウンモードの場合は選択された値を返す
-            _callBack(addPartsList.options[addPartsList.value].text);
-        }
-        else
-        {
-            // 通常モードの場合は入力フィールドの値を返す
-            _callBack(input.text);
-        }
+        call callback = _callBack;
+        string result = isDropdownMode
+            ? addPartsList.options[addPartsList.value].text
+            : input.text;
+
+        _cancelCallback = null;
         gameObject.SetActive(false);
+        callback?.Invoke(result);
     }
 
     public void cancel()
     {
+        call cancelCallback = _cancelCallback;
+        _cancelCallback = null;
         gameObject.SetActive(false);
+        cancelCallback?.Invoke("");
     }
 }
