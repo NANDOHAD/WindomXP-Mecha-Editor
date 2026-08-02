@@ -40,6 +40,7 @@ public class scriptInterpreter
     bool hasNewSymbols = false;
     public bool HasNewSymbols => hasNewSymbols;
     public bool LogLines { get; set; } = true;
+    public bool LogUnknownSymbols { get; set; } = false;
 
     static void Inc(Dictionary<string, int> dict, string key, ref bool changedFlag)
     {
@@ -100,7 +101,8 @@ public class scriptInterpreter
                 invalidLine++;
                 invalidLines.Add(line);
                 Inc(unknownFunctions, fName0, ref hasNewSymbols);
-                Debug.LogWarning($"[scriptInterpreter] Unknown function: {fName0}");
+                if (LogUnknownSymbols)
+                    Debug.LogWarning($"[scriptInterpreter] Unknown function: {fName0}");
             }
             return;
         }
@@ -140,7 +142,8 @@ public class scriptInterpreter
                         invalidLine++;
                         invalidLines.Add(line);
                         Inc(unknownFunctions, fName, ref hasNewSymbols);
-                        Debug.LogWarning($"[scriptInterpreter] Unknown function: {fName}");
+                        if (LogUnknownSymbols)
+                            Debug.LogWarning($"[scriptInterpreter] Unknown function: {fName}");
                     }
                 }
             }
@@ -162,7 +165,8 @@ public class scriptInterpreter
                 invalidLine++;
                 invalidLines.Add(line);
                 Inc(unknownSetVariables, varName, ref hasNewSymbols);
-                Debug.LogWarning($"[scriptInterpreter] Unknown variable setter: {varName}");
+                if (LogUnknownSymbols)
+                    Debug.LogWarning($"[scriptInterpreter] Unknown variable setter: {varName}");
             }
         }
     }

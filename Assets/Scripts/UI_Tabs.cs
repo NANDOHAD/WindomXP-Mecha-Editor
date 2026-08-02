@@ -22,7 +22,6 @@ public class UI_Tabs : MonoBehaviour
         Tabs[i].SetActive(active);
         if (active == false)
         {
-            ;
             ColorBlock cb = Tabs[i].GetComponent<Button>().colors;
             cb.normalColor = deselected;
             Tabs[i].GetComponent<Button>().colors = cb;
@@ -31,7 +30,6 @@ public class UI_Tabs : MonoBehaviour
     }
     public void select(int i)
     {
-        Debug.Log(i);
         if (ActiveTabs[i])
         {
             for (int j = 0; j < Tabs.Length; j++)

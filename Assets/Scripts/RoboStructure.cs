@@ -119,6 +119,70 @@ public class RoboStructure : MonoBehaviour
         }
     }
 
+    public void buildStructureFromLoaded(RoboStructure source, hod2v0 Robo)
+    {
+        if (source == null)
+            return;
+
+        folder = source.folder;
+        hod = Robo;
+        if (root != null)
+            GameObject.Destroy(root);
+
+        parts.Clear();
+
+        for (int i = 0; i < Robo.parts.Count; i++)
+        {
+            var part = new GameObject(Robo.parts[i].name);
+            if (Robo.parts[i].treeDepth == 0)
+                root = part;
+            parts.Add(part);
+
+            if (i == 0)
+            {
+                ApplyStructureTransform(parts[i].transform, Robo.parts[i]);
+            }
+            else
+            {
+                for (int j = i - 1; j >= 0; j--)
+                {
+                    if (Robo.parts[i].treeDepth - 1 == Robo.parts[j].treeDepth)
+                    {
+                        parts[i].transform.SetParent(parts[j].transform);
+                        ApplyStructureTransform(parts[i].transform, Robo.parts[i]);
+                        break;
+                    }
+                }
+            }
+
+            if (i < source.parts.Count && source.parts[i] != null)
+                CopyRenderComponents(source.parts[i], parts[i]);
+        }
+    }
+
+    static void ApplyStructureTransform(Transform target, hod2v0_Part part)
+    {
+        target.localPosition = part.position;
+        target.localRotation = part.rotation;
+        target.localScale = part.scale;
+    }
+
+    static void CopyRenderComponents(GameObject source, GameObject target)
+    {
+        MeshFilter srcFilter = source.GetComponent<MeshFilter>();
+        MeshRenderer srcRenderer = source.GetComponent<MeshRenderer>();
+        if (srcFilter != null)
+        {
+            MeshFilter dstFilter = target.AddComponent<MeshFilter>();
+            dstFilter.sharedMesh = srcFilter.sharedMesh;
+        }
+        if (srcRenderer != null)
+        {
+            MeshRenderer dstRenderer = target.AddComponent<MeshRenderer>();
+            dstRenderer.sharedMaterials = srcRenderer.sharedMaterials;
+        }
+    }
+
     void ImportModel(GameObject GO, string file)
     {
         if (File.Exists(file))
@@ -126,7 +190,8 @@ public class RoboStructure : MonoBehaviour
             try
             {
                 string Modelpath = Path.GetDirectoryName(file);
-                var scen = Importer.ImportFile(file, Helper.PostProcessStepflags);
+                bool mirrorZ = IsTextFloat32XFile(file);
+                var scen = Importer.ImportFile(file, mirrorZ ? Helper.PostProcessStepflagsForTextFloat32XFile : Helper.PostProcessStepflags);
                 if (scen == null)
                 {
                     //Debug.logWarning($"Failed to import model: {file}. Assimp could not load the file.");
@@ -134,27 +199,31 @@ public class RoboStructure : MonoBehaviour
                 }
 
                 Mesh mesh = new Mesh();
-                mesh.CombineMeshes(scen.Meshes.Select(x => new CombineInstance()
+                List<int> combinedMeshIndices;
+                List<CombineInstance> combineInstances = BuildCombineInstances(scen, file, mirrorZ, out combinedMeshIndices);
+                if (combineInstances.Count == 0)
                 {
-                    mesh = x.ToUnityMesh(),
-                    transform = scen.RootNode.Transform.ToUnityMatrix()
-                }).ToArray(), false);
+                    Debug.LogWarning($"[RoboStructure] 有効なメッシュがありません: {file}");
+                    return;
+                }
+                mesh.CombineMeshes(combineInstances.ToArray(), false);
 
-                Material[] materials = new Material[scen.Meshes.Length];
+                Material[] materials = new Material[combinedMeshIndices.Count];
 
                 for (int index = 0; index < materials.Length; index++)
                 {
+                    int meshIndex = combinedMeshIndices[index];
                     var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
 
-                    if (scen.Meshes[index].MaterialIndex < scen.Materials.Length)
+                    if (scen.Meshes[meshIndex].MaterialIndex < scen.Materials.Length)
                     {
-                        if (scen.Materials[scen.Meshes[index].MaterialIndex] != null)
+                        if (scen.Materials[scen.Meshes[meshIndex].MaterialIndex] != null)
                         {
-                            mat.name = scen.Materials[scen.Meshes[index].MaterialIndex].Name;
-                            var textures = scen.Materials[scen.Meshes[index].MaterialIndex].GetAllTextures();
-                            var color = scen.Materials[scen.Meshes[index].MaterialIndex].ColorDiffuse;
+                            mat.name = scen.Materials[scen.Meshes[meshIndex].MaterialIndex].Name;
+                            var textures = scen.Materials[scen.Meshes[meshIndex].MaterialIndex].GetAllTextures();
+                            var color = scen.Materials[scen.Meshes[meshIndex].MaterialIndex].ColorDiffuse;
                             mat.color = new Color(color.R, color.G, color.B, color.A);
-                            mat.SetFloat("_Glossiness", scen.Materials[scen.Meshes[index].MaterialIndex].ShininessStrength);
+                            mat.SetFloat("_Glossiness", scen.Materials[scen.Meshes[meshIndex].MaterialIndex].ShininessStrength);
 
 
                             if (textures.Length > 0 && File.Exists(Path.Combine(Modelpath, textures[0].FilePath)))
@@ -211,9 +280,13 @@ public class RoboStructure : MonoBehaviour
                 byte[] data3 = System.Text.Encoding.GetEncoding("utf-8").GetBytes(data1);
                 MemoryStream ms = new MemoryStream(data3);
                 Assimp.Scene scen = null;
+                bool mirrorZ = IsTextFloat32Xfile(data1);
                 try
                 {
-                    scen = Importer.ImportFileFromStream(ms, Helper.PostProcessStepflags, "x");
+                    Assimp.PostProcessSteps importFlags = mirrorZ
+                        ? Helper.PostProcessStepflagsForTextFloat32XFile
+                        : Helper.PostProcessStepflags;
+                    scen = Importer.ImportFileFromStream(ms, importFlags, "x");
                 }
                 catch (System.Exception e)
                 {
@@ -232,85 +305,78 @@ public class RoboStructure : MonoBehaviour
                 
                 try
                 {
-                    mesh.CombineMeshes(scen.Meshes.Select(x => {
-                        var transform = scen.RootNode.Transform;
-                        // 変換行列から負の値をチェックし、必要に応じて調整
-                        if (transform.A1 < 0 || transform.A2 < 0 || transform.A3 < 0 ||
-                            transform.B1 < 0 || transform.B2 < 0 || transform.B3 < 0 ||
-                            transform.C1 < 0 || transform.C2 < 0 || transform.C3 < 0)
+                    List<int> combinedMeshIndices;
+                    List<CombineInstance> combineInstances = BuildCombineInstances(scen, file, mirrorZ, out combinedMeshIndices);
+                    if (combineInstances.Count == 0)
+                    {
+                        Debug.LogWarning($"[RoboStructure] 有効なメッシュがありません: {file}");
+                        return;
+                    }
+                    mesh.CombineMeshes(combineInstances.ToArray(), false);
+
+                    Material[] materials = new Material[combinedMeshIndices.Count];
+
+                    for (int index = 0; index < materials.Length; index++)
+                    {
+                        int meshIndex = combinedMeshIndices[index];
+                        var mat = new Material(Shader.Find("Standard"));
+                        if (mat == null)
                         {
-                            // 負の値が含まれている場合は単位行列を使用
-                            transform = Assimp.Matrix4x4.Identity;
+                            //Debug.logError($"Shader not found for material: {file}");
+                            return;
                         }
 
-                        return new CombineInstance()
+                        if (scen.Meshes[meshIndex].MaterialIndex < scen.Materials.Length)
                         {
-                            mesh = x.ToUnityMesh(),
-                            transform = transform.ToUnityMatrix()
-                        };
-                    }).ToArray(), false);
+                            if (scen.Materials[scen.Meshes[meshIndex].MaterialIndex] != null)
+                            {
+                                mat.name = scen.Materials[scen.Meshes[meshIndex].MaterialIndex].Name;
+                                var textures = scen.Materials[scen.Meshes[meshIndex].MaterialIndex].GetAllTextures();
+                                var color = scen.Materials[scen.Meshes[meshIndex].MaterialIndex].ColorDiffuse;
+                                mat.color = new Color(color.R, color.G, color.B, color.A);
+                                mat.SetFloat("_Glossiness", scen.Materials[scen.Meshes[meshIndex].MaterialIndex].ShininessStrength);
+
+                                // シェーダーが設定されていない場合、デフォルトのシェーダーを割り当てる
+                                if (string.IsNullOrEmpty(mat.shader.name) || mat.shader == null)
+                                {
+                                    //Debug.logWarning($"Shader not set for material: {mat.name}. Assigning default shader.");
+                                    mat.shader = Shader.Find("Standard"); // デフォルトのシェーダーを設定
+                                }
+
+                                if (textures.Length > 0 && File.Exists(Path.Combine(Modelpath, textures[0].FilePath)))
+                                {
+                                    try
+                                    {
+                                        mat.mainTexture = Helper.LoadTextureEncrypted(Path.Combine(Modelpath, textures[0].FilePath), ref transcoder);
+                                    }
+                                    catch (System.Exception e)
+                                    {
+                                        Debug.LogWarning($"[RoboStructure] テクスチャ読み込みに失敗しました: {file} ({e.Message})");
+                                    }
+                                }
+                                else
+                                {
+                                    //Debug.logWarning($"No textures found for material index {scen.Meshes[index].MaterialIndex}");
+                                }
+                            }
+                        }
+                        else
+                        {
+                            //Debug.logWarning($"Invalid material index for mesh {index}: {scen.Meshes[index].MaterialIndex}");
+                        }
+
+                        materials[index] = mat;
+                    }
+
+                    GO.AddComponent<MeshFilter>().mesh = mesh;
+                    //part.AddComponent<MeshCollider>().sharedMesh = mesh;
+                    GO.AddComponent<MeshRenderer>().materials = materials;
                 }
                 catch (System.Exception e)
                 {
                     Debug.LogWarning($"[RoboStructure] メッシュ結合に失敗しました: {file} ({e.Message})");
                     return;
                 }
-                
-                Material[] materials = new Material[scen.Meshes.Length];
-
-                for (int index = 0; index < materials.Length; index++)
-                {
-                    var mat = new Material(Shader.Find("Standard"));
-                    if (mat == null)
-                    {
-                        //Debug.logError($"Shader not found for material: {file}");
-                        return;
-                    }
-
-                    if (scen.Meshes[index].MaterialIndex < scen.Materials.Length)
-                    {
-                        if (scen.Materials[scen.Meshes[index].MaterialIndex] != null)
-                        {
-                            mat.name = scen.Materials[scen.Meshes[index].MaterialIndex].Name;
-                            var textures = scen.Materials[scen.Meshes[index].MaterialIndex].GetAllTextures();
-                            var color = scen.Materials[scen.Meshes[index].MaterialIndex].ColorDiffuse;
-                            mat.color = new Color(color.R, color.G, color.B, color.A);
-                            mat.SetFloat("_Glossiness", scen.Materials[scen.Meshes[index].MaterialIndex].ShininessStrength);
-
-                            // シェーダーが設定されていない場合、デフォルトのシェーダーを割り当てる
-                            if (string.IsNullOrEmpty(mat.shader.name) || mat.shader == null)
-                            {
-                                //Debug.logWarning($"Shader not set for material: {mat.name}. Assigning default shader.");
-                                mat.shader = Shader.Find("Standard"); // デフォルトのシェーダーを設定
-                            }
-
-                            if (textures.Length > 0 && File.Exists(Path.Combine(Modelpath, textures[0].FilePath)))
-                            {
-                                try
-                                {
-                                    mat.mainTexture = Helper.LoadTextureEncrypted(Path.Combine(Modelpath, textures[0].FilePath), ref transcoder);
-                                }
-                                catch (System.Exception e)
-                                {
-                                    Debug.LogWarning($"[RoboStructure] テクスチャ読み込みに失敗しました: {file} ({e.Message})");
-                                }
-                            }
-                            else
-                            {
-                                //Debug.logWarning($"No textures found for material index {scen.Meshes[index].MaterialIndex}");
-                            }
-                        }
-                    }
-                    else
-                    {
-                        //Debug.logWarning($"Invalid material index for mesh {index}: {scen.Meshes[index].MaterialIndex}");
-                    }
-
-                    materials[index] = mat;
-                }
-                GO.AddComponent<MeshFilter>().mesh = mesh;
-                //part.AddComponent<MeshCollider>().sharedMesh = mesh; 
-                GO.AddComponent<MeshRenderer>().materials = materials;
             }
             else
             {
@@ -325,8 +391,73 @@ public class RoboStructure : MonoBehaviour
     }
 
 
+    static List<CombineInstance> BuildCombineInstances(Assimp.Scene scen, string file, bool mirrorZ, out List<int> combinedMeshIndices)
+    {
+        combinedMeshIndices = new List<int>();
+        List<CombineInstance> combineInstances = new List<CombineInstance>();
+        if (scen == null || scen.Meshes == null)
+            return combineInstances;
+
+        if (scen.RootNode != null)
+            AddNodeMeshes(scen, scen.RootNode, Assimp.Matrix4x4.Identity, file, mirrorZ, combineInstances, combinedMeshIndices);
+
+        return combineInstances;
+    }
+
+    static void AddNodeMeshes(Assimp.Scene scen, Assimp.Node node, Assimp.Matrix4x4 parentTransform, string file, bool mirrorZ, List<CombineInstance> combineInstances, List<int> combinedMeshIndices)
+    {
+        if (node == null)
+            return;
+
+        Assimp.Matrix4x4 nodeTransform = parentTransform * node.Transform;
+        Matrix4x4 unityTransform = nodeTransform.ToUnityMatrix();
+        if (mirrorZ)
+            unityTransform = MirrorZTransform(unityTransform);
+
+        if (node.HasMeshes && node.MeshIndices != null)
+        {
+            foreach (int meshIndex in node.MeshIndices)
+            {
+                if (meshIndex < 0 || meshIndex >= scen.Meshes.Length)
+                    continue;
+
+                Assimp.Mesh sourceMesh = scen.Meshes[meshIndex];
+                try
+                {
+                    Mesh unityMesh = sourceMesh.ToUnityMesh(mirrorZ);
+                    combineInstances.Add(new CombineInstance()
+                    {
+                        mesh = unityMesh,
+                        transform = unityTransform
+                    });
+                    combinedMeshIndices.Add(meshIndex);
+                }
+                catch (Exception e)
+                {
+                    string meshName = sourceMesh != null ? sourceMesh.Name : $"#{meshIndex}";
+                    Debug.LogWarning($"[RoboStructure] サブメッシュをスキップしました: {Path.GetFileName(file)} / {meshName} ({e.Message})");
+                }
+            }
+        }
+
+        if (!node.HasChildren || node.Children == null)
+            return;
+
+        foreach (Assimp.Node child in node.Children)
+            AddNodeMeshes(scen, child, nodeTransform, file, mirrorZ, combineInstances, combinedMeshIndices);
+    }
+
+    static Matrix4x4 MirrorZTransform(Matrix4x4 transform)
+    {
+        Matrix4x4 mirror = Matrix4x4.Scale(new Vector3(1.0f, 1.0f, -1.0f));
+        return mirror * transform * mirror;
+    }
+
+
     public string XfileStringConverter(string data)
     {
+        bool preserveFrameTransformSigns = IsTextFloat32Xfile(data);
+
         if (!data.Trim().EndsWith("}"))
         {
             //Debug.log("文字化けを確認しました");
@@ -338,6 +469,10 @@ public class RoboStructure : MonoBehaviour
             data += "}"; // 新たに波括弧
             //Debug.log("文字化けを対応しました。");
         }
+
+        if (preserveFrameTransformSigns)
+            return data;
+
         // FrameTransformMatrixの部分を探す正規表現        
         string pattern = @"FrameTransformMatrix\s*{([^}]*)}";
         MatchCollection matches = Regex.Matches(data, pattern, RegexOptions.Singleline);
@@ -378,6 +513,28 @@ public class RoboStructure : MonoBehaviour
 
 
         return data;
+    }
+
+    static bool IsTextFloat32Xfile(string data)
+    {
+        if (string.IsNullOrEmpty(data))
+            return false;
+
+        return Regex.IsMatch(data, @"\A\uFEFF?\s*xof\s+\d{4}txt\s+0032", RegexOptions.IgnoreCase);
+    }
+
+    static bool IsTextFloat32XFile(string file)
+    {
+        try
+        {
+            if (File.Exists(file) && IsTextFloat32Xfile(File.ReadAllText(file)))
+                return true;
+        }
+        catch
+        {
+        }
+
+        return false;
     }
 
 
@@ -512,7 +669,6 @@ public class RoboStructure : MonoBehaviour
             ReportBlockedStructureEdit(warning);
             return;
         }
-
         if (ani != null)
         {
             ani.addPart(partName, parent);
@@ -562,7 +718,6 @@ public class RoboStructure : MonoBehaviour
             ReportBlockedStructureEdit(warning);
             return false;
         }
-
         if (ani != null)
         {
             if (ani.removePart(index))

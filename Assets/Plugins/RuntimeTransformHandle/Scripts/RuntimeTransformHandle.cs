@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 using UnityEngine.Events;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
@@ -35,6 +35,7 @@ namespace RuntimeHandle
         private PositionHandle _positionHandle;
         private RotationHandle _rotationHandle;
         private ScaleHandle _scaleHandle;
+        private readonly RaycastHit[] _raycastHits = new RaycastHit[32];
 
         public Transform target;
 
@@ -87,7 +88,7 @@ namespace RuntimeHandle
 
         void Update()
         {
-            if (autoScale)
+            if (autoScale && handleCamera != null)
                 transform.localScale =
                     Vector3.one * (Vector3.Distance(handleCamera.transform.position, transform.position) * autoScaleFactor) / 15;
 
@@ -173,6 +174,12 @@ namespace RuntimeHandle
             return Input.mousePosition;
 #endif
         }
+        public Camera GetHandleCamera()
+        {
+            if (handleCamera == null)
+                handleCamera = Camera.main;
+            return handleCamera;
+        }
 
         void HandleOverEffect(HandleBase p_axis, Vector3 p_hitPoint)
         {
@@ -191,13 +198,22 @@ namespace RuntimeHandle
 
         private void GetHandle(ref HandleBase p_handle, ref Vector3 p_hitPoint)
         {
-            Ray ray = Camera.main.ScreenPointToRay(GetMousePosition());
-            RaycastHit[] hits = Physics.RaycastAll(ray);
-            if (hits.Length == 0)
+            Camera camera = handleCamera;
+            if (camera == null)
+            {
+                camera = GetHandleCamera();
+            }
+            if (camera == null)
                 return;
 
-            foreach (RaycastHit hit in hits)
+            Ray ray = camera.ScreenPointToRay(GetMousePosition());
+            int hitCount = Physics.RaycastNonAlloc(ray, _raycastHits);
+            if (hitCount == 0)
+                return;
+
+            for (int i = 0; i < hitCount; i++)
             {
+                RaycastHit hit = _raycastHits[i];
                 p_handle = hit.collider.gameObject.GetComponentInParent<HandleBase>();
 
                 if (p_handle != null)

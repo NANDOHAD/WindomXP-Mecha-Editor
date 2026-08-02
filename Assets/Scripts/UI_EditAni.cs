@@ -80,7 +80,6 @@ public class UI_EditAni : MonoBehaviour
         {
             // 新しい名前を設定
             robo.ani.animations[selectedIndex].name = newName;
-            Debug.Log("アニメーション名が変更されました: " + newName);
             
             // アニメーションリストを再表示する場合はここで呼び出す
             populateAnimationList();

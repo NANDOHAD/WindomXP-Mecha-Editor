@@ -38,7 +38,6 @@ public class UI_SPT : MonoBehaviour
         {
             SPTField.text = "";
             LastSptData = null;
-            Debug.Log($"[UI_SPT] Script.spt が見つかりません: {sptPath}");
             return;
         }
 
@@ -81,16 +80,11 @@ public class UI_SPT : MonoBehaviour
         {
             // フォールバック: シーン内の AniScriptRuntime を自動検索
             runtime = FindObjectOfType<AniScriptRuntime>();
-            if (runtime != null)
-                Debug.Log("[UI_SPT] AniScriptRuntime をシーンから自動検索で見つけました。" +
-                          " Inspector の mechaAnimator フィールドに設定すると検索コストを省けます。");
         }
 
         if (runtime != null)
         {
             runtime.sptData = data;
-            Debug.Log($"[UI_SPT] SptRuntimeData を AniScriptRuntime へ渡しました。" +
-                      $" BURNERSETエントリ数: {data.BurnerSets.Count}");
         }
         else
         {

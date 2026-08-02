@@ -109,11 +109,9 @@ public class MA_Runner
 }
 
 public class MechaAnimator : MonoBehaviour
-{   
+{
     [Header("Play Data")]
     public bool play = false;
-    float fps = 1f / 30f;
-    float time = 0;
     public MA_Runner runner;
     public MA_Runner prevRunner;
     public float transition = 0;
@@ -122,10 +120,11 @@ public class MechaAnimator : MonoBehaviour
     public RoboStructure structure;
 
     [Header("ANI Script")]
-    public bool logAniScripts = true;
+    public bool logAniScripts = false;
     public bool executeAniScripts = false;
     public bool logScriptLines = false;
-    public bool dumpSymbolsToFile = true;
+    public bool logUnknownScriptSymbols = false;
+    public bool dumpSymbolsToFile = false;
     public string dumpFileName = "ani_script_symbols_report.txt";
     scriptInterpreter interpreter;
     AniScriptRuntime runtime;
@@ -148,42 +147,37 @@ public class MechaAnimator : MonoBehaviour
         if (play && runner != null && !runner.animeEnd)
         {
 
-            time += Time.deltaTime;
-            if (time >= fps)
+            // Fixed Timestep 0.02秒をANI 1 tickとして扱い、ゲーム互換の50Hzで進める。
+            runner.Update();
+
+            FireAniScriptsIfNeeded();
+
+            //interpolate between current frame and next frame
+            if (runner.frameIndex < runner.anim[0].frames.Count - 1)
             {
-                //isUpdated = true;
-                time = 0;
-                runner.Update();
-
-                FireAniScriptsIfNeeded();
-
-                //interpolate between current frame and next frame
-                if (runner.frameIndex < runner.anim[0].frames.Count - 1)
+                for (int i = 1; i < structure.parts.Count; i++)
                 {
-                    for (int i = 1; i < structure.parts.Count; i++)
+                    GameObject go = structure.parts[i];
+                    if (go != null)
                     {
-                        GameObject go = structure.parts[i];
-                        if (go != null)
+                        hod2v1_Part mt = new hod2v1_Part();
+                        if (prevRunner != null && transition < 1)
                         {
-                            hod2v1_Part mt = new hod2v1_Part();
-                            if (prevRunner != null && transition < 1)
-                            {
-                                mt = InterpolateTransform(prevRunner.getMT(i), runner.getMT(i), transition);
-                            }else{
-                                mt = runner.getMT(i);
-                            }
-                            go.transform.localPosition = mt.position;
-                            go.transform.localRotation = mt.rotation;
-                            go.transform.localScale = mt.scale;
-                            if (mt.scale.x + mt.scale.y + mt.scale.z < 0.05){
-                                //Debug.Log("Bug: " + go.name);
-                            }
-                            
+                            mt = InterpolateTransform(prevRunner.getMT(i), runner.getMT(i), transition);
+                        }else{
+                            mt = runner.getMT(i);
                         }
+                        go.transform.localPosition = mt.position;
+                        go.transform.localRotation = mt.rotation;
+                        go.transform.localScale = mt.scale;
+                        if (mt.scale.x + mt.scale.y + mt.scale.z < 0.05){
+                            //Debug.Log("Bug: " + go.name);
+                        }
+
                     }
-                    if (prevRunner != null && transition < 1)
-                        transition += transitionSpeed;
                 }
+                if (prevRunner != null && transition < 1)
+                    transition += transitionSpeed;
             }
             //else
             //	isUpdated = false;
@@ -215,13 +209,15 @@ public class MechaAnimator : MonoBehaviour
             var text = a.scripts[idx].squirrel;
 
             // BURNER ループ型: スクリプトブロック切り替わりのたびに要求セットをリセット
-            runtime?.BurnerFrameReset();
+            if (executeAniScripts)
+                runtime?.BurnerFrameReset();
 
             if (!string.IsNullOrEmpty(text))
                 HandleScriptText(a.name, idx, text);
 
             // スクリプト実行後、要求されたバーナーのみ Play / 他を Stop
-            runtime?.BurnerFrameApply();
+            if (executeAniScripts)
+                runtime?.BurnerFrameApply();
         }
     }
 
@@ -233,43 +229,48 @@ public class MechaAnimator : MonoBehaviour
             Debug.Log($"[ANI_SCRIPT] {animName} {header}\n{scriptText}");
         }
 
-        // まずは「実行せず解析だけ」してシンボルを収集
+        if (!dumpSymbolsToFile && !executeAniScripts)
+            return;
+
         if (interpreter == null)
             interpreter = new scriptInterpreter();
-        try
-        {
-            interpreter.LogLines = false;
-            interpreter.runScript(scriptText, invokeCallbacks: false);
-        }
-        catch (System.Exception ex)
-        {
-            Debug.LogWarning($"[ANI_SCRIPT] Scan failed: {ex.Message}");
-        }
 
-        if (dumpSymbolsToFile && interpreter != null && interpreter.HasNewSymbols)
+        if (dumpSymbolsToFile)
         {
             try
             {
-                var path = Path.Combine(Application.persistentDataPath, dumpFileName);
-                File.WriteAllText(path, interpreter.BuildReport());
-                Debug.Log($"[ANI_SCRIPT] Symbols report updated: {path}");
+                interpreter.LogLines = false;
+                interpreter.LogUnknownSymbols = logUnknownScriptSymbols;
+                interpreter.runScript(scriptText, invokeCallbacks: false);
             }
             catch (System.Exception ex)
             {
-                Debug.LogWarning($"[ANI_SCRIPT] Failed to write symbols report: {ex.Message}");
+                Debug.LogWarning($"[ANI_SCRIPT] Scan failed: {ex.Message}");
+            }
+
+            if (interpreter.HasNewSymbols)
+            {
+                try
+                {
+                    var path = Path.Combine(Application.persistentDataPath, dumpFileName);
+                    File.WriteAllText(path, interpreter.BuildReport());
+                    if (logAniScripts)
+                        Debug.Log($"[ANI_SCRIPT] Symbols report updated: {path}");
+                }
+                catch (System.Exception ex)
+                {
+                    Debug.LogWarning($"[ANI_SCRIPT] Failed to write symbols report: {ex.Message}");
+                }
             }
         }
 
         if (!executeAniScripts)
             return;
 
-        if (interpreter == null)
-            interpreter = new scriptInterpreter();
-
-        // scriptInterpreterは各行をDebug.Logするので、必要なら一時的に抑制
         try
         {
             interpreter.LogLines = logScriptLines;
+            interpreter.LogUnknownSymbols = logUnknownScriptSymbols;
             interpreter.runScript(scriptText, invokeCallbacks: true);
         }
         catch (System.Exception ex)

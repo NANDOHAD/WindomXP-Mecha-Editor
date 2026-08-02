@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -33,10 +33,18 @@ public class CypherTranscoder
     public bool findCypher(string name)
     {
         FileInfo fi = new FileInfo(name);
-        byte[] bytes = File.ReadAllBytes(name);
-        //check if encrypted
+        if (fi.Length < 4)
+            return false;
+
+        byte[] bytes = new byte[4];
+        using (FileStream fs = File.OpenRead(name))
+        {
+            if (fs.Read(bytes, 0, bytes.Length) != bytes.Length)
+                return false;
+        }
+
         uint signature = BitConverter.ToUInt32(bytes, 0);
-            
+
         for (int i = 0; i < filetypes.Count; i++)
         {
             if (filetypes[i].fileExt == fi.Extension)
@@ -56,22 +64,16 @@ public class CypherTranscoder
 
     public byte[] Transcode(string name)
     {
-        //Debug.log($"Starting transcoding for file: {name}");
-        
         byte[] bytes = File.ReadAllBytes(name);
-        //Debug.log($"Read {bytes.Length} bytes from file: {name}");
+        byte[] cypherBytes = BitConverter.GetBytes(cypher);
+        int fullBlocks = bytes.Length / 4;
 
-        for (int i = 0; i < bytes.Length; i += 4)
+        for (int i = 0; i < fullBlocks * 4; i += 4)
         {
-            byte[] cypherBytes = BitConverter.GetBytes(cypher);
             for (int b = 0; b < cypherBytes.Length; b++)
-            {
-                if (i + 3 < bytes.Length)
-                    bytes[i + b] ^= cypherBytes[b];
-            }
+                bytes[i + b] ^= cypherBytes[b];
         }
 
-        //Debug.log($"Completed transcoding for file: {name}");
         return bytes;
     }
 
@@ -96,4 +98,3 @@ public class CypherTranscoder
         return bytes;
     }
 }
-

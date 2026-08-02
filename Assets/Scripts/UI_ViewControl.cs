@@ -38,6 +38,11 @@ public class UI_ViewControl : MonoBehaviour
 
     public void ModeSelect(int id)
     {
+        if (GetComponent<TestPlayController>() != null)
+        {
+            GetComponent<TestPlayController>().playModeActive = (id == 2);
+        }
+
         switch (id)
         {
             case 0:
@@ -53,6 +58,13 @@ public class UI_ViewControl : MonoBehaviour
                 SelectMode(false);
                 break;
             case 2:
+                EditMode(false);
+                
+                if (PrevPanel != null)
+                    PreviewMode(false);
+                SelectMode(false);
+                break;
+            case 3:
                 EditMode(false);
                 if (PrevPanel != null)
                     PreviewMode(false);
@@ -97,7 +109,6 @@ public class UI_ViewControl : MonoBehaviour
     public void saveSettings()
     {
         string folder = SelectPanel.GetComponent<UI_SelectMech>().folder;
-        Debug.Log(folder);
         StreamWriter sw = new StreamWriter("Settings.txt");
         sw.WriteLine(folder);
         sw.Close();

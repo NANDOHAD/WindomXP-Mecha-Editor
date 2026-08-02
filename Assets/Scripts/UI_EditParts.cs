@@ -1,9 +1,11 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using UnityEngine;
 using UnityEngine.UI;
 using RuntimeHandle;
+
 public class UI_EditParts : MonoBehaviour
 {
     public RoboStructure robo;
@@ -38,7 +40,7 @@ public class UI_EditParts : MonoBehaviour
     public bool lockHandle = false;
     public bool disableGOUpdates = false;
     public Toggle syncContraints;
-    
+
     [Header("Copy/Paste")]
     public hod2v1 cpHod;
     public bool[] cpSelected;
@@ -51,27 +53,32 @@ public class UI_EditParts : MonoBehaviour
     public UI_MsgBox msgBox;
     public UI_InputBox inputBox;
     public UI_InputBox kakuninBox;
-    // Start is called before the first frame update
-    void Start()
+
+    void OnEnable()
     {
-        
+        if (handle != null)
+            handle.isDraggingHandle.AddListener(OnHandleDragging);
     }
 
-    // Update is called once per frame
+    void OnDisable()
+    {
+        if (handle != null)
+            handle.isDraggingHandle.RemoveListener(OnHandleDragging);
+    }
+
     void Update()
     {
-        if (!disableGOUpdates &&
-            robo != null &&
-            robo.ani != null &&
-            ea != null &&
-            ea.cAnim != null &&
-            ea.cAnim.frames != null &&
-            ea.cAnim.frames.Count > 0 &&
-            Input.GetMouseButton(0))
-        {
-            TransformTextUpdate();
-            robo.updatePart(ea.animDD.value, ea.hodDD.value, index, syncContraints.isOn);
-        }
+    }
+
+    void OnHandleDragging()
+    {
+        if (disableGOUpdates || robo == null || robo.ani == null || ea == null || ea.cAnim == null ||
+            ea.cAnim.frames == null || ea.cAnim.frames.Count == 0)
+            return;
+
+        TransformTextUpdate();
+        bool sync = syncContraints == null || syncContraints.isOn;
+        robo.updatePart(ea.animDD.value, ea.hodDD.value, index, sync);
     }
 
     public void PopulatePartsList()
@@ -82,13 +89,14 @@ public class UI_EditParts : MonoBehaviour
             string offset = "";
             for (int j = 0; j < robo.hod.parts[i].treeDepth; j++)
                 offset += "   ";
-            addItem(robo.parts[i],offset + "|_" + robo.parts[i].name);
+            addItem(robo.parts[i], offset + "|_" + robo.parts[i].name);
         }
     }
 
     public void SelectedIndexChanged(int _index)
     {
-        handle.target = robo.parts[_index].transform;
+        if (handle != null)
+            handle.target = robo.parts[_index].transform;
         if (index == _index)
             return;
 
@@ -111,14 +119,8 @@ public class UI_EditParts : MonoBehaviour
                 range[1] = index;
             }
 
-
             for (int i = 0; i < list.Count; i++)
-            {
-                if (i >= range[0] && i <= range[1])
-                    selected[i] = true;
-                else
-                    selected[i] = false;
-            }
+                selected[i] = i >= range[0] && i <= range[1];
 
             index = _index;
         }
@@ -126,42 +128,34 @@ public class UI_EditParts : MonoBehaviour
         {
             index = _index;
             for (int i = 0; i < list.Count; i++)
-            {
-                if (_index == i)
-                    selected[i] = true;
-                else
-                    selected[i] = false;
-            }
+                selected[i] = _index == i;
         }
 
         for (int i = 0; i < list.Count; i++)
         {
             ColorBlock cb = items[i].GetComponent<Button>().colors;
-            if (selected[i])
-                cb.normalColor = selectedColor;
-            else
-                cb.normalColor = deselectedColor;
+            cb.normalColor = selected[i] ? selectedColor : deselectedColor;
             items[i].GetComponent<Button>().colors = cb;
         }
         TransformTextUpdate();
-        UpdateSelectedPartsText(); // 追加: 選択されたパーツのテキストを更新
+        UpdateSelectedPartsText();
     }
 
     private void UpdateSelectedPartsText()
     {
-        string selectedNames = "";
+        if (selectedPartsText == null)
+            return;
+
+        StringBuilder sb = new StringBuilder();
         for (int i = 0; i < selected.Count; i++)
         {
-            if (selected[i])
-            {
-                selectedNames += robo.parts[i].name + ", ";
-            }
+            if (!selected[i])
+                continue;
+            if (sb.Length > 0)
+                sb.Append(", ");
+            sb.Append(robo.parts[i].name);
         }
-        if (selectedNames.Length > 0)
-        {
-            selectedNames = selectedNames.Substring(0, selectedNames.Length - 2); // 末尾の ", " を削除
-        }
-        selectedPartsText.text = selectedNames;
+        SetTextIfChanged(selectedPartsText, sb.ToString());
     }
 
     public void clear()
@@ -195,14 +189,12 @@ public class UI_EditParts : MonoBehaviour
     public void PositionCursor()
     {
         handle.type = HandleType.POSITION;
-
     }
 
     public void RotationCursor()
     {
         handle.type = HandleType.ROTATION;
     }
-
 
     public void HundleChange(int s)
     {
@@ -224,6 +216,7 @@ public class UI_EditParts : MonoBehaviour
         space = (Space)s;
         TransformTextUpdate();
     }
+
     public void TransformTextUpdate()
     {
         if (robo == null || robo.parts == null || robo.parts.Count == 0)
@@ -231,38 +224,47 @@ public class UI_EditParts : MonoBehaviour
         if (index < 0 || index >= robo.parts.Count)
             index = 0;
 
+        Transform tr = robo.parts[index].transform;
+        Vector3 position;
+        Vector3 euler;
         if (space == Space.Self)
         {
-            PosX.text = robo.parts[index].transform.localPosition.x.ToString();
-            PosY.text = robo.parts[index].transform.localPosition.y.ToString();
-            PosZ.text = robo.parts[index].transform.localPosition.z.ToString();
-            RotX.text = robo.parts[index].transform.localRotation.eulerAngles.x.ToString();
-            RotY.text = robo.parts[index].transform.localRotation.eulerAngles.y.ToString();
-            RotZ.text = robo.parts[index].transform.localRotation.eulerAngles.z.ToString();
-            
+            position = tr.localPosition;
+            euler = tr.localRotation.eulerAngles;
         }
         else
         {
-            PosX.text = robo.parts[index].transform.position.x.ToString();
-            PosY.text = robo.parts[index].transform.position.y.ToString();
-            PosZ.text = robo.parts[index].transform.position.z.ToString();
-            RotX.text = robo.parts[index].transform.rotation.eulerAngles.x.ToString();
-            RotY.text = robo.parts[index].transform.rotation.eulerAngles.y.ToString();
-            RotZ.text = robo.parts[index].transform.rotation.eulerAngles.z.ToString();
-            
-
+            position = tr.position;
+            euler = tr.rotation.eulerAngles;
         }
 
-        ScaleX.text = robo.parts[index].transform.localScale.x.ToString();
-        ScaleY.text = robo.parts[index].transform.localScale.y.ToString();
-        ScaleZ.text = robo.parts[index].transform.localScale.z.ToString();
+        SetTextIfChanged(PosX, position.x.ToString());
+        SetTextIfChanged(PosY, position.y.ToString());
+        SetTextIfChanged(PosZ, position.z.ToString());
+        SetTextIfChanged(RotX, euler.x.ToString());
+        SetTextIfChanged(RotY, euler.y.ToString());
+        SetTextIfChanged(RotZ, euler.z.ToString());
+        SetTextIfChanged(ScaleX, tr.localScale.x.ToString());
+        SetTextIfChanged(ScaleY, tr.localScale.y.ToString());
+        SetTextIfChanged(ScaleZ, tr.localScale.z.ToString());
 
         if (robo.ani != null && ea != null && ea.cAnim != null)
             ea.setConstraintText();
-
     }
 
-    public void TransformValueUpdate() //sync the data from the text boxes into the part selected
+    static void SetTextIfChanged(Text text, string value)
+    {
+        if (text != null && text.text != value)
+            text.text = value;
+    }
+
+    static void SetTextIfChanged(InputField field, string value)
+    {
+        if (field != null && field.text != value)
+            field.text = value;
+    }
+
+    public void TransformValueUpdate()
     {
         if (!disableGOUpdates)
         {
@@ -274,7 +276,6 @@ public class UI_EditParts : MonoBehaviour
             {
                 prt.position = position;
             }
-
 
             Vector3 euler = new Vector3();
             if (float.TryParse(RotX.text, out euler.x) &&
@@ -293,8 +294,6 @@ public class UI_EditParts : MonoBehaviour
                 robo.updatePart(ea.animDD.value, ea.hodDD.value, index, prt, space);
             else
                 robo.updatePart(index, prt, space);
-            
-
         }
     }
 
@@ -303,7 +302,6 @@ public class UI_EditParts : MonoBehaviour
         cpHod = robo.createHod2v1();
         cpIndex = index;
         cpSelected = selected.ToArray();
-
     }
 
     public void pasteValues()
@@ -312,15 +310,12 @@ public class UI_EditParts : MonoBehaviour
             return;
 
         int count = selected.FindAll(x => x == true).Count;
-        Debug.Log(count);
         if (count > 1)
         {
             for (int i = 0; i < list.Count; i++)
             {
                 if (i < cpSelected.Length && i < cpHod.parts.Count && cpSelected[i])
-                {
                     robo.updatePart(i, cpHod.parts[i]);
-                }
             }
         }
         else if (cpIndex >= 0 && cpIndex < cpHod.parts.Count)
@@ -329,8 +324,6 @@ public class UI_EditParts : MonoBehaviour
         }
 
         TransformTextUpdate();
-
-        
     }
 
     public void addParts()
@@ -341,7 +334,6 @@ public class UI_EditParts : MonoBehaviour
             msgBox.Show(warning);
             return;
         }
-
         addPartsPanel.SetActive(true);
         addText.text = robo.hod.parts[index].name  + "の下に新規パーツを追加します。";
         DirectoryInfo di = new DirectoryInfo(robo.folder);
@@ -365,17 +357,8 @@ public class UI_EditParts : MonoBehaviour
             addPartsPanel.SetActive(false);
             return;
         }
-
-        //update internal hod if ani isn't loaded
         robo.addPart(addPartsList.options[addPartsList.value].text, index);
-        if (robo.ani != null)
-        {
-            prevRobo.buildStructure(robo.ani.structure);
-            foreach (GameObject prt in prevRobo.parts)
-            {
-                prt.layer = 7;
-            }
-        }
+        RebuildPrevRoboIfNeeded();
         addPartsPanel.SetActive(false);
         PopulatePartsList();
         if (robo.ani != null && ea != null)
@@ -395,7 +378,6 @@ public class UI_EditParts : MonoBehaviour
             msgBox.Show(warning);
             return;
         }
-
         kakuninBox.openNoTextBoxDialog("選択パーツを削除します。", (string rText) =>
         {
             if (!robo.removePart(index))
@@ -404,15 +386,7 @@ public class UI_EditParts : MonoBehaviour
             }
             else
             {
-                if (robo.ani != null)
-                {
-                    
-                    prevRobo.buildStructure(robo.ani.structure);
-                    foreach (GameObject prt in prevRobo.parts)
-                    {
-                        prt.layer = 7;
-                    }
-                }
+                RebuildPrevRoboIfNeeded();
                 PopulatePartsList();
                 if (robo.ani != null && ea != null)
                     robo.setPose(ea.animDD.value, ea.hodDD.value);
@@ -428,17 +402,20 @@ public class UI_EditParts : MonoBehaviour
                 msgBox.Show("指定名のパーツはフォルダに存在しません。空のパーツと入れ替えます。");
 
             robo.renamePart(index, rText);
-            if (robo.ani != null)
-            {
-                prevRobo.buildStructure(robo.ani.structure);
-                foreach (GameObject prt in prevRobo.parts)
-                {
-                    prt.layer = 7;
-                }
-            }
+            RebuildPrevRoboIfNeeded();
             PopulatePartsList();
             if (robo.ani != null && ea != null)
                 robo.setPose(ea.animDD.value, ea.hodDD.value);
         });
+    }
+
+    void RebuildPrevRoboIfNeeded()
+    {
+        if (robo == null || robo.ani == null || prevRobo == null)
+            return;
+
+        prevRobo.buildStructureFromLoaded(robo, robo.ani.structure);
+        foreach (GameObject prt in prevRobo.parts)
+            prt.layer = 7;
     }
 }

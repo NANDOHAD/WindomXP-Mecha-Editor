@@ -78,68 +78,52 @@ public class UI_SelectMech : MonoBehaviour
 
     public void selectedMech(int value)
     {
-        // キャッシュをクリア
-        ClearTextureCache();
-
         try
         {
             if (RoboDD == null)
             {
-                Debug.LogError("[UI_SelectMech] RoboDD が未設定のため select.png を読み込めません。");
                 return;
             }
 
             if (selectImage == null)
             {
-                Debug.LogError("[UI_SelectMech] selectImage が未設定のため select.png を表示できません。");
                 return;
             }
 
             if (robo == null || robo.transcoder == null)
             {
-                Debug.LogError("[UI_SelectMech] robo または transcoder が未設定のため select.png を復号できません。");
                 return;
             }
 
             if (RoboDD.value < 0 || RoboDD.value >= list.Count)
             {
-                Debug.LogError($"[UI_SelectMech] Dropdown value が範囲外です。value={RoboDD.value}, listCount={list.Count}");
                 return;
             }
 
             string filePath = Path.Combine(folder, list[RoboDD.value], "select.png");
-            Debug.Log($"[UI_SelectMech] select.png 読み込み開始: value={RoboDD.value}, mech='{list[RoboDD.value]}', path='{filePath}'");
             
             // ファイルの存在を確認
             if (File.Exists(filePath))
             {
-                FileInfo fi = new FileInfo(filePath);
-                Debug.Log($"[UI_SelectMech] select.png ファイル確認: length={fi.Length} bytes, material={(selectImage.material != null ? selectImage.material.name : "null")}");
 
-                bool foundCypher = robo.transcoder.findCypher(filePath);
-                Debug.Log($"[UI_SelectMech] select.png 復号キー検出: found={foundCypher}, cypher=0x{robo.transcoder.cypher:X8}");
+                robo.transcoder.findCypher(filePath);
 
                 Texture2D tex = Helper.LoadTextureEncrypted(filePath, ref robo.transcoder);
                 if (tex == null)
                 {
-                    Debug.LogError($"[UI_SelectMech] select.png の Texture2D 生成に失敗しました。path='{filePath}'");
                     return;
                 }
 
-                Debug.Log($"[UI_SelectMech] select.png Texture2D 生成成功: name='{tex.name}', width={tex.width}, height={tex.height}, format={tex.format}");
 
                 Sprite st = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0, 0));
                 selectImage.sprite = st;
-                Debug.Log($"[UI_SelectMech] select.png Sprite 反映完了: sprite='{st.name}', imageEnabled={selectImage.enabled}, imageColor={selectImage.color}, preserveAspect={selectImage.preserveAspect}");
             }
             else
             {
-                Debug.LogWarning($"[UI_SelectMech] select.png ファイルが見つかりません。path='{filePath}'");
             }
         }
         catch (Exception ex)
         {
-            Debug.LogError($"[UI_SelectMech] select.png の読み込み中に例外が発生しました: {ex.Message}\n{ex.StackTrace}");
         }
     }
 
@@ -165,11 +149,7 @@ public class UI_SelectMech : MonoBehaviour
             // ローディング表示を終了 (例: ローディングUIを非アクティブにする)
             loadingUI.SetActive(false);
             }
-            editParts.PopulatePartsList();
-            this.gameObject.SetActive(false);
-            vc.Menu.SetActive(true);
-            vc.EditMode(true);
-            prefPanel.SetActive(false);
+
         }
     }
     private async Task LoadDataAsync(string name)
@@ -198,12 +178,13 @@ public class UI_SelectMech : MonoBehaviour
         {
             robo.ani = ani;
             robo.filename = name;
-            prevRobo.folder = robo.folder;
-            prevRobo.buildStructure(ani.structure);
-            foreach (GameObject prt in prevRobo.parts)
+            if (prevRobo != null)
             {
-                prt.layer = 7;
+                prevRobo.buildStructureFromLoaded(robo, ani.structure);
+                foreach (GameObject prt in prevRobo.parts)
+                    prt.layer = 7;
             }
+
             saveAni.SetActive(true);
             saveHod.SetActive(false);
             editAni.populateAnimationList();

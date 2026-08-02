@@ -58,7 +58,7 @@ namespace RuntimeHandle
 
         public override void Interact(Vector3 p_previousPosition)
         {
-            Ray cameraRay = Camera.main.ScreenPointToRay(RuntimeTransformHandle.GetMousePosition());
+            Ray cameraRay = _parentTransformHandle.GetHandleCamera().ScreenPointToRay(RuntimeTransformHandle.GetMousePosition());
 
             float   closestT = HandleMathUtils.ClosestPointOnRay(_raxisRay, cameraRay);
             Vector3 hitPoint = _raxisRay.GetPoint(closestT);
@@ -100,7 +100,7 @@ namespace RuntimeHandle
             
             _raxisRay = new Ray(_parentTransformHandle.target.position, raxis);
             
-            Ray cameraRay = Camera.main.ScreenPointToRay(RuntimeTransformHandle.GetMousePosition());
+            Ray cameraRay = _parentTransformHandle.GetHandleCamera().ScreenPointToRay(RuntimeTransformHandle.GetMousePosition());
             
             float   closestT = HandleMathUtils.ClosestPointOnRay(_raxisRay, cameraRay);
             Vector3 hitPoint = _raxisRay.GetPoint(closestT);

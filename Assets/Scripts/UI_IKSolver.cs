@@ -15,25 +15,17 @@ public class UI_IKSolver : MonoBehaviour
     public float _Angle = 0;
     public Vector3 Offset = new Vector3(0, 0, 0);
     bool _flip = false;
+    int[] chainPartIndices;
 
-
-
-
-    // Start is called before the first frame update
-    void Start()
-    {
-
-    }
-    // Update is called once per frame
     void Update()
     {
+        if (!isActive || chain == null || chain.Length < 3 || robo == null || ep == null || ep.ea == null)
+            return;
 
-        if (isActive && chain != null)
-        {
-            solve(chain[0], chain[1], chain[2], distAB, distBC, Offset, _Angle, _flip);
-            robo.updateHod(ep.ea.animDD.value, ep.ea.hodDD.value);
+        solve(chain[0], chain[1], chain[2], distAB, distBC, Offset, _Angle, _flip);
+        UpdateChainParts();
+        if (IsSelectedPartInChain())
             ep.TransformTextUpdate();
-        }
     }
 
     public void setChain()
@@ -42,6 +34,9 @@ public class UI_IKSolver : MonoBehaviour
         chain[2] = robo.parts[ep.index];
         chain[1] = chain[2].transform.parent.gameObject;
         chain[0] = chain[1].transform.parent.gameObject;
+        chainPartIndices = new int[3];
+        for (int i = 0; i < chain.Length; i++)
+            chainPartIndices[i] = robo.parts.IndexOf(chain[i]);
         distAB = Vector3.Distance(chain[0].transform.position, chain[1].transform.position);
         distBC = Vector3.Distance(chain[1].transform.position, chain[2].transform.position + Offset);
     }
@@ -60,10 +55,38 @@ public class UI_IKSolver : MonoBehaviour
     {
         _flip = value;
     }
+
+    void UpdateChainParts()
+    {
+        if (chainPartIndices == null || robo.ani == null || ep.ea.cAnim == null)
+            return;
+
+        int animId = ep.ea.animDD.value;
+        int hodId = ep.ea.hodDD.value;
+        for (int i = 0; i < chainPartIndices.Length; i++)
+        {
+            int partIndex = chainPartIndices[i];
+            if (partIndex >= 0)
+                robo.updatePart(animId, hodId, partIndex);
+        }
+    }
+
+    bool IsSelectedPartInChain()
+    {
+        if (chainPartIndices == null)
+            return false;
+        for (int i = 0; i < chainPartIndices.Length; i++)
+        {
+            if (chainPartIndices[i] == ep.index)
+                return true;
+        }
+        return false;
+    }
+
     void solve(GameObject jointA, GameObject jointB, GameObject jointC, float distAB, float distBC, Vector3 offset, float poleAngle, bool flip = false)
     {
         float distAC = Vector3.Distance(jointA.transform.position, jointC.transform.position + offset);
-        
+
         if (distAC < distAB + distBC)
         {
             Vector3 positionC = jointC.transform.position;

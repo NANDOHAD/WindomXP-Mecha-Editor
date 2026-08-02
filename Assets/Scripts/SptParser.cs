@@ -157,16 +157,7 @@ public static class SptParser
                     break;
                 }
             }
-            if (info.BoneTr == null)
-            {
-                // Scale=0 はエフェクトを生成しないので警告不要（無視）
-                if (info.Scale <= 0f) continue;
 
-                // Scale>0 のエントリはボーンが見つからないと実際にエフェクトが出ないが、
-                // ゲームデータ由来のダミーボーン欠落は想定内のため Log レベルに留める
-                Debug.Log($"[SptParser] BURNERSET id={info.Id}: bone '{info.FrameName}' は" +
-                          $" '{root.name}' 内に見つかりませんでした（エフェクトはスキップされます）。");
-            }
         }
     }
 

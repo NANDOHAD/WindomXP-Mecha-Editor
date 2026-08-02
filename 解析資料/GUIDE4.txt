@@ -1,0 +1,114 @@
+ASCII Hex values
+0d0a means paragraphing
+09 means "tab" on your keyboard
+20 means spacing
+30~39 means 0~9
+
+Refer to this list for a more comprehensive list of codes: http://www.ascii.cl/htmlcodes.htm
+
+
+Weapon Values
+1 = Small Beam
+3 = Small Missile
+4 = Missile Pod (Breaks into many Small Missile)
+5 = DRAGOONS
+9 = Cannon
+13 = Heat Beam Missiles
+21 = Small Beam (But bends towards your enemy)
+24 = Huge Laser (Dissapears proportionally) [Used more often]
+25 = Huge Laser
+55 = Laser Sword
+(These are numbers you can need to remember *For Beginners*. There are still many more, but I can't remember anymore numbers, and what attacks they will give you, so this is as much as I can remember by heart.)
+This is the list of Attack Types that Ephemeral has painfully come up with. All of the information in this code is credited to him.
+
+Note: This is more helpful for modders who actually know what they are doing, if you are a beginner, just refer to the ones above.
+Value | Attack Name | Requirements | Conditions
+01 | Small Beam | None | LockBodyUpTarget
+02 | Arrow Beam | None | LockBodyUpTarget
+03 | 4 Scatter Missles | LoadXFile | None
+04 | Pod Missle Scatter | LoadXFile | None
+05 | Funnels | LoadXFile | RunProc/WeaponAttack values optional
+06 | Vulcan | None | ATTACK value possible
+07 | 2 Weak bombs | None | ATTACK value possible
+08 | Lightning Laser/Small Beam Crazy Bomb | None | ATTACK value possible
+09 | Cannon Shell | None | ATTACK value possible - RunProc/WeaponAttack values optional
+10 | Drop Bomb | LoadXFile | ATTACK value possible
+11 | Vulcan (Heat Seek) | None | ATTACK value possible
+12 | Arrow Beam | None | Requires LockBodyUpTarget
+13 | Arrow Beam (Heat Seek) | None | ATTACK value possible
+14 | Thunder Laser - Requires LockDownTarget | None | ATTACK value possible - RunProc/WeaponAttack values optional
+15 | Trap Laser | None | ATTACK value possible
+16 | Drop Bomb | LoadXFile | ATTACK value possible
+17 | Unknown - Probably Magician Type, requires LoadxFile crystals.
+18 | Missile | LoadXFile | ATTACK value possible
+19 | Missle (Heat Seek) | LoadXFile | ATTACK value possible
+20 | Fireball | None | ATTACK value possible
+21 | Curving Laser (Heat Seek) | None | ATTACK value possible
+22 | Crystal Drones (Attack type) | LoadXFile | None
+23 | Laser Summoning | None | RunProc/WeaponAttack values optional
+24 | Huge Laser (Stays in one place, can be used for sword output) | None | ATTACK value possible - RunProc/WeaponAttack values optional
+25 | Huge Laser (attached to gun output even moving) | None | ATTACK value possible - RunProc/WeaponAttack values optional
+26 | Cannon Shell | None | ATTACK value possible
+27 | Cannon | None | ATTACK value possible -
+28 | Laser | None | ATTACK value possible - RunProc/WeaponAttack values optional
+29 | Dagger Throw | LoadXFile | RunProc/WeaponAttack values optional
+30 | Fire Summon | None | RunProc/WeaponAttack values optional
+31 | Dagger Throw | LoadXFile | LockBodyUpTarget
+32 | Dagger Impale | Requires Float and grab on tail.dat - LoadXFile | LockBodyUpTarget
+33 | Dagger Summon | LoadXFile | None
+55 | Sword Laser | None | ATTACK value possible - RunProc/WeaponAttack values optional
+Some of the Unknown slots are filled by cr0zzmeheart.
+Texture Files
+0 = beam.bmp
+1 = BlueBall / Beam8.png (Needs Checking)
+2 = explode2
+3 = burner_
+4 = beam2.bmp
+5 = smokeline.png
+6 = Gsmoke
+7 = laser 2
+8 = burner
+9 = burner2
+10 = beamHit3
+11 = X
+12 = sabel
+13 = sabel_line
+14 = beam2
+15 = beam7_
+16 = BlueRedBeam
+17 = smoke
+18 = smoke2
+19 = smokeline_b
+20 = WindRing
+21 = beam3
+22 = beam3Hit
+23 = summon
+24 = BlueRedBeam2
+25 = beam4
+26 = beam5
+27 = beam6
+28 = beam7
+29 = beam8
+30 = sabel_line2
+31 = Fire
+32 = X
+33 = magic
+34 = beamHit2
+35 = Wing
+36 = wind
+37 = Bomb
+38 = m_circle4
+39 = beamHit4 / blueLight
+40 = hinoko
+41 = fireAnime2
+42 = sabel_line3
+43 = X
+44 = X
+45 = X
+46 = X
+47 = X
+48 =
+49 =
+50 =
+
+More can be found here http://www.winz00e.com/t3201-guide-texture-numbers-and-scriptani-effects-advanced
