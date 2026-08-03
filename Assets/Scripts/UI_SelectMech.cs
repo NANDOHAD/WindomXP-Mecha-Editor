@@ -80,14 +80,14 @@ public class UI_SelectMech : MonoBehaviour
             }
             else
             {
-                msgBox.Show("ディレクトリ内に機体データがみつかりません。");
+                msgBox.Show(UILocalization.Get(UILocalizationKeys.NoMechaData, "ディレクトリ内に機体データがみつかりません。"));
                 enableTool = true;
             }
         }
         else
         {
             Directory.CreateDirectory(folder);
-            msgBox.Show("初期ディレクトリ（Windom_Data\\Robo）を作成しました。");
+            msgBox.Show(UILocalization.Get(UILocalizationKeys.InitialDirectoryCreated, "初期ディレクトリ（Windom_Data\\Robo）を作成しました。"));
             enableTool = true;
         }
     }
@@ -163,7 +163,7 @@ public class UI_SelectMech : MonoBehaviour
             {
                 Debug.LogError($"機体データの読み込みに失敗しました: {ex.Message}");
                 if (msgBox != null)
-                    msgBox.Show($"機体データの読み込みに失敗しました。\n{ex.Message}");
+                    msgBox.Show(UILocalization.Get(UILocalizationKeys.MechaLoadFailed, "機体データの読み込みに失敗しました。\n{0}", ex.Message));
                 return;
             }
             finally
@@ -179,9 +179,9 @@ public class UI_SelectMech : MonoBehaviour
         var progress = new Progress<int>(value =>
         {
             if (value == 100)
-                lodingPerTxt.text = "Loading Complete.";
+                lodingPerTxt.text = UILocalization.Get(UILocalizationKeys.LoadingComplete, "読み込み完了");
             else
-                lodingPerTxt.text = $"NowLoading...{value}%";
+                lodingPerTxt.text = UILocalization.Get(UILocalizationKeys.LoadingProgress, "読み込み中...{0}%", value);
         });
 
         ani2 ani = new ani2();
@@ -588,7 +588,7 @@ public class UI_SelectMech : MonoBehaviour
             }
             else
             {
-                msgBox.Show("ディレクトリ内に機体データがみつかりませんでした。");
+                msgBox.Show(UILocalization.Get(UILocalizationKeys.NoMechaDataFound, "ディレクトリ内に機体データがみつかりませんでした。"));
                 enableTool = true;
             }
         }

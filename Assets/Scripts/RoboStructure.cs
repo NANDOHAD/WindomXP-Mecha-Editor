@@ -861,7 +861,7 @@ public class RoboStructure : MonoBehaviour
     {
         string dText = "HODファイルを書き出す";
         dText = customFilename;
-        inputBox.openDialog("新しいHODファイルの名前を入力してください（拡張子.hodは除く）。", dText , (string rText) =>
+        inputBox.openDialog(UILocalization.Get(UILocalizationKeys.HodNewName, "新しいHODファイルの名前を入力してください（拡張子.hodは除く）。"), dText , (string rText) =>
         {
             hod1 sHOD = new hod1("");
             for (int i = 0; i < parts.Count; i++)
@@ -888,13 +888,13 @@ public class RoboStructure : MonoBehaviour
         if (hodFiles.Length == 0)
         {
             Debug.LogError($"フォルダ内にHODファイルが見つかりません: {folder}");
-            statusMessege.text = $"フォルダ内にHODファイルが見つかりません: {folder}";
+            statusMessege.text = UILocalization.Get(UILocalizationKeys.HodNotFound, "フォルダ内にHODファイルが見つかりません: {0}", folder);
             return;
         }
 
         // ファイル選択ダイアログを表示
         List<string> fileNames = hodFiles.Select(f => Path.GetFileName(f)).ToList();
-        inputBox.openSelectDialog("読み込むHODファイルを選択してください", 
+        inputBox.openSelectDialog(UILocalization.Get(UILocalizationKeys.HodSelect, "読み込むHODファイルを選択してください"), 
             fileNames,
             (string selectedFile) =>
             {
@@ -938,7 +938,7 @@ public class RoboStructure : MonoBehaviour
                             else
                             {
                                 Debug.LogError($"HODファイルの読み込みに失敗しました: {selectedFile}");
-                                statusMessege.text = $"HODファイルの読み込みに失敗しました: {selectedFile}";
+                                statusMessege.text = UILocalization.Get(UILocalizationKeys.HodLoadFailed, "HODファイルの読み込みに失敗しました: {0}", selectedFile);
                                 return;
                             }
                         }
@@ -967,7 +967,7 @@ public class RoboStructure : MonoBehaviour
                             else
                             {
                                 Debug.LogError($"HODファイルの読み込みに失敗しました: {selectedFile}");
-                                statusMessege.text = $"HODファイルの読み込みに失敗しました: {selectedFile}";
+                                statusMessege.text = UILocalization.Get(UILocalizationKeys.HodLoadFailed, "HODファイルの読み込みに失敗しました: {0}", selectedFile);
                                 return;
                             }
                         }
@@ -976,7 +976,7 @@ public class RoboStructure : MonoBehaviour
                         if (nFrame.parts.Count != parts.Count)
                         {
                             Debug.LogWarning($"読み込んだHODファイルのパーツ数({nFrame.parts.Count})が現在のパーツ数({parts.Count})と異なります。読み込みを中止します。");
-                            statusMessege.text = $"読み込んだHODファイルのパーツ数({nFrame.parts.Count})が現在のパーツ数({parts.Count})と異なります。読み込みを中止します。";
+                            statusMessege.text = UILocalization.Get(UILocalizationKeys.HodPartCountMismatch, "読み込んだHODファイルのパーツ数({0})が現在のパーツ数({1})と異なります。読み込みを中止します。", nFrame.parts.Count, parts.Count);
                             return;
                         }
                         
@@ -1015,7 +1015,7 @@ public class RoboStructure : MonoBehaviour
                 catch (Exception e)
                 {
                     Debug.LogError($"HODファイルの読み込み中にエラーが発生しました: {e.Message}");
-                    statusMessege.text = $"HODファイルの読み込み中にエラーが発生しました: {e.Message}";
+                    statusMessege.text = UILocalization.Get(UILocalizationKeys.HodLoadException, "HODファイルの読み込み中にエラーが発生しました: {0}", e.Message);
                 }
             });
     }

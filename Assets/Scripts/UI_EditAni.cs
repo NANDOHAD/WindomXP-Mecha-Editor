@@ -76,7 +76,7 @@ public class UI_EditAni : MonoBehaviour
         string currentName = robo.ani.animations[selectedIndex].name;
 
         // UI_InputBoxを使用してダイアログを開く
-        inputBox.openDialog("新しいアニメーション名を入力してください", currentName, (string newName) =>
+        inputBox.openDialog(UILocalization.Get(UILocalizationKeys.AnimationNewName, "新しいアニメーション名を入力してください"), currentName, (string newName) =>
         {
             // 新しい名前を設定
             robo.ani.animations[selectedIndex].name = newName;
@@ -306,10 +306,10 @@ public class UI_EditAni : MonoBehaviour
 
     public void addHod()
     {
-        string dText = "新規HODファイル";
+        string dText = UILocalization.Get(UILocalizationKeys.NewHodDefaultName, "新規HODファイル");
         if (cAnim.frames.Count > 0)
             dText = cAnim.frames[hodDD.value].filename.Replace(".hod", "");
-        inputBox.openDialog("新しいHODファイルの名前を入力してください（拡張子.hodは除く）。", dText , (string rText) =>
+        inputBox.openDialog(UILocalization.Get(UILocalizationKeys.HodNewName, "新しいHODファイルの名前を入力してください（拡張子.hodは除く）。"), dText , (string rText) =>
             {
                 hod2v1 nFrame = new hod2v1(rText + ".hod");
                 nFrame.parts = new List<hod2v1_Part>();
@@ -345,7 +345,7 @@ public class UI_EditAni : MonoBehaviour
             populateHODList();
         }
         else
-            msgBox.Show("このアニメーションにHODファイルはありません。");
+            msgBox.Show(UILocalization.Get(UILocalizationKeys.HodNoFrames, "このアニメーションにHODファイルはありません。"));
     }
 
     public void hodMoveUp()
@@ -381,7 +381,7 @@ public class UI_EditAni : MonoBehaviour
     public void hodRename()
     {
         inputBox.gameObject.SetActive(true);
-        inputBox.openDialog("HODファイルを改名します。新しい名前を入力してください。", cAnim.frames[hodDD.value].filename, (string rText) =>
+        inputBox.openDialog(UILocalization.Get(UILocalizationKeys.HodRename, "HODファイルを改名します。新しい名前を入力してください。"), cAnim.frames[hodDD.value].filename, (string rText) =>
         {
             cAnim.frames[hodDD.value].filename = rText;
             int ddPos = hodDD.value;
@@ -405,7 +405,7 @@ public class UI_EditAni : MonoBehaviour
     }
     public void syncPart()
     {
-        kakuninBox.openNoTextBoxDialog("選択パーツの値を全てのHODに適用します。", (string rText) =>
+        kakuninBox.openNoTextBoxDialog(UILocalization.Get(UILocalizationKeys.ApplySelectedPartAllHods, "選択パーツの値を全てのHODに適用します。"), (string rText) =>
         {
             hod2v1_Part prt = cAnim.frames[hodDD.value].parts[ep.index];
             int count = robo.ani.animations.Count;
@@ -422,7 +422,7 @@ public class UI_EditAni : MonoBehaviour
 
     public void syncPartSpecificPosition(string axis)
     {
-        kakuninBox.openNoTextBoxDialog("選択値を全てのHODに適用します。", (string rText) =>
+        kakuninBox.openNoTextBoxDialog(UILocalization.Get(UILocalizationKeys.ApplySelectedValueAllHods, "選択値を全てのHODに適用します。"), (string rText) =>
         {
         // 現在の選択パーツを取得
             hod2v1_Part selectedPart = cAnim.frames[hodDD.value].parts[ep.index];
@@ -466,7 +466,7 @@ public class UI_EditAni : MonoBehaviour
 
         public void syncPartSpecificRotation(string axis)
     {
-        kakuninBox.openNoTextBoxDialog("選択値を全てのHODに適用します。", (string rText) =>
+        kakuninBox.openNoTextBoxDialog(UILocalization.Get(UILocalizationKeys.ApplySelectedValueAllHods, "選択値を全てのHODに適用します。"), (string rText) =>
         {
         // 現在の選択パーツを取得
             hod2v1_Part selectedPart = cAnim.frames[hodDD.value].parts[ep.index];
@@ -510,7 +510,7 @@ public class UI_EditAni : MonoBehaviour
 
             public void syncPartSpecificScale(string axis)
     {
-        kakuninBox.openNoTextBoxDialog("選択値を全てのHODに適用します。", (string rText) =>
+        kakuninBox.openNoTextBoxDialog(UILocalization.Get(UILocalizationKeys.ApplySelectedValueAllHods, "選択値を全てのHODに適用します。"), (string rText) =>
         {
         // 現在の選択パーツを取得
             hod2v1_Part selectedPart = cAnim.frames[hodDD.value].parts[ep.index];
@@ -554,7 +554,7 @@ public class UI_EditAni : MonoBehaviour
 
     public void syncPartSpecific()
     {
-        inputBox.openDialog("同期させたいアニメーションをカンマで区切って入力してください。2つのアニメーションの間にダッシュを入れると、範囲を指定できます。  ex: 1,2, 6-10", "", (string rText) =>
+        inputBox.openDialog(UILocalization.Get(UILocalizationKeys.AnimationSyncRange, "同期させたいアニメーションをカンマで区切って入力してください。2つのアニメーションの間にダッシュを入れると、範囲を指定できます。  例: 1,2, 6-10"), "", (string rText) =>
         {
             string[] selections = rText.Split(',');
             hod2v1_Part prt = cAnim.frames[hodDD.value].parts[ep.index];

@@ -10,6 +10,7 @@ public class UI_ViewControl : MonoBehaviour
     [Header("EditPanel")]
     public GameObject EditPanel;
     public GameObject EditMenu;
+    public GameObject ModeSelectDD;
     public GameObject SelectPanel;
     public RoboStructure robo;
     public UI_EditAni ea;
@@ -68,6 +69,7 @@ public class UI_ViewControl : MonoBehaviour
                 EditMode(false);
                 if (PrevPanel != null)
                     PreviewMode(false);
+                ModeSelectDD.SetActive(false);
                 SelectMode(true);
                 break;
         }

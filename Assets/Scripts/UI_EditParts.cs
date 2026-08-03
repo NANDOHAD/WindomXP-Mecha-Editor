@@ -335,7 +335,7 @@ public class UI_EditParts : MonoBehaviour
             return;
         }
         addPartsPanel.SetActive(true);
-        addText.text = robo.hod.parts[index].name  + "の下に新規パーツを追加します。";
+        addText.text = UILocalization.Get(UILocalizationKeys.AddPartUnder, "{0}の下に新規パーツを追加します。", robo.hod.parts[index].name);
         DirectoryInfo di = new DirectoryInfo(robo.folder);
         FileInfo[] files = di.GetFiles();
         List<string> fName = new List<string>();
@@ -374,7 +374,7 @@ public class UI_EditParts : MonoBehaviour
     {
         if (robo == null || robo.hod == null || robo.hod.parts == null || index < 0 || index >= robo.hod.parts.Count)
         {
-            msgBox.Show("削除するパーツを選択してください。");
+            msgBox.Show(UILocalization.Get(UILocalizationKeys.SelectPartToDelete, "削除するパーツを選択してください。"));
             return;
         }
 
@@ -387,21 +387,21 @@ public class UI_EditParts : MonoBehaviour
 
         if (index == 0)
         {
-            msgBox.Show("ルートパーツは削除できません。");
+            msgBox.Show(UILocalization.Get(UILocalizationKeys.RootPartCannotDelete, "ルートパーツは削除できません。"));
             return;
         }
 
         int partIndexToDelete = index;
         int selectionAfterDelete = FindParentIndex(partIndexToDelete);
         string confirmationMessage = robo.hod.parts[partIndexToDelete].childCount > 0
-            ? "子パーツごと削除しますがよろしいですか？"
-            : "選択パーツを削除します。";
+            ? UILocalization.Get(UILocalizationKeys.DeletePartWithChildren, "子パーツごと削除しますがよろしいですか？")
+            : UILocalization.Get(UILocalizationKeys.DeleteSelectedPart, "選択パーツを削除します。");
 
         kakuninBox.openNoTextBoxDialog(confirmationMessage, (string rText) =>
         {
             if (!robo.removePart(partIndexToDelete))
             {
-                msgBox.Show("パーツ情報の整合性を確認できないため削除できません。");
+                msgBox.Show(UILocalization.Get(UILocalizationKeys.PartDataInvalidDelete, "パーツ情報の整合性を確認できないため削除できません。"));
             }
             else
             {
@@ -422,10 +422,10 @@ public class UI_EditParts : MonoBehaviour
 
     public void renamePart()
     {
-        inputBox.openDialog("どのパーツの名前を変更しますか？", robo.hod.parts[index].name, (string rText) =>
+        inputBox.openDialog(UILocalization.Get(UILocalizationKeys.PartSelectRename, "どのパーツの名前を変更しますか？"), robo.hod.parts[index].name, (string rText) =>
         {
             if (!File.Exists(Path.Combine(robo.folder, rText)))
-                msgBox.Show("指定名のパーツはフォルダに存在しません。空のパーツと入れ替えます。");
+                msgBox.Show(UILocalization.Get(UILocalizationKeys.PartMissingUseEmpty, "指定名のパーツはフォルダに存在しません。空のパーツと入れ替えます。"));
 
             robo.renamePart(index, rText);
             RebuildPrevRoboIfNeeded();

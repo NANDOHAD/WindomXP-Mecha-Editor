@@ -5,10 +5,9 @@ EditorBuildSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 2
   m_Scenes:
-  - enabled: 0
-    path: 
-    guid: 00000000000000000000000000000000
   - enabled: 1
     path: Assets/UI_MechaClean.unity
     guid: 7ca2ce61c7cefc74bb8a23b7d0ea303d
-  m_configObjects: {}
+  m_configObjects:
+    com.unity.addressableassets: {fileID: 11400000, guid: 79732d1a27f1c9b4f8f37f7024f0773b, type: 2}
+    com.unity.localization.settings: {fileID: 11400000, guid: 3069f6a9fdf48424685256c4b7735b97, type: 2}

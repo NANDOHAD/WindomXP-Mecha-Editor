@@ -1,0 +1,601 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e9620f8c34305754d8cc9a7e49e852d9, type: 3}
+  m_Name: UI_en
+  m_EditorClassIdentifier: Unity.Localization::UnityEngine.Localization.Tables.StringTable
+  m_LocaleId:
+    m_Code: en
+  m_SharedData: {fileID: 11400000, guid: ca5c56cd409c13c4f8bd48d50302e89a, type: 2}
+  m_Metadata:
+    m_Items: []
+  m_TableData:
+  - m_Id: 3505381376
+    m_Localized: 3D Handle Tool
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4373602304
+    m_Localized: Close
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185216
+    m_Localized: Constraint Data
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185217
+    m_Localized: This operation is not available.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185218
+    m_Localized: Rename HOD
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185219
+    m_Localized: Export HOD
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185220
+    m_Localized: Load HOD
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185221
+    m_Localized: Paste HOD
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185222
+    m_Localized: Export HOD File
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185223
+    m_Localized: Select HOD File
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185224
+    m_Localized: HOD Editor
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185225
+    m_Localized: Lower
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185226
+    m_Localized: Neutral
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185227
+    m_Localized: OK
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185228
+    m_Localized: Object Override
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185229
+    m_Localized: Procedural Helper
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185230
+    m_Localized: ROBO Folder Path
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185231
+    m_Localized: Remove Part
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185232
+    m_Localized: Rename/Swap Part
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185233
+    m_Localized: Load Robo.hod
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185234
+    m_Localized: Load Script.ani
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185235
+    m_Localized: Overwrite Script.ani
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185236
+    m_Localized: Edit Script.spt
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185237
+    m_Localized: Edit Script.spt File
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185238
+    m_Localized: Script Frame
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185239
+    m_Localized: Script Header
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185240
+    m_Localized: Script Editor
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185241
+    m_Localized: Standby...
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185242
+    m_Localized: Upper
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185243
+    m_Localized: Load hangar.hod
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185244
+    m_Localized: Other
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185245
+    m_Localized: Dump Animation List
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185246
+    m_Localized: Synchronize Animation List
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4386185247
+    m_Localized: Rename Animation
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379520
+    m_Localized: 'Application Version: Ver.1.00'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379521
+    m_Localized: Option
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379522
+    m_Localized: Reset Camera
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379523
+    m_Localized: Camera Move Speed
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379524
+    m_Localized: Camera Settings
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379525
+    m_Localized: Cancel
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379526
+    m_Localized: Sub 1 (No. 104)
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379527
+    m_Localized: Sub 2 (No. 105)
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379528
+    m_Localized: Mecha Angle During Step (0-360)
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379529
+    m_Localized: Tool Type
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379530
+    m_Localized: Enter text
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379531
+    m_Localized: Enter a directory path...
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379532
+    m_Localized: Part Tree
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379533
+    m_Localized: Part Editor
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379534
+    m_Localized: Select Part
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379535
+    m_Localized: File
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379536
+    m_Localized: Flip
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379537
+    m_Localized: Use Free Camera
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379538
+    m_Localized: Frame Length
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379539
+    m_Localized: Per-Frame Transition
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379540
+    m_Localized: Procedural Helper (Not Implemented)
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379541
+    m_Localized: Procedural Editor
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379542
+    m_Localized: 'Assists with procedural pose editing.
+
+      Using it on parts
+      other than hands or feet may produce unnatural results.
+
+      This feature
+      is incomplete.'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379543
+    m_Localized: Reload
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379544
+    m_Localized: Loop Playback
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379545
+    m_Localized: Local
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379546
+    m_Localized: Pause
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379547
+    m_Localized: Position
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379548
+    m_Localized: 'Unsaved changes will be reset.
+
+      Open another ROBO?'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379549
+    m_Localized: Apply to All Animations
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379550
+    m_Localized: Copy All Values
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379551
+    m_Localized: Paste All Values
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379552
+    m_Localized: Play
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379553
+    m_Localized: Show Constraint Details
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379554
+    m_Localized: Directional Step Animations
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379555
+    m_Localized: Special Move Animations
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379556
+    m_Localized: Rotation
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379557
+    m_Localized: Synchronize Rotation to Constraint
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379558
+    m_Localized: Save Changes
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379559
+    m_Localized: Scale
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379560
+    m_Localized: Coordinate Space
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379561
+    m_Localized: Finisher (No. 109)
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379562
+    m_Localized: Apply to Selected Animation
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379563
+    m_Localized: Add New HOD
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379564
+    m_Localized: Open Another ROBO
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379565
+    m_Localized: Special Animations
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379566
+    m_Localized: View Mode
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379567
+    m_Localized: Exit
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379568
+    m_Localized: Edit
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379569
+    m_Localized: Finish Editing
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379570
+    m_Localized: Edit Mode
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379571
+    m_Localized: Show/Hide
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379572
+    m_Localized: Enable/Disable Helper
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379573
+    m_Localized: View Rotation Speed
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379574
+    m_Localized: Reset View
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379575
+    m_Localized: Apply Settings
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379576
+    m_Localized: Configuration
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379577
+    m_Localized: Select a Mecha to Load
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379578
+    m_Localized: Copy Selected HOD
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379579
+    m_Localized: Move Selected HOD Up
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379580
+    m_Localized: Move Selected HOD Down
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379581
+    m_Localized: Delete Selected HOD
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379582
+    m_Localized: Move Selected Script Up
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379583
+    m_Localized: Move Selected Script Down
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379584
+    m_Localized: Delete Selected Script
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379585
+    m_Localized: Play Selected Animation
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379586
+    m_Localized: Add a new part to the selected tree location.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379587
+    m_Localized: Rename Selected Part
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379588
+    m_Localized: Copy Selected Part Data
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379589
+    m_Localized: Paste Selected Part Data
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379590
+    m_Localized: 'Delete
+
+      Selected Part'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379591
+    m_Localized: Target Selected Part
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379592
+    m_Localized: Delete Selected Part
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379593
+    m_Localized: Apply Selected Part Values to All HODs
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379594
+    m_Localized: 'Add Part at
+
+      Selected Position'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379595
+    m_Localized: Add Script at Selected Position
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379596
+    m_Localized: Add Part at Selected Position
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379597
+    m_Localized: Language
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379598
+    m_Localized: Loading complete.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379599
+    m_Localized: Loading...{0}%
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379600
+    m_Localized: No mecha data was found in the directory.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379601
+    m_Localized: No mecha data was found in the directory.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379602
+    m_Localized: Created the default directory (Windom_Data\Robo).
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379603
+    m_Localized: 'Failed to load mecha data.
+
+      {0}'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379604
+    m_Localized: Enter a name for the new HOD file (without the .hod extension).
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379605
+    m_Localized: Select the HOD file to load.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379606
+    m_Localized: 'No HOD files were found in the folder: {0}'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379607
+    m_Localized: 'Failed to load the HOD file: {0}'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379608
+    m_Localized: The loaded HOD contains {0} parts, but the current mecha contains
+      {1}. Loading was canceled.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379609
+    m_Localized: 'An error occurred while loading the HOD file: {0}'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379610
+    m_Localized: Enter a new animation name.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379611
+    m_Localized: This animation does not contain any HOD frames.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379612
+    m_Localized: Enter a new name for the HOD file.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379613
+    m_Localized: Apply the selected part values to every HOD.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379614
+    m_Localized: Apply the selected value to every HOD.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379615
+    m_Localized: 'Enter animation numbers separated by commas. Use a dash to specify
+      a range. Example: 1,2, 6-10'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379616
+    m_Localized: Select a part to delete.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379617
+    m_Localized: The root part cannot be deleted.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379618
+    m_Localized: The part cannot be deleted because its data integrity could not
+      be verified.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379619
+    m_Localized: Which part do you want to rename?
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379620
+    m_Localized: The specified part does not exist in the folder. It will be replaced
+      with an empty part.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379621
+    m_Localized: Add a new part under {0}.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 4390379622
+    m_Localized: 'Application Version: {0}'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 3155927490560
+    m_Localized: Delete the selected part and all of its child parts?
+    m_Metadata:
+      m_Items: []
+  - m_Id: 3155948462080
+    m_Localized: Delete the selected part.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 3155948462081
+    m_Localized: New HOD File
+    m_Metadata:
+      m_Items: []
+  references:
+    version: 2
+    RefIds: []
