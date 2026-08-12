@@ -135,6 +135,8 @@ public static class LocalizationProjectSetup
         Fixed("編集", "Edit"),
         Fixed("編集を終了する", "Finish Editing"),
         Fixed("編集モード", "Edit Mode"),
+        Fixed("プレビューモード", "Viewing Mode"),
+        Fixed("テストモード", "Test Mode"),
         Fixed("表示／非表示", "Show/Hide"),
         Fixed("補助のオン／オフ", "Enable/Disable Helper"),
         Fixed("視点の回転速度", "View Rotation Speed"),

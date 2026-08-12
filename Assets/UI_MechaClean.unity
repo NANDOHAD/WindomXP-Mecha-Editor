@@ -43309,6 +43309,7 @@ GameObject:
   - component: {fileID: 1641867155}
   - component: {fileID: 1641867158}
   - component: {fileID: 1641867159}
+  - component: {fileID: 1641867160}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -43428,6 +43429,54 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a79441f348de89743a2939f4d699eac1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!114 &1641867160
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1641867154}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: be8c9611b72876043b93d6fdd2978fe1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::TestPlayCameraController
+  controller: {fileID: 1726638251}
+  controlledCamera: {fileID: 1641867156}
+  editorCamera: {fileID: 1641867158}
+  useLockTargetWhenAvailable: 1
+  playerPivotHeight: 1.4
+  targetPivotHeight: 1.2
+  followDistance: 7
+  followHeight: 2.4
+  shoulderOffset: 0
+  unlockedLookAhead: 2.5
+  targetFraming: 0.4
+  targetDistanceScale: 0.12
+  maxTargetDistanceBonus: 5
+  followLateralMovementHeading: 1
+  lateralMovementHeadingWeight: 0.5
+  maxLockedOrbitAngle: 60
+  followBackwardMovement: 1
+  backwardDistanceBonus: 2
+  backwardHeightBonus: 0.4
+  positionSmoothTime: 0.1
+  rotationSharpness: 14
+  teleportSnapDistance: 12
+  overrideFieldOfView: 1
+  fieldOfView: 60
+  avoidObstacles: 1
+  obstacleMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  collisionRadius: 0.25
+  collisionPadding: 0.15
+  minimumCameraDistance: 1.2
+  approximateCameraEffects: 1
+  cameraEffectDuration: 0.18
+  cameraEffectPosition: 0.08
+  cameraEffectRotation: 0.8
+  cameraEffectFrequency: 32
 --- !u!1 &1643292194
 GameObject:
   m_ObjectHideFlags: 0
@@ -45004,6 +45053,8 @@ MonoBehaviour:
   hitRadius: 1.5
   stateId: 1
   logHits: 1
+  lastImpactForce: {x: 0, y: 0, z: 0}
+  lastDownValue: 0
 --- !u!4 &1725365348
 Transform:
   m_ObjectHideFlags: 0
@@ -45036,6 +45087,7 @@ GameObject:
   - component: {fileID: 1726638248}
   - component: {fileID: 1726638250}
   - component: {fileID: 1726638251}
+  - component: {fileID: 1726638252}
   m_Layer: 5
   m_Name: UI_Overlay
   m_TagString: Untagged
@@ -45256,10 +45308,17 @@ MonoBehaviour:
   robo: {fileID: 1726638247}
   target: {fileID: 1725365347}
   sptSource: {fileID: 77937709}
+  presentationRuntime: {fileID: 1726638252}
+  cameraController: {fileID: 1641867160}
   playModeActive: 0
   startOnPlay: 0
   logCommands: 0
   logUnhandledCommands: 1
+  originalTickRate: 60
+  maximumCatchUpTicks: 8
+  aniUnitsToUnityScale: 0.7
+  originalGravityPerTick: 0.013
+  originalTerminalFallSpeed: 0.8
   idleAction: 0
   moveAction: 1
   forwardStepAction: 11
@@ -45269,7 +45328,9 @@ MonoBehaviour:
   riseStartAction: 3
   riseAction: 7
   airMoveAction: 4
-  landingAction: 3
+  airIdleAction: 8
+  landingAction: 5
+  stepLandingAction: 6
   shotAction: 100
   meleeAction: 130
   boostAction: 22
@@ -45280,12 +45341,42 @@ MonoBehaviour:
   moveScale: 35
   forceScale: 35
   damping: 4
+  riseVerticalVelocityLimit: 0.15
+  airborneHorizontalForceRetention: 0.95
+  groundedHorizontalForceRetention: 0.9
   aimTurnSpeed: 540
   doubleTapStepSeconds: 0.3
   inputMoveMagnitude: 0.08
+  useTargetRelativeMovement: 1
+  useCameraRelativeMovement: 1
+  inputTurnDegreesPerTick: 12
+  riseTurnDegreesPerTick: 14
+  boostInitialTurnDegreesPerTick: 15
+  riseMinimumReleaseTicks: 5
+  boostMinimumReleaseTicks: 31
+  doubleTapBoostSeconds: 0.3
   stepFallbackMoveMagnitude: 0.51
+  stepTargetForwardBias: 0.3
+  preserveStepReferenceFacing: 1
+  useOriginalStepFacing: 1
+  stepTurnDegreesPerTick: 3
+  stepMinimumTicks: 16
+  stepMaximumTicks: 61
   stepFallbackDistance: 3
   maxStepScriptTicksPerBlock: 5
+  requireLockInput: 1
+  fallbackLockDistance: 100
+  lockedTarget: {fileID: 0}
+  bodyUpAimRoot: {fileID: 0}
+  bodyDownAimRoot: {fileID: 0}
+  arm1AimRoot: {fileID: 0}
+  arm2AimRoot: {fileID: 0}
+  fallbackMaximumEnergy: 1000
+  riseEnergyPerTick: 5
+  boostEnergyPerTick: 5
+  stepEnergyPerTick: 4
+  airRiseEnergyCost: 80
+  groundedEnergyRecoveryPerTick: 24
   useColliderGrounding: 1
   characterControllerRadius: 0.7
   characterControllerHeight: 2.4
@@ -45318,6 +45409,10 @@ MonoBehaviour:
   airborneFlag: 0
   groundedFlag: 0
   verticalFallSpeed: 0
+  currentEnergy: 0
+  maximumEnergy: 0
+  targetLockActive: 0
+  activeTargetDistance: 0
   currentAnimationName: 
   heldWeapon: GUN
   state:
@@ -45579,9 +45674,287 @@ MonoBehaviour:
     - 0
     - 0
     - 0
+  attackProfile:
+    power: 0
+    down: 0
+    force: 0
+    forceY: 0
   logMotionDebug: 1
   logMotionAssignments: 1
   motionDebugIntervalTicks: 10
+--- !u!114 &1726638252
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1726638242}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bf55e06351d83cb408b027bda996b832, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::TestPlayPresentationRuntime
+  controller: {fileID: 1726638251}
+  soundSource: {fileID: 0}
+  voiceSource: {fileID: 0}
+  sounds:
+  - key: 0
+    clip: {fileID: 8300000, guid: b590d3a54031563498aa48260b15e196, type: 3}
+    volume: 1
+  - key: 1
+    clip: {fileID: 8300000, guid: ce40e41bb917daf49b30d011f2ed6459, type: 3}
+    volume: 1
+  - key: 2
+    clip: {fileID: 8300000, guid: e647041e0de39fd409fbce667b1578bb, type: 3}
+    volume: 1
+  - key: 3
+    clip: {fileID: 8300000, guid: c4adf9c49ffa2ff4395acc34f6261e43, type: 3}
+    volume: 1
+  - key: 4
+    clip: {fileID: 8300000, guid: 0e617b783bc60294d9c7bfe40fb2cbee, type: 3}
+    volume: 1
+  - key: 5
+    clip: {fileID: 8300000, guid: 426d3488eb0576740bee97692d8bbfee, type: 3}
+    volume: 1
+  - key: 6
+    clip: {fileID: 8300000, guid: f8fa14752c13d17419b8bc13c44382b7, type: 3}
+    volume: 1
+  - key: 7
+    clip: {fileID: 8300000, guid: d2af2d284ef35df45bd5c70019a1f067, type: 3}
+    volume: 1
+  - key: 8
+    clip: {fileID: 8300000, guid: 089765e769fdffe4fb1a5d117bb8fa99, type: 3}
+    volume: 1
+  - key: 9
+    clip: {fileID: 8300000, guid: b7fd581cbcb404145802e385d3d19092, type: 3}
+    volume: 1
+  - key: 10
+    clip: {fileID: 8300000, guid: 14b28f4ca38d4be4d9641ae77315f073, type: 3}
+    volume: 1
+  - key: 11
+    clip: {fileID: 8300000, guid: 09d48ec9570eac549958f20c424daffb, type: 3}
+    volume: 1
+  - key: 12
+    clip: {fileID: 8300000, guid: dd87ffb4372160d49a5a00583e89650e, type: 3}
+    volume: 1
+  - key: 13
+    clip: {fileID: 8300000, guid: 0ef6fd2c479b4274f91d38ea047a0f91, type: 3}
+    volume: 1
+  - key: 14
+    clip: {fileID: 8300000, guid: 7ee6ecc6814b05040a98d3acced1b0cf, type: 3}
+    volume: 1
+  - key: 15
+    clip: {fileID: 8300000, guid: 0b9cdd311b33e5946929d5a9271e9e38, type: 3}
+    volume: 1
+  - key: 16
+    clip: {fileID: 8300000, guid: 27eba273057afb745a913b023bf2ebcf, type: 3}
+    volume: 1
+  - key: 17
+    clip: {fileID: 8300000, guid: 13e7574d422ada5448d9d99bb15f00e8, type: 3}
+    volume: 1
+  - key: 18
+    clip: {fileID: 8300000, guid: b65317fb0026b024fb2efd3360239e19, type: 3}
+    volume: 1
+  - key: 19
+    clip: {fileID: 8300000, guid: 737bf41b07f4b3d4dbbfff00a21a7598, type: 3}
+    volume: 1
+  - key: 20
+    clip: {fileID: 8300000, guid: 29c175ff220d39449a2272da6a7c8572, type: 3}
+    volume: 1
+  - key: 97
+    clip: {fileID: 8300000, guid: 66e28569ec6fbdb4b8ab8b037b2921b9, type: 3}
+    volume: 1
+  - key: 98
+    clip: {fileID: 8300000, guid: 82630ce8660501e40bfb706c6cfeb90c, type: 3}
+    volume: 1
+  - key: 99
+    clip: {fileID: 8300000, guid: 1b2a01c2cd3c4e64bba2d74262331ea3, type: 3}
+    volume: 1
+  voices: []
+  effects: []
+  originalTextures:
+  - loadSequence: 0
+    scriptTextureId: 0
+    originalFileName: Beam.bmp
+    texture: {fileID: 2800000, guid: 0974f1d4086379f47b405972014aed17, type: 3}
+  - loadSequence: 1
+    scriptTextureId: 1
+    originalFileName: BlueBall.png
+    texture: {fileID: 2800000, guid: a4736e4a201762546b784537e5f7c5c4, type: 3}
+  - loadSequence: 2
+    scriptTextureId: 2
+    originalFileName: explode2.png
+    texture: {fileID: 2800000, guid: cb65223d0c2c06943b39960f18116ef3, type: 3}
+  - loadSequence: 3
+    scriptTextureId: -1
+    originalFileName: explode1.png
+    texture: {fileID: 2800000, guid: 69a0597e5a19b2e4693c64cc41e0574a, type: 3}
+  - loadSequence: 4
+    scriptTextureId: 4
+    originalFileName: Beam2.bmp
+    texture: {fileID: 2800000, guid: adf6a3d0e2dda524e8f3859e523cc311, type: 3}
+  - loadSequence: 5
+    scriptTextureId: 5
+    originalFileName: smokeline.png
+    texture: {fileID: 2800000, guid: 8ae084dbdaf953642b8b0162618dd4a6, type: 3}
+  - loadSequence: 6
+    scriptTextureId: 7
+    originalFileName: laser2.bmp
+    texture: {fileID: 2800000, guid: a817c0cae0fcf55448a65f4063e1d973, type: 3}
+  - loadSequence: 7
+    scriptTextureId: 8
+    originalFileName: burner.png
+    texture: {fileID: 2800000, guid: ed1a560cc4a3bba40a6cd0d5e3cf72e9, type: 3}
+  - loadSequence: 8
+    scriptTextureId: 9
+    originalFileName: burner2.png
+    texture: {fileID: 2800000, guid: 1aecee55923a723419c56f56331c1269, type: 3}
+  - loadSequence: 9
+    scriptTextureId: 10
+    originalFileName: beamHit3.png
+    texture: {fileID: 2800000, guid: 13e52324d9243444fa83370d94b667cf, type: 3}
+  - loadSequence: 10
+    scriptTextureId: 6
+    originalFileName: GSmoke.png
+    texture: {fileID: 2800000, guid: de4fe2bcb0744314791abc68584abbab, type: 3}
+  - loadSequence: 11
+    scriptTextureId: 12
+    originalFileName: sabel.png
+    texture: {fileID: 2800000, guid: 2def6f37a9882c646a5f5cebd33fbd17, type: 3}
+  - loadSequence: 12
+    scriptTextureId: 13
+    originalFileName: sabel_line.png
+    texture: {fileID: 2800000, guid: c067b85f727ed704ebbcd31dee03a017, type: 3}
+  - loadSequence: 13
+    scriptTextureId: 14
+    originalFileName: beam2.png
+    texture: {fileID: 2800000, guid: 99633fdec80b15649b4bbc5d69130207, type: 3}
+  - loadSequence: 14
+    scriptTextureId: -1
+    originalFileName: Beam3.bmp
+    texture: {fileID: 2800000, guid: d49ca08ebd024e94fb4a5bce380056de, type: 3}
+  - loadSequence: 15
+    scriptTextureId: 16
+    originalFileName: BlueRedBeam.png
+    texture: {fileID: 2800000, guid: fbda53ae5a7e52f45a056a6520b9c10c, type: 3}
+  - loadSequence: 16
+    scriptTextureId: 17
+    originalFileName: smoke.png
+    texture: {fileID: 2800000, guid: 05ed74bf47059e44fa46e94bf7a1829c, type: 3}
+  - loadSequence: 17
+    scriptTextureId: 18
+    originalFileName: smoke2.png
+    texture: {fileID: 2800000, guid: dcfaad75358629b4085f5f8072e6958c, type: 3}
+  - loadSequence: 18
+    scriptTextureId: 19
+    originalFileName: smokeline_b.png
+    texture: {fileID: 2800000, guid: 969a309b659ccba47be89d8cd65428a3, type: 3}
+  - loadSequence: 19
+    scriptTextureId: 20
+    originalFileName: WindRing.png
+    texture: {fileID: 2800000, guid: a0ace436b5c5894428830a2f1e4273e4, type: 3}
+  - loadSequence: 20
+    scriptTextureId: 21
+    originalFileName: beam3.png
+    texture: {fileID: 2800000, guid: 9517d59061e77f449af48349557b0713, type: 3}
+  - loadSequence: 21
+    scriptTextureId: 22
+    originalFileName: beam3Hit.png
+    texture: {fileID: 2800000, guid: 57ccc53190567184c98fb2d236e75110, type: 3}
+  - loadSequence: 22
+    scriptTextureId: 23
+    originalFileName: summon.png
+    texture: {fileID: 2800000, guid: 93d836d3097a6454c94952c321ef5fe1, type: 3}
+  - loadSequence: 23
+    scriptTextureId: 24
+    originalFileName: BlueRedBeam2.png
+    texture: {fileID: 2800000, guid: 2006972c2214d4a4ab2ca00c0d0f139b, type: 3}
+  - loadSequence: 24
+    scriptTextureId: 25
+    originalFileName: Beam4.png
+    texture: {fileID: 2800000, guid: a47093246de35a041a921752a0c3b6bd, type: 3}
+  - loadSequence: 25
+    scriptTextureId: 26
+    originalFileName: Beam5.png
+    texture: {fileID: 2800000, guid: f725d58483e45f2478ca80b9ba4dcd7c, type: 3}
+  - loadSequence: 26
+    scriptTextureId: 27
+    originalFileName: Beam6.png
+    texture: {fileID: 2800000, guid: 718fdc5d85e50d141bd4b8ad71861870, type: 3}
+  - loadSequence: 27
+    scriptTextureId: 28
+    originalFileName: Beam7.png
+    texture: {fileID: 2800000, guid: 7a3546ee00d4816408b2b7ea3ff8a624, type: 3}
+  - loadSequence: 28
+    scriptTextureId: 29
+    originalFileName: Beam8.png
+    texture: {fileID: 2800000, guid: 9f31df284b2b0a54f8f4888c99a52729, type: 3}
+  - loadSequence: 29
+    scriptTextureId: 30
+    originalFileName: sabel_line2.png
+    texture: {fileID: 2800000, guid: e89a280819e7fbb478b6bf99e72c12ef, type: 3}
+  - loadSequence: 30
+    scriptTextureId: 31
+    originalFileName: fire.png
+    texture: {fileID: 2800000, guid: b101786e1466d4d468619a6f717d71e8, type: 3}
+  - loadSequence: 31
+    scriptTextureId: -1
+    originalFileName: light.png
+    texture: {fileID: 2800000, guid: 2e0034cf797ac184581998b81fe141eb, type: 3}
+  - loadSequence: 32
+    scriptTextureId: 33
+    originalFileName: magic.png
+    texture: {fileID: 2800000, guid: 6c85aedd50042284e9e9661bee8c77ff, type: 3}
+  - loadSequence: 33
+    scriptTextureId: 34
+    originalFileName: beamHit2.png
+    texture: {fileID: 2800000, guid: 00a36f3a1efc0cb40af1f0f19efe2ac7, type: 3}
+  - loadSequence: 34
+    scriptTextureId: 35
+    originalFileName: Wing.png
+    texture: {fileID: 2800000, guid: 2f19376d702fcba43b8223f095bcdd06, type: 3}
+  - loadSequence: 35
+    scriptTextureId: 36
+    originalFileName: Wind.png
+    texture: {fileID: 2800000, guid: d43fcf8c46e8ba74db96b12028dc7ca6, type: 3}
+  - loadSequence: 36
+    scriptTextureId: 37
+    originalFileName: Bomb.png
+    texture: {fileID: 2800000, guid: 2dce29d1ef6943b43b71a3177dfa07ba, type: 3}
+  - loadSequence: 37
+    scriptTextureId: 38
+    originalFileName: m_circle4.png
+    texture: {fileID: 2800000, guid: ca96e79a9de15cb479e17aaf87f30a04, type: 3}
+  - loadSequence: 38
+    scriptTextureId: 39
+    originalFileName: blueLight.bmp
+    texture: {fileID: 2800000, guid: 0e3ed50f637dca3489d54ffc8317d233, type: 3}
+  - loadSequence: 39
+    scriptTextureId: 40
+    originalFileName: hinoko.png
+    texture: {fileID: 2800000, guid: 06201a04ac8e00a48804fbbba9af6d74, type: 3}
+  - loadSequence: 40
+    scriptTextureId: 41
+    originalFileName: fireAnime2.png
+    texture: {fileID: 2800000, guid: 966ac6173ae7ed844b2f471bacb7af4d, type: 3}
+  - loadSequence: 41
+    scriptTextureId: 42
+    originalFileName: sabel_line3.png
+    texture: {fileID: 2800000, guid: b227edb56069ab148b67ed94f541f006, type: 3}
+  - loadSequence: 42
+    scriptTextureId: -1
+    originalFileName: burner3.png
+    texture: {fileID: 2800000, guid: 820376f6c1f6e3c4d8db7c020d2c0c53, type: 3}
+  - loadSequence: 43
+    scriptTextureId: -1
+    originalFileName: burner4.png
+    texture: {fileID: 2800000, guid: 115454b0a2a93b647b9a85db3cf519f2, type: 3}
+  originalEffectShader: {fileID: 4800000, guid: 77ca3962e64ba0744818a910b34217f8, type: 3}
+  logMissingAudio: 1
+  logMissingTextures: 1
+  preloadMappedAudio: 1
+  useSpatialAudio: 1
+  audioMaxDistance: 40
 --- !u!1 &1730576920
 GameObject:
   m_ObjectHideFlags: 0
@@ -51814,6 +52187,8 @@ MonoBehaviour:
     - m_Text: "\u7DE8\u96C6\u30E2\u30FC\u30C9"
       m_Image: {fileID: 0}
     - m_Text: "\u30D7\u30EC\u30D3\u30E5\u30FC\u30E2\u30FC\u30C9"
+      m_Image: {fileID: 0}
+    - m_Text: "\u30C6\u30B9\u30C8\u30E2\u30FC\u30C9"
       m_Image: {fileID: 0}
   m_OnValueChanged:
     m_PersistentCalls:

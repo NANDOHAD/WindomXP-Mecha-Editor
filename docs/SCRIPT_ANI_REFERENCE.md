@@ -1,6 +1,6 @@
 # Script.ani 取り扱い資料
 
-この資料は、本Unityツールで読み書きしている `Script.ani` について、現行実装から確認できる構造と編集時の注意点をまとめたものです。ここでの `Script.ani` は、機体フォルダ内の `.ani` ファイル名として扱われるアニメーションコンテナを指します。実体は「機体パーツ構造」「HOD姿勢フレーム」「ANI内スクリプトブロック」を含むバイナリファイルです。ゲーム本来の命令仕様寄りのメモは [SCRIPT_ANI_COMMANDS_ORIGINAL_SPEC.md](SCRIPT_ANI_COMMANDS_ORIGINAL_SPEC.md) を参照してください。
+この資料は、本Unityツールで読み書きしている `Script.ani` について、現行実装から確認できる構造と編集時の注意点をまとめたものです。ここでの `Script.ani` は、機体フォルダ内の `.ani` ファイル名として扱われるアニメーションコンテナを指します。実体は「機体パーツ構造」「HOD姿勢フレーム」「ANI内スクリプトブロック」を含むバイナリファイルです。ゲーム本来の命令仕様寄りのメモは [SCRIPT_ANI_COMMANDS_ORIGINAL_SPEC.md](SCRIPT_ANI_COMMANDS_ORIGINAL_SPEC.md)、オリジナル実行ファイルのロード・解析・実行経路は [SCRIPT_ANI_ORIGINAL_DECOMPILED_ANALYSIS.md](SCRIPT_ANI_ORIGINAL_DECOMPILED_ANALYSIS.md) を参照してください。
 
 本ツールでは `Script.ani` を `ani2` クラスでロードします。入力は `AN2` / 旧 `ANI` / 単体 `HOD` を受け付けますが、保存時は常に `AN2` 形式で書き出します。旧 `ANI` を開いて保存すると、同じファイル名でも中身は `AN2` へ変換されます。
 
@@ -18,6 +18,7 @@
 | `Assets/Scripts/AniScriptRuntime.cs` | ANI命令をUnity側の状態、イベント、BURNERへ橋渡しする層。 |
 | `Assets/Scripts/SptParser.cs` / `UI_SPT.cs` | `Script.spt` の `BURNERSET` 等を読み、`BURNER(id)` と接続する。 |
 | `解析資料/*.txt` | 既存MOD向けの攻撃番号、テクスチャ番号、アクション番号、`@int` / `@float` などの解析メモ。 |
+| `docs/WindomXP_orig_decompiled.c` | オリジナル版の `Script.ani` ローダー、共通スクリプトパーサー、命令実行器の一次資料。 |
 
 ## ファイル形式の概要
 
@@ -105,6 +106,8 @@
 
 現行の `scriptInterpreter` は完全なSquirrel処理系ではなく、ANI命令を拾うための簡易パーサです。
 
+オリジナル版も汎用Squirrel VMではなく専用パーサーを使っていますが、現行Unity実装より対応範囲が広く、`@int[0..199]` / `@float[0..199]`、`+=` / `-=` / `*=` / `/=`、および `IF` の `!=` / `>` / `<` を扱います。以下の説明は、特に断りがない限り現行Unity実装の仕様です。
+
 ### コメント
 
 行頭が `'` の行はコメントとして無視されます。行途中の `'` 以降をコメントとして切り捨てる処理は、ANIスクリプト側にはありません。
@@ -150,6 +153,8 @@ ENDIF;
 
 一般的な `IF(a == b)` 形式や複雑な論理式は、現行実装では対象外です。
 
+オリジナル版は同じ `IF(lhs,op,rhs)` 形式で `==` / `>=` / `<=` / `!=` / `>` / `<` の6演算子を処理します。現行Unity実装では後半3つが未移植です。
+
 ## 現在登録されている主な命令
 
 `AniScriptRuntime` で登録される命令は、`Scr_` 付き別名も受け付けます。以下は「Unity側で何らかの受け皿がある」命令であり、ゲーム本体と同じ効果が完全再現されているという意味ではありません。
@@ -162,13 +167,13 @@ ENDIF;
 | `ShildGuard` | 防御フラグ候補を保存。スペルは既存表記に合わせて `Shild`。 |
 | `ShotTurnAng` / `TurnMoveAng` | 角度値を状態へ保存。 |
 | `AddExGauge` / `AddEnergy` | ゲージ/エネルギー増減候補を保存。 |
-| `Snd` / `Voice` / `CamEffect` | イベントを発行。購読側がなければ実効果なし。 |
+| `Snd` / `Voice` / `CamEffect` | イベントを発行。テストプレイでは`Snd`の原作固定ID 0～20・97～99を`Assets/SND_SE`へ接続済み。`CamEffect`は`TestPlayCameraController`が購読し、非0値を短い位置・回転揺れへ変換する（値ごとの原作演出が未確定のためUnity代替）。`Voice`は素材/購読側がなければ実効果なし。 |
 | `RunProc` / `RunSubScript` / `CatchChara` | イベントを発行。 |
 | `SetExtParam` | `extParams[index] = value` として保存し、イベントを発行。 |
 | `GvEnable` | フラグを保存。 |
 | `GoScriptIndex` / `GoPoseIndex` / `ChangeAnime` | 値を保存し、イベントを発行。ジャンプ実処理は購読側次第。 |
-| `BURNER` | `Script.spt` の `BURNERSET` と対応し、該当ParticleSystemの点火要求に使う。 |
-| `WeaponAttack` / `WeaponAttack2` / `RunProc2` / `ATTACK` | 受け皿はあるがTODO。解析資料の番号表を参照して今後移植する領域。 |
+| `BURNER` | 現行Unity側では主に `BURNER(id)` として `Script.spt` の `BURNERSET` に対応させる。オリジナル版は `BURNER(id, output)` の2引数。 |
+| `WeaponAttack` / `WeaponAttack2` / `RunProc2` / `ATTACK` | 編集プレビュー側は主にイベント受け皿。独立したテストプレイでは簡易弾、`ATTACK`近距離判定、原作テクスチャを使う`RunProc2`の一部を実装済み。タイプ別パラメーターはなお推定を含む。 |
 | `AttackFlag` / `LaserReflect` / `SwordCancel` / `BoostDashMode` / `AttackDelay` / `AnimeLoop` / `SwordEnable` / `ChangeWeapon` / `MoveLock` | 受け皿はあるがTODO。 |
 | `Rnd` / `LocalRnd` / `ExecScriptEveryTime` / `Sub_LRKey` / `vF_Multi` / `BunerOut` | 受け皿はあるがTODO。 |
 
@@ -195,7 +200,24 @@ BURNERSET(1, B3, 1.0, UP)
 BURNER(1);
 ```
 
-`executeAniScripts` 有効時、スクリプトブロック切り替わりごとにBURNER要求セットをリセットし、そのブロックで要求されたIDだけを点火、要求されなかったIDは停止します。
+`executeAniScripts` 有効時、スクリプトブロック切り替わりごとにBURNER要求セットをリセットし、そのブロックで要求されたIDだけを点火、要求されなかったIDは停止します。これは現行Unityプレビューの挙動です。オリジナル版はIDごとの有効フラグに加えて浮動小数の出力値を保持するため、厳密互換には2引数目の反映が必要です。
+
+## オリジナル版との主な互換差
+
+最新の逆コンパイル擬似コードから、次の差が確認されています。
+
+| 項目 | オリジナル版 | 現行Unityツール |
+| --- | --- | --- |
+| `ATTACK` | `power`, `down`, `force`, `forceY` を読み、4つの内部命令へ展開 | TODO受け皿 |
+| `BURNER` | `BURNER(id, output)`。IDは0～19 | 主に `BURNER(id)` |
+| `BURNER2` | 名前を認識するがエラーを出し命令化しない | 未登録 |
+| `IF` | 6比較演算子 | `==`, `>=`, `<=` の3種類 |
+| 内部変数 | int/float各0～199、5種の代入演算子 | 解析・収集中心 |
+| `ExecScriptEveryTime(n)` | 概ね `n + 1` tick周期で現在ブロックを再実行 | 未再現 |
+| 捕獲命令 | 入力トークンは `CatchLastChara` | `CatchChara` を登録 |
+| エフェクト画像番号 | 起動時ロード順44件を擬似コードで確認。スクリプトIDとの同一性は未確定 | テストプレイでは`loadSequence`と`GUIDE4.txt`由来`scriptTextureId`を分離。`Assets/IMG_TX`から44件を接続済み |
+
+詳細な根拠、関数アドレス、未確定事項は [SCRIPT_ANI_ORIGINAL_DECOMPILED_ANALYSIS.md](SCRIPT_ANI_ORIGINAL_DECOMPILED_ANALYSIS.md) に分離しています。
 
 ## 解析資料の読み方
 

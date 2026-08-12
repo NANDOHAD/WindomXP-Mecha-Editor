@@ -11,9 +11,11 @@ public class TestPlayScriptVM
     public TestPlayCommandHandler commandHandler;
     public TestPlayAssignmentHandler assignmentHandler;
     public Action<string> unhandledLineHandler;
+    public Func<bool> shouldStopExecution;
 
-    string[] lines = new string[0];
-    int lineIndex;
+    readonly Dictionary<string, string[]> compiledScripts = new Dictionary<string, string[]>();
+    string[] statements = new string[0];
+    int statementIndex;
 
     public TestPlayScriptVM(TestPlayStateTable state)
     {
@@ -25,33 +27,80 @@ public class TestPlayScriptVM
         if (string.IsNullOrEmpty(scriptText))
             return;
 
-        lines = scriptText.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
-        lineIndex = 0;
-        ExecuteUntilEnd();
+        Compile(scriptText);
+        statements = compiledScripts[scriptText];
+        statementIndex = 0;
+        ExecuteBlock(true);
     }
 
-    void ExecuteUntilEnd()
+    public void Compile(string scriptText)
     {
-        for (; lineIndex < lines.Length; lineIndex++)
+        if (string.IsNullOrEmpty(scriptText) || compiledScripts.ContainsKey(scriptText))
+            return;
+
+        List<string> parsed = new List<string>();
+        SplitStatements(scriptText, parsed);
+        compiledScripts.Add(scriptText, parsed.ToArray());
+    }
+
+    public void ClearCompiledScripts()
+    {
+        compiledScripts.Clear();
+        statements = new string[0];
+    }
+
+    BlockTerminator ExecuteBlock(bool execute)
+    {
+        while (statementIndex < statements.Length)
         {
-            ExecuteLine(lines[lineIndex]);
+            string statement = CleanLine(statements[statementIndex]);
+            if (string.Equals(statement, "ELSE", StringComparison.OrdinalIgnoreCase))
+            {
+                statementIndex++;
+                return BlockTerminator.Else;
+            }
+
+            if (string.Equals(statement, "ENDIF", StringComparison.OrdinalIgnoreCase))
+            {
+                statementIndex++;
+                return BlockTerminator.EndIf;
+            }
+
+            if (StartsWithCommand(statement, "IF"))
+            {
+                bool condition = execute && EvaluateIf(statement);
+                statementIndex++;
+
+                BlockTerminator firstTerminator = ExecuteBlock(condition);
+                if (firstTerminator == BlockTerminator.Aborted)
+                    return firstTerminator;
+
+                if (firstTerminator == BlockTerminator.Else)
+                {
+                    BlockTerminator secondTerminator = ExecuteBlock(execute && !condition);
+                    if (secondTerminator == BlockTerminator.Aborted)
+                        return secondTerminator;
+                }
+
+                continue;
+            }
+
+            statementIndex++;
+            if (!execute || string.IsNullOrEmpty(statement))
+                continue;
+
+            ExecuteLine(statement);
+            if (shouldStopExecution != null && shouldStopExecution())
+                return BlockTerminator.Aborted;
         }
+
+        return BlockTerminator.EndOfScript;
     }
 
     void ExecuteLine(string rawLine)
     {
         string line = CleanLine(rawLine);
         if (string.IsNullOrEmpty(line))
-            return;
-
-        if (StartsWithCommand(line, "IF"))
-        {
-            ExecuteIf(line);
-            return;
-        }
-
-        if (string.Equals(line, "ELSE", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(line, "ENDIF", StringComparison.OrdinalIgnoreCase))
             return;
 
         string op;
@@ -85,41 +134,24 @@ public class TestPlayScriptVM
         commandHandler?.Invoke(line, new List<TestPlayScriptValue>(), rawLine);
     }
 
-    void ExecuteIf(string ifLine)
+    bool EvaluateIf(string ifLine)
     {
         int paren = ifLine.IndexOf('(');
         int close = ifLine.LastIndexOf(')');
         if (paren < 0 || close <= paren)
         {
             unhandledLineHandler?.Invoke(ifLine);
-            return;
+            return false;
         }
 
         List<string> tokens = SplitArgs(ifLine.Substring(paren + 1, close - paren - 1));
         if (tokens.Count < 3)
         {
             unhandledLineHandler?.Invoke(ifLine);
-            return;
+            return false;
         }
 
-        bool condition = EvaluateCondition(tokens[0], tokens[1], tokens[2]);
-        lineIndex++;
-
-        for (; lineIndex < lines.Length; lineIndex++)
-        {
-            string nested = CleanLine(lines[lineIndex]);
-            if (string.Equals(nested, "ELSE", StringComparison.OrdinalIgnoreCase))
-            {
-                condition = !condition;
-                continue;
-            }
-
-            if (string.Equals(nested, "ENDIF", StringComparison.OrdinalIgnoreCase))
-                return;
-
-            if (condition)
-                ExecuteLine(lines[lineIndex]);
-        }
+        return EvaluateCondition(tokens[0], tokens[1], tokens[2]);
     }
 
     bool EvaluateCondition(string left, string op, string right)
@@ -203,6 +235,90 @@ public class TestPlayScriptVM
         if (line.EndsWith(";", StringComparison.Ordinal))
             line = line.Substring(0, line.Length - 1).Trim();
         return line;
+    }
+
+    static void SplitStatements(string scriptText, List<string> output)
+    {
+        if (string.IsNullOrEmpty(scriptText))
+            return;
+
+        int start = 0;
+        bool inDoubleQuote = false;
+        bool inSingleQuote = false;
+        bool inComment = false;
+        int parenthesisDepth = 0;
+
+        for (int i = 0; i < scriptText.Length; i++)
+        {
+            char c = scriptText[i];
+
+            if (inComment)
+            {
+                if (c == '\r' || c == '\n')
+                {
+                    inComment = false;
+                    start = i + 1;
+                }
+                continue;
+            }
+
+            if (c == '"' && !inSingleQuote && (i == 0 || scriptText[i - 1] != '\\'))
+            {
+                inDoubleQuote = !inDoubleQuote;
+                continue;
+            }
+
+            if (c == '\'' && !inDoubleQuote && (i == 0 || scriptText[i - 1] != '\\'))
+            {
+                // The original parser treats an apostrophe outside a quoted argument as
+                // a comment marker through the end of the physical line.
+                if (!inSingleQuote && parenthesisDepth == 0)
+                {
+                    AddStatement(scriptText, start, i, output);
+                    inComment = true;
+                    start = i + 1;
+                    continue;
+                }
+
+                inSingleQuote = !inSingleQuote;
+                continue;
+            }
+
+            if (inDoubleQuote || inSingleQuote)
+                continue;
+
+            if (c == '(')
+                parenthesisDepth++;
+            else if (c == ')' && parenthesisDepth > 0)
+                parenthesisDepth--;
+
+            if (c == ';' || c == '\r' || c == '\n')
+            {
+                AddStatement(scriptText, start, i, output);
+                start = i + 1;
+            }
+        }
+
+        if (!inComment)
+            AddStatement(scriptText, start, scriptText.Length, output);
+    }
+
+    static void AddStatement(string text, int start, int end, List<string> output)
+    {
+        if (end <= start)
+            return;
+
+        string statement = text.Substring(start, end - start).Trim();
+        if (!string.IsNullOrEmpty(statement))
+            output.Add(statement);
+    }
+
+    enum BlockTerminator
+    {
+        EndOfScript,
+        Else,
+        EndIf,
+        Aborted
     }
 
     static bool StartsWithCommand(string line, string command)

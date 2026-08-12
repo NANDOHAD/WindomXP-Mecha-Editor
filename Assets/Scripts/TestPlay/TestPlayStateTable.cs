@@ -4,6 +4,10 @@ using UnityEngine;
 [Serializable]
 public class TestPlayStateTable
 {
+    public const int ScriptVariableCount = 200;
+
+    // Keep the serialized backing arrays at their historical size. Script.ani access is
+    // restricted to 0..199 by TryParseScriptReference for original-game compatibility.
     public int[] ints = new int[256];
     public float[] floats = new float[256];
 
@@ -44,13 +48,13 @@ public class TestPlayStateTable
     {
         value = 0f;
         int index;
-        if (TryParseReference(token, "@int", out index))
+        if (TryParseScriptReference(token, "@int", out index))
         {
             value = GetInt(index);
             return true;
         }
 
-        if (TryParseReference(token, "@float", out index))
+        if (TryParseScriptReference(token, "@float", out index))
         {
             value = GetFloat(index);
             return true;
@@ -62,13 +66,13 @@ public class TestPlayStateTable
     public bool TryApplyReferenceAssignment(string token, string op, float value)
     {
         int index;
-        if (TryParseReference(token, "@int", out index))
+        if (TryParseScriptReference(token, "@int", out index))
         {
             SetInt(index, Mathf.RoundToInt(Apply(GetInt(index), op, value)));
             return true;
         }
 
-        if (TryParseReference(token, "@float", out index))
+        if (TryParseScriptReference(token, "@float", out index))
         {
             SetFloat(index, Apply(GetFloat(index), op, value));
             return true;
@@ -101,6 +105,11 @@ public class TestPlayStateTable
 
         string raw = t.Substring(prefix.Length + 1, t.Length - prefix.Length - 2);
         return int.TryParse(raw, out index);
+    }
+
+    static bool TryParseScriptReference(string token, string prefix, out int index)
+    {
+        return TryParseReference(token, prefix, out index) && index >= 0 && index < ScriptVariableCount;
     }
 
     static bool IsValid(int index, int length)

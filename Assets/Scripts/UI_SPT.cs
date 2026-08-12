@@ -33,19 +33,36 @@ public class UI_SPT : MonoBehaviour
 
     public void loadSPTField()
     {
+        TryLoadSptRuntimeData();
+    }
+
+    /// <summary>
+    /// 現在の機体フォルダからScript.sptを読み、編集UIとランタイムへ同じ内容を反映する。
+    /// テストモード開始時にも使用し、機体ロード順に依存した未読状態を防ぐ。
+    /// </summary>
+    public bool TryLoadSptRuntimeData()
+    {
+        if (robo == null || string.IsNullOrEmpty(robo.folder) || robo.transcoder == null)
+        {
+            ClearSptRuntimeData();
+            return false;
+        }
+
         string sptPath = Path.Combine(robo.folder, "Script.spt");
         if (!File.Exists(sptPath))
         {
-            SPTField.text = "";
-            LastSptData = null;
-            return;
+            ClearSptRuntimeData();
+            return false;
         }
 
         byte[] file = robo.transcoder.Transcode(sptPath);
-        SPTField.text = USEncoder.ToEncoding.ToUnicode(file);
+        string sptText = USEncoder.ToEncoding.ToUnicode(file);
+        if (SPTField != null)
+            SPTField.text = sptText;
 
         // SPT読み込み後、自動でSptParserを実行してBURNERエフェクトを初期化
-        ApplySptToRuntime(SPTField.text);
+        ApplySptToRuntime(sptText);
+        return LastSptData != null;
     }
 
     /// <summary>
@@ -54,7 +71,11 @@ public class UI_SPT : MonoBehaviour
     /// </summary>
     public void ApplySptToRuntime(string sptText)
     {
-        if (string.IsNullOrEmpty(sptText)) return;
+        if (string.IsNullOrEmpty(sptText))
+        {
+            ClearSptRuntimeData();
+            return;
+        }
 
         // 1. Script.spt をパース
         var data = SptParser.Parse(sptText);
@@ -69,18 +90,7 @@ public class UI_SPT : MonoBehaviour
 
         // 4. AniScriptRuntime に渡す
         //    mechaAnimator が Inspector で未設定の場合はシーン内から自動検索する
-        AniScriptRuntime runtime = null;
-
-        if (mechaAnimator != null)
-        {
-            runtime = mechaAnimator.GetComponent<AniScriptRuntime>();
-        }
-
-        if (runtime == null)
-        {
-            // フォールバック: シーン内の AniScriptRuntime を自動検索
-            runtime = FindObjectOfType<AniScriptRuntime>();
-        }
+        AniScriptRuntime runtime = FindAniScriptRuntime();
 
         if (runtime != null)
         {
@@ -91,6 +101,30 @@ public class UI_SPT : MonoBehaviour
             Debug.LogWarning("[UI_SPT] AniScriptRuntime が見つかりませんでした。" +
                              " MechaAnimator と同じ GameObject に AniScriptRuntime を追加してください。");
         }
+    }
+
+    void ClearSptRuntimeData()
+    {
+        if (SPTField != null)
+            SPTField.text = "";
+
+        LastSptData = null;
+        AniScriptRuntime runtime = FindAniScriptRuntime();
+        if (runtime != null)
+            runtime.sptData = null;
+    }
+
+    AniScriptRuntime FindAniScriptRuntime()
+    {
+        AniScriptRuntime runtime = null;
+        if (mechaAnimator != null)
+            runtime = mechaAnimator.GetComponent<AniScriptRuntime>();
+
+        if (runtime == null)
+            // フォールバック: シーン内の AniScriptRuntime を自動検索
+            runtime = FindObjectOfType<AniScriptRuntime>();
+
+        return runtime;
     }
 
     public void saveSPT()

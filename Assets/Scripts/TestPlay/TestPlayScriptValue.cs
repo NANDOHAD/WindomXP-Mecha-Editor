@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using UnityEngine;
 
 public enum TestPlayScriptValueType
@@ -53,7 +54,7 @@ public struct TestPlayScriptValue
             return number;
 
         float parsed;
-        if (!string.IsNullOrWhiteSpace(symbol) && float.TryParse(NormalizeFloatLiteral(symbol), out parsed))
+        if (!string.IsNullOrWhiteSpace(symbol) && float.TryParse(NormalizeFloatLiteral(symbol), NumberStyles.Float, CultureInfo.InvariantCulture, out parsed))
             return parsed;
 
         return fallback;
@@ -106,7 +107,7 @@ public struct TestPlayScriptValue
         }
 
         float parsed;
-        if (float.TryParse(NormalizeFloatLiteral(t), out parsed))
+        if (float.TryParse(NormalizeFloatLiteral(t), NumberStyles.Float, CultureInfo.InvariantCulture, out parsed))
         {
             value = Number(parsed);
             return true;

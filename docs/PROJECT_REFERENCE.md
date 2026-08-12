@@ -97,6 +97,8 @@ HODはパーツ階層とトランスフォームを持つ姿勢データです�
 
 `script` は時間/フレーム進行用パラメータとANI内スクリプト本文を保持します。
 
+オリジナル版実行ファイルの最新逆コンパイル解析は `docs/SCRIPT_ANI_ORIGINAL_DECOMPILED_ANALYSIS.md` に分離しています。原作は `ANI` の200スロット固定読み込みと `AN2` の可変アニメーション数を同じローダーで処理し、本文を専用パーサーで命令オブジェクトへ変換してから実行します。
+
 ### Script.spt
 
 `UI_SPT.loadSPTField()` は `robo.folder\Script.spt` を `CypherTranscoder.Transcode()` で読み、`USEncoder` でUnicode文字列へ変換します。その後 `SptParser.Parse()` を実行し、`AniScriptRuntime.sptData` へ渡します。
@@ -104,7 +106,7 @@ HODはパーツ階層とトランスフォームを持つ姿勢データです�
 `SptParser` が現在扱う主な要素:
 
 - `BURNERSET(id, frameName, scale, direction)`
-- `Name`, `NameEng`, `HP`, `Generator`, `Energy`, `LockDist`
+- `Name`, `NameEng`, `HP`, `Generator`, `Energy`, `Score`, `RestBody`, `LockDist`, `SubLockDist`
 
 `SptRuntimeData.BindTransforms()` は機体ルート以下から `frameName` または `frameName.x` に一致するTransformを探します。`BuildBurnerEffects()` は該当ボーンにParticleSystemを生成・接続します。
 
@@ -132,7 +134,7 @@ HODはパーツ階層とトランスフォームを持つ姿勢データです�
 
 ### アニメーション再生
 
-`MechaAnimator` は `MA_Runner` を使い、Unityの `FixedUpdate()` 1回をANI 1 tickとしてスクリプトブロックとフレーム補間を進めます。既定の `Fixed Timestep` は0.02秒のため、ゲーム互換プレビューの標準は50Hzです。
+通常の編集プレビューでは、`MechaAnimator` が `MA_Runner` を使い、Unityの `FixedUpdate()` 1回をANI 1 tickとしてスクリプトブロックとフレーム補間を進めます。既定の `Fixed Timestep` は0.02秒なので、この編集プレビューは50Hzです。一方、原作挙動比較用の `TestPlayController` はUnity物理周期から独立した60Hz（16.666ms）のシミュレーションtickを持ちます。両者は用途が異なるため、Project SettingsのFixed Timestepを変更して揃えないでください。
 
 - 単一アニメーション再生: `run(animation, loop)`
 - 2つ以上のアニメーションブレンド: `run(animation[], blend, loop)`
@@ -146,6 +148,8 @@ HODはパーツ階層とトランスフォームを持つ姿勢データです�
 `scriptInterpreter` はANI内の簡易スクリプトを行単位で解析し、関数呼び出し、変数代入、簡易IFを処理します。`AniScriptRuntime.Register()` が多くの `Scr_` 系命令を登録し、Unity側の状態・イベント・BURNER制御へ橋渡しします。
 
 この層は移植途中です。`AniScriptRuntime` 内のTODO命令は受け皿として登録されているものが多く、ゲーム本体挙動の完全再現ではありません。実装時は、未知命令を無視して落ちないこと、既存シンボル収集を壊さないことを優先してください。
+
+逆コンパイルで確認できた主な未移植差は、`IF` の `!=` / `>` / `<`、0～199のint/float内部変数と複合代入、`ATTACK` の4命令展開、2引数 `BURNER(id, output)`、`ExecScriptEveryTime(n)` の周期再実行、原作トークン `CatchLastChara` です。実装へ反映する場合は、推定コメントではなく同解析資料の関数アドレスと実データを根拠にしてください。
 
 ## 主要スクリプト一覧
 

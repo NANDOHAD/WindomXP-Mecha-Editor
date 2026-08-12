@@ -39,9 +39,13 @@ public class UI_ViewControl : MonoBehaviour
 
     public void ModeSelect(int id)
     {
-        if (GetComponent<TestPlayController>() != null)
+        TestPlayController testPlay = GetComponent<TestPlayController>();
+        if (testPlay != null)
         {
-            GetComponent<TestPlayController>().playModeActive = (id == 2);
+            if (id == 2)
+                testPlay.StartTestPlay();
+            else if (testPlay.playModeActive)
+                testPlay.StopTestPlay();
         }
 
         switch (id)

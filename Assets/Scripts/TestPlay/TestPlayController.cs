@@ -8,12 +8,28 @@ public class TestPlayController : MonoBehaviour
     public RoboStructure robo;
     public TestPlayTargetDummy target;
     public UI_SPT sptSource;
+    public TestPlayPresentationRuntime presentationRuntime;
+    public TestPlayCameraController cameraController;
 
     [Header("Mode")]
     public bool playModeActive;
     public bool startOnPlay;
     public bool logCommands;
     public bool logUnhandledCommands = true;
+
+    [Header("Original Simulation")]
+    [Min(1f)]
+    [Tooltip("原作メインループで確認できる固定更新周波数。UnityのFixed Timestepとは独立して進めます。")]
+    public float originalTickRate = 60f;
+    [Min(1)]
+    [Tooltip("低フレーム時に1フレームで追いつく最大tick数。残り時間は捨てず次フレームへ持ち越します。")]
+    public int maximumCatchUpTicks = 8;
+    [Tooltip("原作のANI座標1.0/tickをUnity座標へ変換する倍率。旧35 units/s × 0.02秒と同じ既定移動量です。")]
+    public float aniUnitsToUnityScale = 0.7f;
+    [Min(0f)]
+    public float originalGravityPerTick = 0.013f;
+    [Min(0f)]
+    public float originalTerminalFallSpeed = 0.8f;
 
     [Header("Action IDs")]
     public int idleAction = 0;
@@ -25,7 +41,10 @@ public class TestPlayController : MonoBehaviour
     public int riseStartAction = 3;
     public int riseAction = 7;
     public int airMoveAction = 4;
-    public int landingAction = 3;
+    public int airIdleAction = 8;
+    public int landingAction = 5;
+    [Tooltip("原作FUN_004d77e0が接地ステップ終了時に使う専用復帰アクション。通常着地ID 5とは分けます。")]
+    public int stepLandingAction = 6;
     public int shotAction = 100;
     public int meleeAction = 130;
     public int boostAction = 22;
@@ -35,16 +54,100 @@ public class TestPlayController : MonoBehaviour
     public int special3Action = 109;
 
     [Header("Motion")]
+    [Tooltip("旧シーン互換用。原作準拠経路ではaniUnitsToUnityScaleを使用します。")]
     public float moveScale = 35f;
+    [Tooltip("旧シーン互換用。原作準拠経路ではForceをANI座標/tickのまま積分します。")]
     public float forceScale = 35f;
+    [Tooltip("旧シーン互換用。原作準拠のForce速度減衰は下記のtick倍率を使用します。")]
     public float damping = 4f;
+    [Min(0f)]
+    [Tooltip("原作の上昇・空中移動更新でForce加算前に適用するY速度上限（ANI座標/tick）。")]
+    public float riseVerticalVelocityLimit = 0.15f;
+    [Range(0f, 1f)]
+    public float airborneHorizontalForceRetention = 0.95f;
+    [Range(0f, 1f)]
+    public float groundedHorizontalForceRetention = 0.9f;
     public float aimTurnSpeed = 540f;
     public float doubleTapStepSeconds = 0.3f;
     public float inputMoveMagnitude = 0.08f;
+    [Tooltip("オンの場合、ロック対象が有効なら対象方向を移動基準として優先します。")]
+    public bool useTargetRelativeMovement = true;
+    [Tooltip("対象基準を使わない場合、揺れ適用前の論理カメラ方位を移動基準として毎tick更新します。オフの場合は入力開始時の自機正面を保持します。")]
+    public bool useCameraRelativeMovement = true;
+    [Min(0f)]
+    public float inputTurnDegreesPerTick = 12f;
+    [Min(0f)]
+    public float riseTurnDegreesPerTick = 14f;
+    [Min(0f)]
+    public float boostInitialTurnDegreesPerTick = 15f;
+    [Min(1)]
+    public int riseMinimumReleaseTicks = 5;
+    [Min(1)]
+    [Tooltip("原作FUN_004d5b60/004d5ec0の上昇コールバックがaction 7を維持する最大tick数。原作はc38=0～11の12回です。")]
+    public int riseMaximumTicks = 12;
+    [Min(1)]
+    [Tooltip("原作FUN_004d68e0が空中停止から再上昇を受け付ける最小action 8 tick数。c38が10を超えてから受け付けます。")]
+    public int airRiseMinimumIdleTicks = 11;
+    [Min(1)]
+    public int boostMinimumReleaseTicks = 31;
+    public float doubleTapBoostSeconds = 0.3f;
     public float stepFallbackMoveMagnitude = 0.51f;
+    [Min(0f)]
+    public float stepTargetForwardBias = 0.3f;
+    [Tooltip("オンの場合、ステップ中は開始時の移動基準方向へ機体正面を保ち、横・後ステップ時の不自然な回転を抑えます。オフの場合は選択したステップアニメーションと移動方向を一致させる従来回転を使用します。")]
+    public bool preserveStepReferenceFacing = true;
+    [Tooltip("原作FUN_004d0b70/004d77e0に合わせ、入力方向に対するID 9～12のローカル移動方向が進行方向と一致する姿勢へ最大3度/tickで旋回します。オフ時だけpreserveStepReferenceFacingの旧近似を使います。")]
+    public bool useOriginalStepFacing = true;
+    [Min(0f)]
+    public float stepTurnDegreesPerTick = 3f;
+    [Min(1)]
+    public int stepMinimumTicks = 16;
+    [Min(1)]
+    public int stepMaximumTicks = 61;
+    [Tooltip("旧実装とのシーン互換用。原作準拠ステップでは距離到達を終了条件にしません。")]
     public float stepFallbackDistance = 3f;
     [Min(1)]
+    [Tooltip("旧実装とのシーン互換用。原作準拠ステップではANIのブロックtickを丸めません。")]
     public int maxStepScriptTicksPerBlock = 5;
+
+    [Header("Target Lock")]
+    [Tooltip("オンの場合、Sキーを押すまでtargetをロック対象にしません。")]
+    public bool requireLockInput = true;
+    [Min(0f)]
+    [Tooltip("Script.sptのLockDistが未読または0以下の場合に使うロック可能距離。")]
+    public float fallbackLockDistance = 100f;
+    public TestPlayTargetDummy lockedTarget;
+
+    [Header("Script Aim (Unity approximation)")]
+    [Tooltip("LockBodyUpTargetを適用する表示階層。未設定なら機体ルートは回しません。")]
+    public Transform bodyUpAimRoot;
+    [Tooltip("LockBodyDownTargetを適用する表示階層。未設定なら機体ルートは回しません。")]
+    public Transform bodyDownAimRoot;
+    [Tooltip("LockArm1Targetを適用する表示階層。未設定なら機体ルートは回しません。")]
+    public Transform arm1AimRoot;
+    [Tooltip("LockArm2Targetを適用する表示階層。未設定なら機体ルートは回しません。")]
+    public Transform arm2AimRoot;
+
+    [Header("Original SPT Status")]
+    [Min(1f)]
+    [Tooltip("Script.sptのHPが未読または0以下の場合に使う自機HP。")]
+    public float fallbackMaximumHP = 1000f;
+    [Min(1f)]
+    [Tooltip("旧Inspector互換名。原作ではScript.sptのGeneratorが移動用ゲージ最大値(+0xD1C)になります。")]
+    public float fallbackMaximumEnergy = 1000f;
+    [Min(1f)]
+    [Tooltip("Script.sptのEnergyが未読または0以下の場合に使う補助エネルギー最大値(+0xD2C)。")]
+    public float fallbackMaximumAuxiliaryEnergy = 1000f;
+    [Min(0f)]
+    public float riseEnergyPerTick = 5f;
+    [Min(0f)]
+    public float boostEnergyPerTick = 5f;
+    [Min(0f)]
+    public float stepEnergyPerTick = 4f;
+    [Min(0f)]
+    public float airRiseEnergyCost = 80f;
+    [Min(0f)]
+    public float groundedEnergyRecoveryPerTick = 24f;
 
     [Header("Grounding")]
     public bool useColliderGrounding = true;
@@ -91,9 +194,25 @@ public class TestPlayController : MonoBehaviour
     public bool airborneFlag;
     public bool groundedFlag;
     public float verticalFallSpeed;
+    [Tooltip("Script.sptのHPから初期化した自機HP。")]
+    public float currentHP;
+    public float maximumHP;
+    [Tooltip("旧Inspector互換名。Script.sptのGeneratorから初期化するブースト／ジャンプ／ステップ用ゲージ。")]
+    public float currentEnergy;
+    public float maximumEnergy;
+    [Tooltip("Script.sptのEnergyから初期化する原作の別エネルギーゲージ(+0xD2C/+0xD30)。")]
+    public float currentAuxiliaryEnergy;
+    public float maximumAuxiliaryEnergy;
+    public int configuredScore;
+    public int configuredRestBody;
+    public bool targetLockActive;
+    public float activeTargetDistance;
     public string currentAnimationName;
     public string heldWeapon = "GUN";
     public TestPlayStateTable state = new TestPlayStateTable();
+    public TestPlayAttackProfile attackProfile = new TestPlayAttackProfile();
+
+    public event Action<TestPlayRuntimeEvent> RuntimeEventRaised;
 
     [Header("Debug Logging")]
     public bool logMotionDebug;
@@ -105,7 +224,10 @@ public class TestPlayController : MonoBehaviour
     animation currentAnimation;
     int scriptTick;
     bool initFired;
-    bool executeScriptEveryTick;
+    bool executeScriptRepeatedly;
+    int scriptRepeatInterval;
+    int scriptRepeatCounter;
+    bool abortScriptExecution;
     bool animeLoop;
     bool moveLocked;
     bool shieldGuard;
@@ -119,8 +241,11 @@ public class TestPlayController : MonoBehaviour
     Vector3 moveCommand;
     Vector3 forceCommand;
     Vector3 velocity;
+    Vector3 pendingDrivenHorizontalVelocity;
+    bool hasPendingDrivenHorizontalVelocity;
     bool riseKeyHeld;
     bool previousRiseKeyHeld;
+    int lastRiseTapTick = int.MinValue;
     bool riseSequenceActive;
     bool landingSequenceActive;
     bool stepSequenceActive;
@@ -129,20 +254,63 @@ public class TestPlayController : MonoBehaviour
     bool boostMotionActive;
     bool moveAnimationActive;
     int actionTick;
-    float stepMoveBudgetDistance;
     float stepMovedDistance;
     int previousDirectionInput;
     int lastDirectionTap;
     int stepDirection;
-    float lastDirectionTapTime = -1f;
-    readonly HashSet<int> burnerRequestedIds = new HashSet<int>();
+    int lastDirectionTapTick = int.MinValue;
+    int activeStepInputDirection;
+    Vector3 stepReferenceForward;
+    Vector3 stepMoveHeading;
+    Vector3 stepFacingHeading;
+    bool hasStepRuntimeState;
+    bool stepRecoveryActive;
+    int stepRecoveryDirection;
+    Vector3 inputMoveReferenceForward;
+    Vector3 inputMoveHeading;
+    bool hasInputMoveReference;
+    bool hasInputMoveHeading;
+    Vector3 boostReferenceForward;
+    Vector3 boostMoveHeading;
+    bool hasBoostReference;
+    bool hasBoostMoveHeading;
+    readonly Dictionary<int, float> burnerRequestedOutputs = new Dictionary<int, float>();
     readonly HashSet<int> validBurnerIds = new HashSet<int>();
     readonly Dictionary<int, TestPlayBurnerCone> burnerCones = new Dictionary<int, TestPlayBurnerCone>();
+    readonly List<GameObject> spawnedTransientObjects = new List<GameObject>();
     TestPlayPosePart[] transitionFromPose;
     int transitionTick;
     int transitionTickTotal;
     CharacterController groundingController;
     CollisionFlags groundingCollisionFlags;
+    float simulationAccumulator;
+    int sampledDirectionInput;
+    int latchedDirectionInput;
+    bool sampledRiseKeyHeld;
+    bool sampledShotKeyHeld;
+    bool sampledMeleeKeyHeld;
+    bool sampledGuardKeyHeld;
+    bool sampledLockKeyHeld;
+    bool sampledSpecial1KeyHeld;
+    bool sampledSpecial2KeyHeld;
+    bool sampledSpecial3KeyHeld;
+    bool latchedRiseKeyPress;
+    bool latchedShotKeyPress;
+    bool latchedMeleeKeyPress;
+    bool latchedGuardKeyPress;
+    bool latchedLockKeyPress;
+    bool latchedSpecial1KeyPress;
+    bool latchedSpecial2KeyPress;
+    bool latchedSpecial3KeyPress;
+    bool previousLockKeyHeld;
+    bool bodyUpAimRequested;
+    bool bodyDownAimRequested;
+    bool arm1AimRequested;
+    bool arm2AimRequested;
+    int lastSyncedMovementEnergyInt;
+    float lastSyncedMovementEnergyFloat;
+    int lastSyncedAuxiliaryEnergyInt;
+    float lastSyncedAuxiliaryEnergyFloat;
 
     struct TestPlayPosePart
     {
@@ -162,6 +330,12 @@ public class TestPlayController : MonoBehaviour
         vm.commandHandler = HandleCommand;
         vm.assignmentHandler = HandleAssignment;
         vm.unhandledLineHandler = LogUnhandled;
+        vm.shouldStopExecution = () => abortScriptExecution;
+
+        if (presentationRuntime == null)
+            presentationRuntime = GetComponent<TestPlayPresentationRuntime>();
+        if (presentationRuntime != null)
+            presentationRuntime.Bind(this);
     }
 
     void Start()
@@ -170,20 +344,43 @@ public class TestPlayController : MonoBehaviour
             StartTestPlay();
     }
 
-    void FixedUpdate()
+    void Update()
     {
         if (!playModeActive)
             return;
 
-        if (robo == null || robo.ani == null || robo.ani.animations == null || robo.ani.animations.Count == 0)
-            return;
+        SampleInputFrame();
 
+        if (robo == null || robo.ani == null || robo.ani.animations == null || robo.ani.animations.Count == 0)
+        {
+            simulationAccumulator = 0f;
+            return;
+        }
+
+        float tickDeltaTime = GetOriginalTickDeltaTime();
+        simulationAccumulator += Mathf.Max(0f, Time.deltaTime);
+        int processedTicks = 0;
+        int catchUpLimit = Mathf.Max(1, maximumCatchUpTicks);
+        while (simulationAccumulator + 0.000001f >= tickDeltaTime && processedTicks < catchUpLimit)
+        {
+            simulationAccumulator -= tickDeltaTime;
+            SimulateOriginalTick();
+            processedTicks++;
+        }
+    }
+
+    void SimulateOriginalTick()
+    {
         tick++;
         UpdateInputState();
+        UpdateTargetLock();
         UpdateTargetState();
+        UpdateOriginalMovementEnergy();
         UpdateActionFromInput();
         TickAnimation();
+        ApplyQueuedAimCommands();
         ApplyRootMotion();
+        ConsumeLatchedInput();
     }
 
     public void StartTestPlay()
@@ -194,22 +391,57 @@ public class TestPlayController : MonoBehaviour
             target = FindObjectOfType<TestPlayTargetDummy>();
         if (sptSource == null)
             sptSource = FindObjectOfType<UI_SPT>();
+        EnsureSptRuntimeDataLoaded();
+        if (presentationRuntime == null)
+            presentationRuntime = GetComponent<TestPlayPresentationRuntime>();
+        if (presentationRuntime == null)
+            presentationRuntime = gameObject.AddComponent<TestPlayPresentationRuntime>();
+        presentationRuntime.Bind(this);
+        presentationRuntime.AttachEmitters(robo != null && robo.root != null ? robo.root.transform : null);
 
         EnsureGroundingController();
         state.ResetDefaults();
         ResetRuntimeFlags();
+        ResetInputSamplingState();
+        InitializeOriginalSptStatus();
         playModeActive = true;
         ChangeAnimation(idleAction);
+        EnsureCameraController();
+        cameraController?.EnterTestPlayCamera(this);
+    }
+
+    void EnsureSptRuntimeDataLoaded()
+    {
+        if (sptSource != null && sptSource.LastSptData == null)
+            sptSource.TryLoadSptRuntimeData();
     }
 
     public void StopTestPlay()
     {
         playModeActive = false;
+        cameraController?.ExitTestPlayCamera();
         velocity = Vector3.zero;
+        pendingDrivenHorizontalVelocity = Vector3.zero;
+        hasPendingDrivenHorizontalVelocity = false;
+        ClearStepRecovery();
+        simulationAccumulator = 0f;
+        ResetInputSamplingState();
         verticalFallSpeed = 0f;
         moveCommand = Vector3.zero;
         forceCommand = Vector3.zero;
         StopAllBurnerEffects();
+        presentationRuntime?.StopPresentation();
+        DestroyTransientObjects();
+    }
+
+    void EnsureCameraController()
+    {
+        if (cameraController == null)
+            cameraController = FindObjectOfType<TestPlayCameraController>();
+        if (cameraController == null && Camera.main != null)
+            cameraController = Camera.main.gameObject.AddComponent<TestPlayCameraController>();
+        if (cameraController != null)
+            cameraController.Bind(this);
     }
 
     public void ChangeAnimation(int actionId)
@@ -238,18 +470,22 @@ public class TestPlayController : MonoBehaviour
         if (!restartSameAction && currentAnimation != null && currentAnimationIndex == actionId)
             return;
 
+        if (actionId != airIdleAction)
+            ClearStepRecovery();
+
         StartPoseTransition(currentAnimationIndex, actionId);
 
         currentAnimationIndex = actionId;
         currentAnimation = robo.ani.animations[actionId];
         currentAnimationName = currentAnimation != null ? currentAnimation.name : "";
+        CompileAnimationScripts(currentAnimation);
         scriptIndex = 0;
         scriptTick = 0;
         frameIndex = 0;
         frameTime = 0f;
         actionTick = 0;
         initFired = false;
-        executeScriptEveryTick = false;
+        ResetScriptRepeatState();
         animeLoop = false;
         StopAllBurnerEffects();
 
@@ -262,35 +498,39 @@ public class TestPlayController : MonoBehaviour
         if (stepAction)
         {
             ClearHeldMotionState();
+            EnsureStepRuntimeState(actionId);
             stepSequenceActive = true;
-            stepMoveBudgetDistance = CalculateStepMoveBudgetDistance(currentAnimation);
             stepMovedDistance = 0f;
         }
-        else if (actionId != landingAction)
+        else if (!IsGroundRecoveryAction(actionId))
         {
             stepSequenceActive = false;
-            stepMoveBudgetDistance = 0f;
             stepMovedDistance = 0f;
+            ResetStepRuntimeState();
         }
 
-        if (actionId != boostAction || !IsBoostInputHeld())
+        if (actionId != boostAction || !boostMotionActive)
             boostMotionActive = false;
 
-        if (!landingSequenceActive && (actionId == riseStartAction || actionId == riseAction || (actionId == boostAction && boostMotionActive) || stepAction))
+        if (!landingSequenceActive && (actionId == riseStartAction || actionId == riseAction || (actionId == boostAction && boostMotionActive)))
             SetAirborneFlag(true);
 
         if (stepAction)
         {
             stepDirection = 0;
             lastDirectionTap = 0;
-            lastDirectionTapTime = -1f;
+            lastDirectionTapTick = int.MinValue;
         }
 
         if (actionId != moveAction)
             moveAnimationActive = false;
 
         if (actionId == idleAction)
+        {
             ClearHeldMotionState();
+            pendingDrivenHorizontalVelocity = Vector3.zero;
+            hasPendingDrivenHorizontalVelocity = false;
+        }
     }
 
     void TickAnimation()
@@ -304,8 +544,8 @@ public class TestPlayController : MonoBehaviour
         {
             initFired = true;
             int initAction = currentAnimationIndex;
-            ExecuteScript(currentAnimation.squirrelInit);
-            if (currentAnimationIndex != initAction)
+            bool initInterrupted = ExecuteScript(currentAnimation.squirrelInit);
+            if (initInterrupted || currentAnimationIndex != initAction)
                 return;
         }
 
@@ -316,13 +556,28 @@ public class TestPlayController : MonoBehaviour
             scriptIndex = Mathf.Clamp(scriptIndex, 0, currentAnimation.scripts.Count - 1);
             script currentScript = currentAnimation.scripts[scriptIndex];
 
-            if (scriptTick == 0 || executeScriptEveryTick)
+            if (IsScriptTerminator(currentScript))
+            {
+                FinishCurrentAnimation();
+                return;
+            }
+
+            bool enteringBlock = scriptTick == 0;
+            if (enteringBlock)
+            {
+                ResetOriginalBlockState();
+                ResetScriptRepeatState();
+            }
+
+            bool executeBlock = enteringBlock || ConsumeScriptRepeatTick();
+            if (executeBlock)
             {
                 int actionBeforeScript = currentAnimationIndex;
-                burnerRequestedIds.Clear();
-                ExecuteScript(currentScript.squirrel);
+                int scriptBeforeExecution = scriptIndex;
+                burnerRequestedOutputs.Clear();
+                bool interrupted = ExecuteScript(currentScript.squirrel);
                 ApplyBurners();
-                if (currentAnimationIndex != actionBeforeScript)
+                if (interrupted || currentAnimationIndex != actionBeforeScript || scriptIndex != scriptBeforeExecution)
                     return;
             }
 
@@ -332,42 +587,11 @@ public class TestPlayController : MonoBehaviour
             {
                 scriptTick = 0;
                 scriptIndex++;
-                if (scriptIndex >= currentAnimation.scripts.Count)
+                ResetScriptRepeatState();
+                if (scriptIndex >= currentAnimation.scripts.Count || IsScriptTerminator(currentAnimation.scripts[scriptIndex]))
                 {
-                    if (currentAnimationIndex == landingAction && landingSequenceActive)
-                    {
-                        landingSequenceActive = false;
-                        ChangeAnimation(idleAction);
-                        return;
-                    }
-
-                    if (stepSequenceActive && IsStepAction(currentAnimationIndex))
-                    {
-                        if (stepMoveBudgetDistance > 0f)
-                        {
-                            RestartCurrentAnimationLoop();
-                            return;
-                        }
-
-                        StartAirIdleSequence();
-                        return;
-                    }
-
-                    if (currentAnimationIndex == riseStartAction && riseSequenceActive)
-                    {
-                        ChangeAnimation(riseAction);
-                        return;
-                    }
-
-                    if (animeLoop || ShouldLoopHeldAction())
-                    {
-                        RestartCurrentAnimationLoop();
-                    }
-                    else
-                    {
-                        ChangeAnimation(idleAction);
-                        return;
-                    }
+                    FinishCurrentAnimation();
+                    return;
                 }
             }
 
@@ -386,16 +610,10 @@ public class TestPlayController : MonoBehaviour
             StopAllBurnerEffects();
             if (stepSequenceActive && IsStepAction(currentAnimationIndex))
             {
-                frameIndex++;
-                int frameCount = currentAnimation.frames != null ? currentAnimation.frames.Count : 0;
-                if (frameCount <= 0 || frameIndex >= frameCount)
-                {
-                    StartAirIdleSequence();
-                    return;
-                }
+                ApplyFiniteActionPoseProgress(GetOriginalStepMaximumTicks());
             }
 
-            if (landingSequenceActive && currentAnimationIndex == landingAction)
+            if (landingSequenceActive && IsGroundRecoveryAction(currentAnimationIndex))
             {
                 frameIndex++;
                 int frameCount = currentAnimation.frames != null ? currentAnimation.frames.Count : 0;
@@ -409,6 +627,91 @@ public class TestPlayController : MonoBehaviour
         }
 
         ApplyPose();
+    }
+
+    bool ConsumeScriptRepeatTick()
+    {
+        if (!executeScriptRepeatedly)
+            return false;
+
+        if (scriptRepeatCounter <= 0)
+        {
+            scriptRepeatCounter = scriptRepeatInterval;
+            return true;
+        }
+
+        scriptRepeatCounter--;
+        return false;
+    }
+
+    void ResetScriptRepeatState()
+    {
+        executeScriptRepeatedly = false;
+        scriptRepeatInterval = 0;
+        scriptRepeatCounter = 0;
+    }
+
+    void ResetOriginalBlockState()
+    {
+        moveCommand = Vector3.zero;
+        forceCommand = Vector3.zero;
+        moveLocked = false;
+        shieldGuard = false;
+        gvEnable = true;
+        attackFlag = 0;
+        camEffect = 0f;
+        vFMulti = 1f;
+        EnsureAttackProfile();
+        attackProfile.Reset();
+        burnerRequestedOutputs.Clear();
+        bodyUpAimRequested = false;
+        bodyDownAimRequested = false;
+        arm1AimRequested = false;
+        arm2AimRequested = false;
+    }
+
+    static bool IsScriptTerminator(script scriptBlock)
+    {
+        return scriptBlock.unk == 999999999;
+    }
+
+    void FinishCurrentAnimation()
+    {
+        if (landingSequenceActive && IsGroundRecoveryAction(currentAnimationIndex))
+        {
+            landingSequenceActive = false;
+            ChangeAnimation(idleAction);
+            return;
+        }
+
+        if (stepSequenceActive && IsStepAction(currentAnimationIndex))
+        {
+            int elapsedStepTicks = actionTick;
+            RestartCurrentAnimationLoop();
+            actionTick = elapsedStepTicks;
+            return;
+        }
+
+        if (currentAnimationIndex == riseStartAction && riseSequenceActive)
+        {
+            ApplyPendingDrivenHorizontalInertia();
+            ChangeAnimation(riseAction);
+            return;
+        }
+
+        if (currentAnimationIndex == boostAction && boostMotionActive)
+        {
+            if (ShouldEndOriginalStyleBoost())
+                ChangeToAirMoveOrLanding();
+            else
+                RestartCurrentAnimationLoop();
+            return;
+        }
+
+        if (animeLoop || ShouldLoopHeldAction())
+            RestartCurrentAnimationLoop();
+        else
+            ChangeAnimation(idleAction);
     }
 
     void ApplyPose()
@@ -458,95 +761,175 @@ public class TestPlayController : MonoBehaviour
         if (robo == null || robo.root == null)
             return;
 
-        float dt = Time.fixedDeltaTime;
         Transform root = robo.root.transform;
+        if (stepSequenceActive && IsStepAction(currentAnimationIndex) && ShouldFinishOriginalStyleStep())
+        {
+            FinishOriginalStyleStep();
+            return;
+        }
+
         Vector3 positionBefore = root.position;
         Vector3 localMove = moveLocked ? Vector3.zero : moveCommand;
         bool usingInputMove = false;
         bool usingStepFallbackMove = false;
-        if (!moveLocked && localMove.sqrMagnitude < 0.000001f)
+        Vector3 worldMove;
+        if (!moveLocked && TryGetOriginalStyleStepWorldMove(root, localMove, out worldMove, out usingStepFallbackMove))
         {
-            usingStepFallbackMove = TryGetStepFallbackMoveVector(out localMove);
-            if (!usingStepFallbackMove)
-                usingInputMove = TryGetInputMoveVector(out localMove);
         }
-        Vector3 worldMove = root.right * localMove.x + Vector3.up * localMove.y + root.forward * localMove.z;
-        velocity += forceCommand * forceScale * dt;
-        velocity = Vector3.Lerp(velocity, Vector3.zero, damping * dt);
-        Vector3 scriptedMove = worldMove * moveScale * vFMulti * dt;
-        Vector3 requestedMove = scriptedMove + velocity * dt;
-        Vector3 appliedMove = MoveRootWithColliderGrounding(root, requestedMove, dt);
+        else if (!moveLocked && TryGetOriginalStyleBoostWorldMove(root, localMove, out worldMove))
+        {
+            usingInputMove = true;
+        }
+        else if (!moveLocked && TryGetOriginalStyleInputWorldMove(root, localMove, out worldMove))
+        {
+            usingInputMove = true;
+        }
+        else
+        {
+            ResetInputMoveHeadingIfInactive();
+            if (!moveLocked && localMove.sqrMagnitude < 0.000001f)
+            {
+                usingInputMove = TryGetInputMoveVector(out localMove);
+            }
+            worldMove = root.right * localMove.x + Vector3.up * localMove.y + root.forward * localMove.z;
+        }
+        ApplyOriginalRiseSteering(root);
+        IntegrateOriginalForceVelocity();
+        Vector3 scriptedVelocity = worldMove;
+        if (!CaptureDrivenHorizontalVelocity(scriptedVelocity))
+            DecayPendingDrivenHorizontalVelocity();
+        float unitScale = Mathf.Max(0f, aniUnitsToUnityScale);
+        Vector3 scriptedMove = scriptedVelocity * unitScale;
+        Vector3 requestedMove = (scriptedVelocity + velocity) * unitScale;
+        Vector3 appliedMove = MoveRootWithColliderGrounding(root, requestedMove);
 
-        bool finishStepAfterLog = false;
         float debugStepMovedDistance = stepMovedDistance;
         float debugStepTargetDistance = GetActiveStepMoveTargetDistance();
         if (stepSequenceActive && IsStepAction(currentAnimationIndex))
         {
-            if (debugStepTargetDistance > 0f)
-            {
-                stepMovedDistance += scriptedMove.magnitude;
-                debugStepMovedDistance = stepMovedDistance;
-                if (stepMovedDistance + 0.001f >= debugStepTargetDistance)
-                    finishStepAfterLog = true;
-            }
-            else if (actionTick >= GetStepFallbackDurationTicks())
-            {
-                finishStepAfterLog = true;
-            }
+            stepMovedDistance += scriptedMove.magnitude;
+            debugStepMovedDistance = stepMovedDistance;
         }
 
         LogMotionRootDebug(root, positionBefore, localMove, worldMove, scriptedMove, appliedMove, usingInputMove, usingStepFallbackMove, debugStepMovedDistance, debugStepTargetDistance);
-
-        if (finishStepAfterLog)
-            StartAirIdleSequence();
     }
 
-    Vector3 MoveRootWithColliderGrounding(Transform root, Vector3 requestedMove, float dt)
+    void IntegrateOriginalForceVelocity()
+    {
+        // FUN_004d5b60 / FUN_004d5ec0 clamp the current rise speed before the
+        // ANI Force value is added by FUN_004cd840. Force is a per-tick velocity
+        // delta in the original, not a per-second acceleration.
+        float verticalLimit = Mathf.Max(0f, riseVerticalVelocityLimit);
+        bool limitUpwardVelocity =
+            (currentAnimationIndex == riseAction && riseSequenceActive) ||
+            currentAnimationIndex == airMoveAction;
+        if (limitUpwardVelocity && velocity.y > verticalLimit)
+            velocity.y = verticalLimit;
+
+        velocity += forceCommand;
+
+        // FUN_004cd840: GvEnable時はY速度が-0.8を下回るまで0.013/tickを減算する。
+        if (gvEnable)
+        {
+            float terminal = Mathf.Max(0f, originalTerminalFallSpeed);
+            if (velocity.y > -terminal)
+                velocity.y = Mathf.Max(velocity.y - Mathf.Max(0f, originalGravityPerTick), -terminal);
+        }
+
+        // FUN_004cd840は空中0.95、接地0.9を水平速度だけへ適用する。
+        float retention = airborneFlag
+            ? Mathf.Clamp01(airborneHorizontalForceRetention)
+            : Mathf.Clamp01(groundedHorizontalForceRetention);
+        velocity.x *= retention;
+        velocity.z *= retention;
+
+        // 同関数内では減衰後の3軸速度へvF_Multiを1回だけ掛ける。
+        velocity *= vFMulti;
+    }
+
+    bool CaptureDrivenHorizontalVelocity(Vector3 scriptedVelocity)
+    {
+        Vector3 horizontal = Vector3.ProjectOnPlane(scriptedVelocity, Vector3.up);
+        if (horizontal.sqrMagnitude < 0.000001f)
+            return false;
+
+        if (currentAnimationIndex != moveAction &&
+            currentAnimationIndex != airMoveAction &&
+            currentAnimationIndex != boostAction &&
+            !IsStepAction(currentAnimationIndex))
+            return false;
+
+        pendingDrivenHorizontalVelocity = horizontal;
+        hasPendingDrivenHorizontalVelocity = true;
+        return true;
+    }
+
+    void DecayPendingDrivenHorizontalVelocity()
+    {
+        if (!hasPendingDrivenHorizontalVelocity)
+            return;
+
+        float retention = airborneFlag
+            ? Mathf.Clamp01(airborneHorizontalForceRetention)
+            : Mathf.Clamp01(groundedHorizontalForceRetention);
+        pendingDrivenHorizontalVelocity *= retention;
+        if (pendingDrivenHorizontalVelocity.sqrMagnitude < 0.000001f)
+        {
+            pendingDrivenHorizontalVelocity = Vector3.zero;
+            hasPendingDrivenHorizontalVelocity = false;
+        }
+    }
+
+    void ApplyPendingDrivenHorizontalInertia()
+    {
+        if (!hasPendingDrivenHorizontalVelocity)
+            return;
+
+        // The decompile confirms that numeric Force=(0,y,0) preserves existing
+        // horizontal Force velocity. Converting the preceding Move velocity into
+        // that state at a locomotion-to-rise boundary is an observed-behaviour
+        // approximation because the exact hand-off site is not identified yet.
+        velocity.x = pendingDrivenHorizontalVelocity.x;
+        velocity.z = pendingDrivenHorizontalVelocity.z;
+        pendingDrivenHorizontalVelocity = Vector3.zero;
+        hasPendingDrivenHorizontalVelocity = false;
+    }
+
+    Vector3 MoveRootWithColliderGrounding(Transform root, Vector3 requestedMove)
     {
         if (!useColliderGrounding || !EnsureGroundingController())
         {
             root.position += requestedMove;
             groundedFlag = false;
             groundingCollisionFlags = CollisionFlags.None;
+            verticalFallSpeed = velocity.y * Mathf.Max(0f, aniUnitsToUnityScale) * Mathf.Max(1f, originalTickRate);
             return requestedMove;
         }
 
         bool forceAirborne = ShouldForceAirborneByAction();
-        bool applyGravity = !forceAirborne || applyGravityDuringForcedAirborneActions;
         Vector3 positionBefore = root.position;
-        Vector3 move = requestedMove;
-
-        if (applyGravity)
-        {
-            if (groundedFlag && verticalFallSpeed < 0f)
-                verticalFallSpeed = groundedVerticalSpeed;
-            else
-                verticalFallSpeed = Mathf.Max(verticalFallSpeed - gravity * dt, -Mathf.Abs(terminalFallSpeed));
-
-            move += Vector3.up * verticalFallSpeed * dt;
-        }
-        else
-        {
-            verticalFallSpeed = Mathf.Max(0f, verticalFallSpeed);
-        }
-
-        groundingCollisionFlags = groundingController.Move(move);
+        groundingCollisionFlags = groundingController.Move(requestedMove);
         bool controllerGrounded = groundingController.isGrounded || (groundingCollisionFlags & CollisionFlags.Below) != 0;
-        if ((groundingCollisionFlags & CollisionFlags.Above) != 0 && verticalFallSpeed > 0f)
-            verticalFallSpeed = 0f;
-        if (controllerGrounded && verticalFallSpeed < 0f)
-            verticalFallSpeed = groundedVerticalSpeed;
+        if ((groundingCollisionFlags & CollisionFlags.Above) != 0)
+        {
+            if (velocity.y > 0f)
+                velocity.y = 0f;
+        }
+        if (controllerGrounded && !forceAirborne)
+            velocity.y = 0f;
+
+        verticalFallSpeed = velocity.y * Mathf.Max(0f, aniUnitsToUnityScale) * Mathf.Max(1f, originalTickRate);
 
         groundedFlag = controllerGrounded;
         if (forceAirborne)
             SetAirborneFlag(true);
-        else if (landingSequenceActive && currentAnimationIndex == landingAction)
+        else if (landingSequenceActive && IsGroundRecoveryAction(currentAnimationIndex))
             SetAirborneFlag(false);
         else
             SetAirborneFlag(!controllerGrounded);
 
         Vector3 actualMove = root.position - positionBefore;
-        LogGroundingRootDebug(forceAirborne, applyGravity, requestedMove, move, actualMove);
+        LogGroundingRootDebug(forceAirborne, gvEnable, requestedMove, requestedMove, actualMove);
         return actualMove;
     }
 
@@ -574,35 +957,71 @@ public class TestPlayController : MonoBehaviour
         return groundingController.enabled;
     }
 
+    void SampleInputFrame()
+    {
+        int horizontal = (Input.GetKey(KeyCode.RightArrow) ? 1 : 0) -
+                         (Input.GetKey(KeyCode.LeftArrow) ? 1 : 0);
+        int vertical = (Input.GetKey(KeyCode.UpArrow) ? 1 : 0) -
+                       (Input.GetKey(KeyCode.DownArrow) ? 1 : 0);
+        int direction = EncodeDirectionInput(horizontal, vertical);
+        if (direction != 0 && direction != sampledDirectionInput)
+            latchedDirectionInput = direction;
+        sampledDirectionInput = direction;
+
+        sampledRiseKeyHeld = Input.GetKey(KeyCode.Z);
+        sampledShotKeyHeld = Input.GetKey(KeyCode.X);
+        sampledMeleeKeyHeld = Input.GetKey(KeyCode.C);
+        sampledGuardKeyHeld = Input.GetKey(KeyCode.V);
+        sampledLockKeyHeld = Input.GetKey(KeyCode.S);
+        sampledSpecial1KeyHeld = Input.GetKey(KeyCode.A);
+        sampledSpecial2KeyHeld = Input.GetKey(KeyCode.D);
+        sampledSpecial3KeyHeld = Input.GetKey(KeyCode.F);
+
+        latchedRiseKeyPress |= Input.GetKeyDown(KeyCode.Z);
+        latchedShotKeyPress |= Input.GetKeyDown(KeyCode.X);
+        latchedMeleeKeyPress |= Input.GetKeyDown(KeyCode.C);
+        latchedGuardKeyPress |= Input.GetKeyDown(KeyCode.V);
+        latchedLockKeyPress |= Input.GetKeyDown(KeyCode.S);
+        latchedSpecial1KeyPress |= Input.GetKeyDown(KeyCode.A);
+        latchedSpecial2KeyPress |= Input.GetKeyDown(KeyCode.D);
+        latchedSpecial3KeyPress |= Input.GetKeyDown(KeyCode.F);
+    }
+
     void UpdateInputState()
     {
-        int dir = 0;
-        if (Input.GetKey(KeyCode.UpArrow)) dir = 8;
-        else if (Input.GetKey(KeyCode.DownArrow)) dir = 2;
-        else if (Input.GetKey(KeyCode.LeftArrow)) dir = 4;
-        else if (Input.GetKey(KeyCode.RightArrow)) dir = 6;
-
+        int dir = sampledDirectionInput != 0 ? sampledDirectionInput : latchedDirectionInput;
         UpdateDirectionTapState(dir);
 
-        riseKeyHeld = Input.GetKey(KeyCode.Z);
+        riseKeyHeld = sampledRiseKeyHeld || latchedRiseKeyPress;
         bool riseKeyPressed = riseKeyHeld && !previousRiseKeyHeld;
-        if (riseKeyPressed && (currentAnimationIndex == riseStartAction || currentAnimationIndex == riseAction || currentAnimationIndex == airMoveAction || currentAnimationIndex == boostAction))
-            boostFromRiseActive = true;
+        if (riseKeyPressed)
+        {
+            bool boostContext = airborneFlag || riseSequenceActive ||
+                                currentAnimationIndex == riseStartAction ||
+                                currentAnimationIndex == riseAction ||
+                                currentAnimationIndex == airMoveAction ||
+                                currentAnimationIndex == airIdleAction ||
+                                currentAnimationIndex == boostAction;
+            boostFromRiseActive = boostContext && IsTickWithinWindow(
+                lastRiseTapTick,
+                tick,
+                SecondsToOriginalTicks(doubleTapBoostSeconds));
+            lastRiseTapTick = tick;
+        }
         if (!riseKeyHeld)
             boostFromRiseActive = false;
         previousRiseKeyHeld = riseKeyHeld;
 
         state.SetInt(190, dir);
         state.SetInt(191, boostFromRiseActive ? 1 : 0);
-        state.SetInt(192, Input.GetKey(KeyCode.X) ? 1 : 0);
-        state.SetInt(193, Input.GetKey(KeyCode.C) ? 1 : 0);
-        state.SetInt(194, Input.GetKey(KeyCode.V) ? 1 : 0);
-        state.SetInt(195, Input.GetKey(KeyCode.S) ? 1 : 0);
-        state.SetInt(196, Input.GetKey(KeyCode.A) ? 1 : 0);
-        state.SetInt(197, Input.GetKey(KeyCode.D) ? 1 : 0);
-        state.SetInt(198, Input.GetKey(KeyCode.F) ? 1 : 0);
+        state.SetInt(192, sampledShotKeyHeld || latchedShotKeyPress ? 1 : 0);
+        state.SetInt(193, sampledMeleeKeyHeld || latchedMeleeKeyPress ? 1 : 0);
+        state.SetInt(194, sampledGuardKeyHeld || latchedGuardKeyPress ? 1 : 0);
+        state.SetInt(195, sampledLockKeyHeld || latchedLockKeyPress ? 1 : 0);
+        state.SetInt(196, sampledSpecial1KeyHeld || latchedSpecial1KeyPress ? 1 : 0);
+        state.SetInt(197, sampledSpecial2KeyHeld || latchedSpecial2KeyPress ? 1 : 0);
+        state.SetInt(198, sampledSpecial3KeyHeld || latchedSpecial3KeyPress ? 1 : 0);
         state.SetInt(199, riseKeyHeld ? 1 : 0);
-        state.SetInt(200, airborneFlag ? 1 : 0);
     }
 
     void UpdateDirectionTapState(int dir)
@@ -617,32 +1036,155 @@ public class TestPlayController : MonoBehaviour
         if (dir != previousDirectionInput)
         {
             bool doubleTap = dir == lastDirectionTap &&
-                             Time.time - lastDirectionTapTime <= doubleTapStepSeconds;
+                             IsTickWithinWindow(lastDirectionTapTick, tick, SecondsToOriginalTicks(doubleTapStepSeconds));
             if (doubleTap)
             {
                 stepDirection = dir;
                 lastDirectionTap = 0;
-                lastDirectionTapTime = -1f;
+                lastDirectionTapTick = int.MinValue;
             }
             else
             {
                 stepDirection = 0;
                 lastDirectionTap = dir;
-                lastDirectionTapTime = Time.time;
+                lastDirectionTapTick = tick;
             }
         }
 
         previousDirectionInput = dir;
     }
 
+    void ConsumeLatchedInput()
+    {
+        latchedDirectionInput = 0;
+        latchedRiseKeyPress = false;
+        latchedShotKeyPress = false;
+        latchedMeleeKeyPress = false;
+        latchedGuardKeyPress = false;
+        latchedLockKeyPress = false;
+        latchedSpecial1KeyPress = false;
+        latchedSpecial2KeyPress = false;
+        latchedSpecial3KeyPress = false;
+    }
+
+    void ResetInputSamplingState()
+    {
+        simulationAccumulator = 0f;
+        sampledDirectionInput = 0;
+        sampledRiseKeyHeld = false;
+        sampledShotKeyHeld = false;
+        sampledMeleeKeyHeld = false;
+        sampledGuardKeyHeld = false;
+        sampledLockKeyHeld = false;
+        sampledSpecial1KeyHeld = false;
+        sampledSpecial2KeyHeld = false;
+        sampledSpecial3KeyHeld = false;
+        previousLockKeyHeld = false;
+        ConsumeLatchedInput();
+    }
+
+    public float GetOriginalTickDeltaTime()
+    {
+        return 1f / Mathf.Max(1f, originalTickRate);
+    }
+
+    public int SecondsToOriginalTicks(float seconds)
+    {
+        return Mathf.Max(1, Mathf.CeilToInt(Mathf.Max(0f, seconds) * Mathf.Max(1f, originalTickRate)));
+    }
+
+    static bool IsTickWithinWindow(int previousTapTick, int currentTapTick, int windowTicks)
+    {
+        return previousTapTick != int.MinValue && currentTapTick >= previousTapTick &&
+               currentTapTick - previousTapTick <= Mathf.Max(0, windowTicks);
+    }
+
     void UpdateTargetState()
     {
-        if (target == null || robo == null || robo.root == null)
+        Transform activeTarget = GetLockedTargetTransform();
+        if (activeTarget == null || lockedTarget == null || robo == null || robo.root == null)
+        {
+            activeTargetDistance = 0f;
+            state.SetFloat(99, 0f);
+            state.SetInt(154, 0);
             return;
+        }
 
-        float distance = Vector3.Distance(robo.root.transform.position, target.transform.position);
-        state.SetFloat(99, distance);
-        state.SetInt(154, target.stateId);
+        activeTargetDistance = Vector3.Distance(robo.root.transform.position, activeTarget.position);
+        state.SetFloat(99, activeTargetDistance);
+        state.SetInt(154, lockedTarget.stateId);
+    }
+
+    void UpdateTargetLock()
+    {
+        bool lockKeyHeld = state.GetInt(195) != 0;
+        bool lockPressed = lockKeyHeld && !previousLockKeyHeld;
+        previousLockKeyHeld = lockKeyHeld;
+
+        if (!requireLockInput)
+        {
+            if (!IsTargetLockValid(lockedTarget))
+                TryAcquireTargetLock();
+            targetLockActive = IsTargetLockValid(lockedTarget);
+            return;
+        }
+
+        if (lockPressed)
+        {
+            if (targetLockActive)
+                ClearTargetLock();
+            else
+                TryAcquireTargetLock();
+        }
+
+        if (targetLockActive && !IsTargetLockValid(lockedTarget))
+            ClearTargetLock();
+    }
+
+    public bool TryAcquireTargetLock()
+    {
+        if (!IsTargetLockValid(target))
+        {
+            ClearTargetLock();
+            return false;
+        }
+
+        lockedTarget = target;
+        targetLockActive = true;
+        activeTargetDistance = Vector3.Distance(robo.root.transform.position, lockedTarget.transform.position);
+        return true;
+    }
+
+    public void ClearTargetLock()
+    {
+        lockedTarget = null;
+        targetLockActive = false;
+        activeTargetDistance = 0f;
+    }
+
+    public Transform GetLockedTargetTransform()
+    {
+        if (!targetLockActive || !IsTargetLockValid(lockedTarget))
+            return null;
+        return lockedTarget.transform;
+    }
+
+    public float GetConfiguredLockDistance()
+    {
+        if (sptSource != null && sptSource.LastSptData != null && sptSource.LastSptData.LockDist > 0f)
+            return sptSource.LastSptData.LockDist;
+        return Mathf.Max(0f, fallbackLockDistance);
+    }
+
+    bool IsTargetLockValid(TestPlayTargetDummy candidate)
+    {
+        if (candidate == null || !candidate.gameObject.activeInHierarchy || !candidate.IsAlive ||
+            robo == null || robo.root == null)
+            return false;
+
+        float lockDistance = GetConfiguredLockDistance();
+        return lockDistance <= 0f ||
+               Vector3.Distance(robo.root.transform.position, candidate.transform.position) <= lockDistance;
     }
 
     void UpdateActionFromInput()
@@ -650,7 +1192,7 @@ public class TestPlayController : MonoBehaviour
         if (ShouldForceAirborneByAction())
             SetAirborneFlag(true);
 
-        if (currentAnimationIndex == airMoveAction && previousAirborneFlag && !airborneFlag)
+        if (IsAirborneLocomotionAction(currentAnimationIndex) && previousAirborneFlag && !airborneFlag)
         {
             StartLandingSequence();
             return;
@@ -670,34 +1212,33 @@ public class TestPlayController : MonoBehaviour
             return;
         }
 
+        UpdateStepRecoveryInputGate();
         int heldAction = GetHeldActionFromInput();
 
         if (currentAnimationIndex == riseStartAction && riseSequenceActive)
         {
-            if (IsBoostInputHeld())
-                StartBoostAction();
-            else if (!riseKeyHeld)
-                ChangeToAirMoveOrLanding();
+            // FUN_004d59f0 always lets action 3 finish. A short tap therefore
+            // still enters action 7 before release is evaluated.
             return;
         }
 
         if (currentAnimationIndex == riseAction && riseSequenceActive)
         {
-            if (IsBoostInputHeld())
+            if (IsBoostInputHeld() && HasMovementEnergy())
                 StartBoostAction();
-            else if (!riseKeyHeld)
+            else if (ShouldEndOriginalStyleRise())
                 ChangeToAirMoveOrLanding();
             return;
         }
 
         if (currentAnimationIndex == boostAction && boostMotionActive)
         {
-            if (!IsBoostInputHeld())
+            if (ShouldEndOriginalStyleBoost())
                 ChangeToAirMoveOrLanding();
             return;
         }
 
-        if (currentAnimationIndex == airMoveAction)
+        if (IsAirborneLocomotionAction(currentAnimationIndex))
         {
             if (!airborneFlag)
             {
@@ -705,9 +1246,18 @@ public class TestPlayController : MonoBehaviour
                 return;
             }
 
-            if (IsBoostInputHeld())
+            if (IsBoostInputHeld() && HasMovementEnergy())
                 StartBoostAction();
-            else if (heldAction >= 0 && heldAction != airMoveAction)
+            else if (riseKeyHeld && heldAction == riseAction)
+            {
+                // FUN_004d68e0 accepts the 80-unit re-rise only after c38 > 10.
+                // Keeping Z held during the first idle ticks must not immediately
+                // restart action 7 (or it makes a jump much longer than the original).
+                if (CanStartOriginalAirRise() && TrySpendMovementEnergy(airRiseEnergyCost))
+                    StartAirRiseAction();
+                return;
+            }
+            else if (heldAction >= 0 && heldAction != currentAnimationIndex)
                 ChangeAnimation(heldAction);
             return;
         }
@@ -760,14 +1310,21 @@ public class TestPlayController : MonoBehaviour
     int GetHeldActionFromInput()
     {
         if (state.GetInt(194) != 0) return guardAction;
-        if (IsBoostInputHeld()) return boostAction;
+        if (IsBoostInputHeld() && HasMovementEnergy()) return boostAction;
         if (riseKeyHeld)
-            return currentAnimationIndex == riseStartAction || currentAnimationIndex == riseAction ? riseAction : riseStartAction;
+            return airborneFlag || riseSequenceActive || IsAirborneLocomotionAction(currentAnimationIndex)
+                ? riseAction
+                : riseStartAction;
 
-        int stepAction = GetStepActionFromDirection(stepDirection);
+        int stepAction = PrepareStepFromDirection(stepDirection);
         if (stepAction >= 0) return stepAction;
 
-        if (airborneFlag) return airMoveAction;
+        if (airborneFlag)
+        {
+            if (stepRecoveryActive)
+                return airIdleAction;
+            return GetAirborneLocomotionAction();
+        }
 
         if (IsMoveInputHeld())
             return moveAction;
@@ -778,8 +1335,6 @@ public class TestPlayController : MonoBehaviour
     public void SetAirborneFlag(bool value)
     {
         airborneFlag = value;
-        if (state != null)
-            state.SetInt(200, airborneFlag ? 1 : 0);
     }
 
     bool IsBoostInputHeld()
@@ -787,13 +1342,201 @@ public class TestPlayController : MonoBehaviour
         return riseKeyHeld && state != null && state.GetInt(191) != 0;
     }
 
+    static bool IsTapWithinWindow(float previousTapTime, float currentTapTime, float windowSeconds)
+    {
+        return previousTapTime >= 0f &&
+               currentTapTime >= previousTapTime &&
+               currentTapTime - previousTapTime <= Mathf.Max(0f, windowSeconds);
+    }
+
+    bool ShouldEndOriginalStyleBoost()
+    {
+        if (!boostMotionActive || !HasMovementEnergy())
+            return true;
+
+        // FUN_004de120 keeps the dash alive through tick 30. Afterwards it
+        // stops only when both jump/boost and direction input are released.
+        if (actionTick < Mathf.Max(1, boostMinimumReleaseTicks))
+            return false;
+
+        int direction = state != null ? state.GetInt(190) : 0;
+        return !riseKeyHeld && !IsDirectionInput(direction);
+    }
+
+    bool ShouldEndOriginalStyleRise()
+    {
+        if (!riseSequenceActive || currentAnimationIndex != riseAction)
+            return false;
+
+        int minimumTicks = Mathf.Max(1, riseMinimumReleaseTicks);
+        if (actionTick < minimumTicks)
+            return false;
+
+        // FUN_004d5b60 changes to FUN_004d5ec0 after the first 11 callbacks.
+        // FUN_004d5ec0 performs the twelfth five-unit deduction at c38=11 and
+        // then leaves action 7; it never loops the rise animation indefinitely.
+        int maximumTicks = Mathf.Max(minimumTicks, riseMaximumTicks);
+        if (actionTick >= maximumTicks - 1)
+            return true;
+
+        return !riseKeyHeld || !HasMovementEnergy();
+    }
+
+    bool CanStartOriginalAirRise()
+    {
+        // The original action-8 callback starts at c38=0 and checks c38 > 10.
+        return actionTick >= Mathf.Max(1, airRiseMinimumIdleTicks);
+    }
+
+    bool HasMovementEnergy()
+    {
+        return currentEnergy > 0.0001f;
+    }
+
+    bool TrySpendMovementEnergy(float amount)
+    {
+        amount = Mathf.Max(0f, amount);
+        if (currentEnergy + 0.0001f < amount)
+            return false;
+
+        SetMovementEnergy(currentEnergy - amount);
+        return true;
+    }
+
+    void InitializeOriginalSptStatus()
+    {
+        SptRuntimeData data = sptSource != null ? sptSource.LastSptData : null;
+
+        maximumHP = Mathf.Max(1f, data != null && data.HP > 0 ? data.HP : fallbackMaximumHP);
+        currentHP = maximumHP;
+
+        // FUN_00499d50 transfers Script.spt Generator to +0xD1C/+0xD20.
+        // This is the gauge consumed by rise, boost and step. Script.spt Energy
+        // is a separate +0xD2C/+0xD30 resource and must not replace it.
+        maximumEnergy = Mathf.Max(
+            1f,
+            data != null && data.Generator > 0 ? data.Generator : fallbackMaximumEnergy);
+        SetMovementEnergy(maximumEnergy);
+
+        maximumAuxiliaryEnergy = Mathf.Max(
+            1f,
+            data != null && data.Energy > 0 ? data.Energy : fallbackMaximumAuxiliaryEnergy);
+        SetAuxiliaryEnergy(maximumAuxiliaryEnergy);
+
+        configuredScore = data != null ? data.Score : 0;
+        configuredRestBody = data != null ? data.RestBody : 0;
+    }
+
+    void UpdateOriginalMovementEnergy()
+    {
+        ReconcileMovementEnergyState();
+        ReconcileAuxiliaryEnergyState();
+
+        float delta = 0f;
+        if (stepSequenceActive && IsStepAction(currentAnimationIndex))
+            delta = -Mathf.Max(0f, stepEnergyPerTick);
+        else if (currentAnimationIndex == riseAction && riseSequenceActive)
+            delta = -Mathf.Max(0f, riseEnergyPerTick);
+        else if (currentAnimationIndex == boostAction && boostMotionActive)
+            delta = -Mathf.Max(0f, boostEnergyPerTick);
+        else if (!airborneFlag)
+            // Character initialization sets +0xD24 to 24 independently from
+            // the Script.spt Generator maximum copied into +0xD1C.
+            delta = Mathf.Max(0f, groundedEnergyRecoveryPerTick);
+
+        if (!Mathf.Approximately(delta, 0f))
+            SetMovementEnergy(currentEnergy + delta);
+    }
+
+    void SetMovementEnergy(float value)
+    {
+        float max = Mathf.Max(1f, maximumEnergy > 0f ? maximumEnergy : fallbackMaximumEnergy);
+        currentEnergy = Mathf.Clamp(value, 0f, max);
+        if (state == null)
+            return;
+
+        lastSyncedMovementEnergyInt = Mathf.RoundToInt(currentEnergy);
+        lastSyncedMovementEnergyFloat = currentEnergy;
+        state.SetInt(100, lastSyncedMovementEnergyInt);
+        state.SetInt(101, Mathf.RoundToInt(max));
+        state.SetFloat(100, currentEnergy); // Compatibility with existing Unity-side MOD previews.
+        state.SetFloat(101, max);
+    }
+
+    void ReconcileMovementEnergyState()
+    {
+        if (state == null)
+            return;
+
+        int intValue = state.GetInt(100);
+        float floatValue = state.GetFloat(100);
+        bool originalIntChanged = intValue != lastSyncedMovementEnergyInt;
+        bool compatibilityFloatChanged = !Mathf.Approximately(floatValue, lastSyncedMovementEnergyFloat);
+
+        if (originalIntChanged || compatibilityFloatChanged)
+        {
+            // +0xD20 is an integer in the original pointer table. Prefer it if
+            // both aliases were changed during the same Script.ani block.
+            SetMovementEnergy(originalIntChanged ? intValue : floatValue);
+        }
+    }
+
+    void SetAuxiliaryEnergy(float value)
+    {
+        float max = Mathf.Max(
+            1f,
+            maximumAuxiliaryEnergy > 0f ? maximumAuxiliaryEnergy : fallbackMaximumAuxiliaryEnergy);
+        currentAuxiliaryEnergy = Mathf.Clamp(value, 0f, max);
+        if (state == null)
+            return;
+
+        lastSyncedAuxiliaryEnergyInt = Mathf.RoundToInt(currentAuxiliaryEnergy);
+        lastSyncedAuxiliaryEnergyFloat = currentAuxiliaryEnergy;
+        state.SetInt(102, Mathf.RoundToInt(max));
+        state.SetInt(103, lastSyncedAuxiliaryEnergyInt);
+        state.SetFloat(102, max);
+        state.SetFloat(103, currentAuxiliaryEnergy);
+    }
+
+    void ReconcileAuxiliaryEnergyState()
+    {
+        if (state == null)
+            return;
+
+        int intValue = state.GetInt(103);
+        float floatValue = state.GetFloat(103);
+        bool originalIntChanged = intValue != lastSyncedAuxiliaryEnergyInt;
+        bool compatibilityFloatChanged = !Mathf.Approximately(floatValue, lastSyncedAuxiliaryEnergyFloat);
+        if (originalIntChanged || compatibilityFloatChanged)
+            SetAuxiliaryEnergy(originalIntChanged ? intValue : floatValue);
+    }
+
+    public void ApplySelfDamage(float damage)
+    {
+        currentHP = Mathf.Clamp(currentHP - Mathf.Max(0f, damage), 0f, Mathf.Max(1f, maximumHP));
+    }
+
+    public void RestoreSelfHP(float amount)
+    {
+        currentHP = Mathf.Clamp(currentHP + Mathf.Max(0f, amount), 0f, Mathf.Max(1f, maximumHP));
+    }
+
+    public bool TryGetSubLockDistance(int index, out float distance)
+    {
+        distance = 0f;
+        SptRuntimeData data = sptSource != null ? sptSource.LastSptData : null;
+        if (data == null || !data.SubLockDistances.TryGetValue(index, out int configuredDistance))
+            return false;
+
+        distance = configuredDistance;
+        return true;
+    }
+
     bool ShouldForceAirborneByAction()
     {
-        if (stepSequenceActive && IsStepAction(currentAnimationIndex))
+        if (currentAnimationIndex == boostAction && boostMotionActive)
             return true;
-        if (currentAnimationIndex == boostAction && boostMotionActive && IsBoostInputHeld())
-            return true;
-        if ((currentAnimationIndex == riseStartAction || currentAnimationIndex == riseAction) && riseSequenceActive && riseKeyHeld)
+        if ((currentAnimationIndex == riseStartAction || currentAnimationIndex == riseAction) && riseSequenceActive)
             return true;
         return false;
     }
@@ -803,6 +1546,7 @@ public class TestPlayController : MonoBehaviour
         return actionId == boostAction &&
                actionId != airMoveAction &&
                airborneFlag &&
+               !boostMotionActive &&
                !IsBoostInputHeld();
     }
 
@@ -812,11 +1556,20 @@ public class TestPlayController : MonoBehaviour
             idleAction = 0;
         if (airMoveAction == boostAction)
             airMoveAction = 4;
+        if (airIdleAction == airMoveAction || airIdleAction == boostAction)
+            airIdleAction = 8;
+        // Earlier test-play scenes serialized action 3 into both jump start and
+        // landing. The original dispatch table and real ANI identify landing as 5.
+        if (landingAction == riseStartAction)
+            landingAction = 5;
+        if (stepLandingAction <= 0 || stepLandingAction == riseStartAction || stepLandingAction == landingAction)
+            stepLandingAction = 6;
     }
 
     void ChangeToAirMoveOrLanding()
     {
         boostMotionActive = false;
+        ResetBoostRuntimeState();
         if (airborneFlag)
         {
             StartAirIdleSequence();
@@ -828,40 +1581,120 @@ public class TestPlayController : MonoBehaviour
 
     void StartAirIdleSequence()
     {
+        StartAirborneLocomotionSequence(GetAirborneLocomotionAction(), false);
+    }
+
+    void StartStepRecoverySequence()
+    {
+        int recoveryDirection = activeStepInputDirection;
+        StartAirborneLocomotionSequence(airIdleAction, true);
+        stepRecoveryDirection = recoveryDirection;
+    }
+
+    void StartAirborneLocomotionSequence(int airborneAction, bool fromStep)
+    {
         landingSequenceActive = false;
         riseSequenceActive = false;
         stepSequenceActive = false;
+        stepRecoveryActive = fromStep;
+        if (!fromStep)
+            stepRecoveryDirection = 0;
         boostFromRiseActive = false;
         boostMotionActive = false;
+        ResetBoostRuntimeState();
         moveAnimationActive = false;
-        stepMoveBudgetDistance = 0f;
         stepMovedDistance = 0f;
         ClearHeldMotionState();
         SetAirborneFlag(true);
         previousAirborneFlag = true;
-        ChangeAnimation(airMoveAction, currentAnimationIndex == airMoveAction);
+        ChangeAnimation(airborneAction, currentAnimationIndex == airborneAction);
+    }
+
+    void FinishOriginalStyleStep()
+    {
+        // FUN_004d77e0 does not make a step airborne by itself. It branches to
+        // air stop (8) only when the character is already airborne; grounded
+        // steps enter the landing/ground recovery path instead.
+        int exitAction = GetOriginalStepExitAction();
+        if (exitAction == airIdleAction)
+            StartStepRecoverySequence();
+        else
+            StartGroundRecoverySequence(exitAction);
+    }
+
+    int GetOriginalStepExitAction()
+    {
+        return airborneFlag && !groundedFlag ? airIdleAction : stepLandingAction;
+    }
+
+    void UpdateStepRecoveryInputGate()
+    {
+        if (!stepRecoveryActive)
+            return;
+
+        int direction = state != null ? state.GetInt(190) : 0;
+        if (!IsDirectionInput(direction) || direction != stepRecoveryDirection)
+            ClearStepRecovery();
+    }
+
+    void ClearStepRecovery()
+    {
+        stepRecoveryActive = false;
+        stepRecoveryDirection = 0;
     }
 
     void StartBoostAction()
     {
+        if (!HasMovementEnergy())
+            return;
+
+        // FUN_004d5ec0/FUN_004d68e0 charge -Generator/5 once when the
+        // airborne boost branch enters action 22. This is separate from the
+        // five-unit per-tick action-22 drain.
+        float boostEntryCost = Mathf.Floor(Mathf.Max(0f, maximumEnergy) / 5f);
+        if (boostEntryCost > 0f)
+            SetMovementEnergy(currentEnergy - boostEntryCost);
+
         boostMotionActive = true;
+        ClearStepRecovery();
+        ResetBoostRuntimeState();
         SetAirborneFlag(true);
         ChangeAnimation(boostAction, currentAnimationIndex == boostAction);
     }
 
+    void StartAirRiseAction()
+    {
+        landingSequenceActive = false;
+        riseSequenceActive = true;
+        ClearStepRecovery();
+        boostMotionActive = false;
+        ResetBoostRuntimeState();
+        SetAirborneFlag(true);
+        ApplyPendingDrivenHorizontalInertia();
+        ChangeAnimation(riseAction, currentAnimationIndex == riseAction);
+    }
+
     void StartLandingSequence()
+    {
+        StartGroundRecoverySequence(landingAction);
+    }
+
+    void StartGroundRecoverySequence(int recoveryAction)
     {
         landingSequenceActive = true;
         riseSequenceActive = false;
         stepSequenceActive = false;
+        ClearStepRecovery();
         boostFromRiseActive = false;
         boostMotionActive = false;
+        ResetBoostRuntimeState();
         moveAnimationActive = false;
-        stepMoveBudgetDistance = 0f;
         stepMovedDistance = 0f;
+        pendingDrivenHorizontalVelocity = Vector3.zero;
+        hasPendingDrivenHorizontalVelocity = false;
         SetAirborneFlag(false);
         previousAirborneFlag = false;
-        ChangeAnimation(landingAction, true);
+        ChangeAnimation(recoveryAction, true);
     }
 
     bool CanStartActionFromCurrent()
@@ -885,47 +1718,457 @@ public class TestPlayController : MonoBehaviour
             return false;
 
         float amount = Mathf.Max(0f, inputMoveMagnitude);
-        switch (state.GetInt(190))
+        if (!IsDirectionInput(state.GetInt(190)) || amount <= 0f)
+            return false;
+
+        // In the original runtime, the direction input turns the movement heading
+        // and the animation's forward Move value advances along that heading.
+        localMove.z = amount;
+        return true;
+    }
+
+    bool TryGetOriginalStyleInputWorldMove(Transform root, Vector3 scriptedLocalMove, out Vector3 worldMove)
+    {
+        worldMove = Vector3.zero;
+        bool groundMoveActive = currentAnimationIndex == moveAction && moveAnimationActive && IsMoveInputHeld();
+        bool airMoveActive = currentAnimationIndex == airMoveAction && airborneFlag && IsDirectionInput(state.GetInt(190));
+        if (root == null || (!groundMoveActive && !airMoveActive))
+            return false;
+
+        if (!TryGetInputReferenceBasis(root, out Vector3 referenceForward, out Vector3 referenceRight))
+            return false;
+
+        Vector3 desiredHeading = GetDirectionVector(state.GetInt(190), referenceForward, referenceRight);
+        if (desiredHeading.sqrMagnitude < 0.000001f)
+            return false;
+
+        if (!hasInputMoveHeading)
         {
-            case 8:
-                localMove.z = amount;
-                return amount > 0f;
-            case 2:
-                localMove.z = -amount;
-                return amount > 0f;
-            case 4:
-                localMove.x = -amount;
-                return amount > 0f;
-            case 6:
-                localMove.x = amount;
-                return amount > 0f;
-            default:
-                return false;
+            inputMoveHeading = FlattenDirection(root.forward, referenceForward);
+            hasInputMoveHeading = true;
+        }
+
+        float turnDegrees = Mathf.Max(0f, inputTurnDegreesPerTick);
+        inputMoveHeading = turnDegrees <= 0f
+            ? desiredHeading
+            : Vector3.RotateTowards(inputMoveHeading, desiredHeading, turnDegrees * Mathf.Deg2Rad, 0f).normalized;
+
+        root.rotation = Quaternion.LookRotation(inputMoveHeading, Vector3.up);
+
+        float horizontalAmount = new Vector2(scriptedLocalMove.x, scriptedLocalMove.z).magnitude;
+        if (horizontalAmount <= 0.000001f)
+            horizontalAmount = Mathf.Max(0f, inputMoveMagnitude);
+
+        worldMove = inputMoveHeading * horizontalAmount + Vector3.up * scriptedLocalMove.y;
+        return worldMove.sqrMagnitude > 0.000001f;
+    }
+
+    bool TryGetLiveMovementReferenceBasis(Transform root, out Vector3 referenceForward, out Vector3 referenceRight)
+    {
+        referenceForward = Vector3.zero;
+        referenceRight = Vector3.zero;
+        if (root == null)
+            return false;
+
+        Transform activeLockTarget = GetLockedTargetTransform();
+        if (useTargetRelativeMovement && activeLockTarget != null)
+        {
+            Vector3 toTarget = activeLockTarget.position - root.position;
+            toTarget.y = 0f;
+            if (toTarget.sqrMagnitude > 0.000001f)
+            {
+                referenceForward = toTarget.normalized;
+                referenceRight = Vector3.Cross(Vector3.up, referenceForward).normalized;
+                return referenceRight.sqrMagnitude > 0.000001f;
+            }
+        }
+
+        if (useCameraRelativeMovement && cameraController != null &&
+            cameraController.TryGetPlanarMovementBasis(out referenceForward, out referenceRight))
+            return true;
+
+        referenceForward = Vector3.zero;
+        referenceRight = Vector3.zero;
+        return false;
+    }
+
+    bool TryGetInputReferenceBasis(Transform root, out Vector3 referenceForward, out Vector3 referenceRight)
+    {
+        if (TryGetLiveMovementReferenceBasis(root, out Vector3 liveForward, out Vector3 liveRight))
+        {
+            inputMoveReferenceForward = liveForward;
+            hasInputMoveReference = true;
+            referenceForward = liveForward;
+            referenceRight = liveRight;
+            return true;
+        }
+
+        if (!hasInputMoveReference)
+        {
+            inputMoveReferenceForward = FlattenDirection(root.forward, Vector3.forward);
+            hasInputMoveReference = true;
+        }
+
+        referenceForward = inputMoveReferenceForward;
+        referenceRight = Vector3.Cross(Vector3.up, referenceForward).normalized;
+        return referenceRight.sqrMagnitude > 0.000001f;
+    }
+
+    void ResetInputMoveHeadingIfInactive()
+    {
+        bool groundMoveActive = currentAnimationIndex == moveAction && moveAnimationActive && IsMoveInputHeld();
+        bool airMoveActive = currentAnimationIndex == airMoveAction && airborneFlag && IsDirectionInput(state.GetInt(190));
+        if (groundMoveActive || airMoveActive)
+            return;
+
+        ResetInputMoveHeading();
+    }
+
+    void ResetInputMoveHeading()
+    {
+        inputMoveReferenceForward = Vector3.zero;
+        inputMoveHeading = Vector3.zero;
+        hasInputMoveReference = false;
+        hasInputMoveHeading = false;
+    }
+
+    bool TryGetOriginalStyleBoostWorldMove(Transform root, Vector3 scriptedLocalMove, out Vector3 worldMove)
+    {
+        worldMove = Vector3.zero;
+        if (root == null || currentAnimationIndex != boostAction || !boostMotionActive)
+            return false;
+
+        if (!TryGetBoostReferenceBasis(root, out Vector3 referenceForward, out Vector3 referenceRight))
+            return false;
+
+        if (!hasBoostMoveHeading)
+        {
+            boostMoveHeading = FlattenDirection(root.forward, referenceForward);
+            hasBoostMoveHeading = true;
+        }
+
+        int direction = state != null ? state.GetInt(190) : 0;
+        Vector3 desiredHeading = IsDirectionInput(direction)
+            ? GetDirectionVector(direction, referenceForward, referenceRight)
+            : boostMoveHeading;
+
+        if (desiredHeading.sqrMagnitude > 0.000001f)
+        {
+            float turnDegrees;
+            if (actionTick < 10)
+            {
+                turnDegrees = Mathf.Max(0f, boostInitialTurnDegreesPerTick);
+            }
+            else
+            {
+                float dot = Mathf.Clamp(Vector3.Dot(boostMoveHeading, desiredHeading), -1f, 1f);
+                // FUN_004de120: (dot - 1) * -2 + 0.5 degrees/tick.
+                turnDegrees = (dot - 1f) * -2f + 0.5f;
+            }
+
+            boostMoveHeading = Vector3.RotateTowards(
+                boostMoveHeading,
+                desiredHeading,
+                turnDegrees * Mathf.Deg2Rad,
+                0f).normalized;
+            root.rotation = Quaternion.LookRotation(boostMoveHeading, Vector3.up);
+        }
+
+        float horizontalAmount = new Vector2(scriptedLocalMove.x, scriptedLocalMove.z).magnitude;
+        worldMove = boostMoveHeading * horizontalAmount + Vector3.up * scriptedLocalMove.y;
+        return true;
+    }
+
+    bool TryGetBoostReferenceBasis(Transform root, out Vector3 referenceForward, out Vector3 referenceRight)
+    {
+        if (TryGetLiveMovementReferenceBasis(root, out Vector3 liveForward, out Vector3 liveRight))
+        {
+            boostReferenceForward = liveForward;
+            hasBoostReference = true;
+            referenceForward = liveForward;
+            referenceRight = liveRight;
+            return true;
+        }
+
+        if (!hasBoostReference)
+        {
+            boostReferenceForward = FlattenDirection(root.forward, Vector3.forward);
+            hasBoostReference = true;
+        }
+
+        referenceForward = boostReferenceForward;
+        referenceRight = Vector3.Cross(Vector3.up, referenceForward).normalized;
+        return referenceRight.sqrMagnitude > 0.000001f;
+    }
+
+    void ApplyOriginalRiseSteering(Transform root)
+    {
+        if (root == null || currentAnimationIndex != riseAction || !riseSequenceActive || !riseKeyHeld)
+            return;
+
+        int direction = state != null ? state.GetInt(190) : 0;
+        if (!IsDirectionInput(direction))
+            return;
+
+        Vector3 referenceForward;
+        Vector3 referenceRight;
+        if (!TryGetLiveMovementReferenceBasis(root, out referenceForward, out referenceRight))
+        {
+            referenceForward = FlattenDirection(root.forward, Vector3.forward);
+            referenceRight = Vector3.Cross(Vector3.up, referenceForward).normalized;
+        }
+
+        Vector3 desiredHeading = GetDirectionVector(direction, referenceForward, referenceRight);
+        Vector3 currentHeading = FlattenDirection(root.forward, referenceForward);
+        Vector3 heading = Vector3.RotateTowards(
+            currentHeading,
+            desiredHeading,
+            Mathf.Max(0f, riseTurnDegreesPerTick) * Mathf.Deg2Rad,
+            0f).normalized;
+        root.rotation = Quaternion.LookRotation(heading, Vector3.up);
+    }
+
+    void ResetBoostRuntimeState()
+    {
+        boostReferenceForward = Vector3.zero;
+        boostMoveHeading = Vector3.zero;
+        hasBoostReference = false;
+        hasBoostMoveHeading = false;
+    }
+
+    static int EncodeDirectionInput(int horizontal, int vertical)
+    {
+        horizontal = Math.Sign(horizontal);
+        vertical = Math.Sign(vertical);
+        if (vertical > 0)
+            return horizontal < 0 ? 7 : horizontal > 0 ? 9 : 8;
+        if (vertical < 0)
+            return horizontal < 0 ? 1 : horizontal > 0 ? 3 : 2;
+        return horizontal < 0 ? 4 : horizontal > 0 ? 6 : 0;
+    }
+
+    static bool IsDirectionInput(int direction)
+    {
+        return direction >= 1 && direction <= 9 && direction != 5;
+    }
+
+    static Vector3 GetDirectionVector(int direction, Vector3 forward, Vector3 right)
+    {
+        Vector3 result = GetRawDirectionVector(direction, forward, right);
+        return result.sqrMagnitude > 0.000001f ? result.normalized : Vector3.zero;
+    }
+
+    static Vector3 GetRawDirectionVector(int direction, Vector3 forward, Vector3 right)
+    {
+        switch (direction)
+        {
+            case 1: return -forward - right;
+            case 2: return -forward;
+            case 3: return -forward + right;
+            case 4: return -right;
+            case 6: return right;
+            case 7: return forward - right;
+            case 8: return forward;
+            case 9: return forward + right;
+            default: return Vector3.zero;
         }
     }
 
-    bool TryGetStepFallbackMoveVector(out Vector3 localMove)
+    static Vector3 FlattenDirection(Vector3 direction, Vector3 fallback)
     {
-        localMove = Vector3.zero;
-        if (!stepSequenceActive || !IsStepAction(currentAnimationIndex) || stepMoveBudgetDistance > 0f)
-            return false;
+        direction.y = 0f;
+        if (direction.sqrMagnitude < 0.000001f)
+        {
+            fallback.y = 0f;
+            direction = fallback.sqrMagnitude > 0.000001f ? fallback : Vector3.forward;
+        }
+        return direction.normalized;
+    }
 
-        float amount = Mathf.Max(0f, stepFallbackMoveMagnitude);
-        if (amount <= 0f)
-            return false;
+    int PrepareStepFromDirection(int direction)
+    {
+        if (!IsDirectionInput(direction) || robo == null || robo.root == null)
+            return -1;
 
-        if (currentAnimationIndex == forwardStepAction)
-            localMove.z = amount;
-        else if (currentAnimationIndex == backStepAction)
-            localMove.z = -amount;
-        else if (currentAnimationIndex == leftStepAction)
-            localMove.x = -amount;
-        else if (currentAnimationIndex == rightStepAction)
-            localMove.x = amount;
+        Transform root = robo.root.transform;
+        if (!TryGetInputReferenceBasis(root, out Vector3 referenceForward, out Vector3 referenceRight))
+            return -1;
+
+        Vector3 inputHeading = GetRawDirectionVector(direction, referenceForward, referenceRight);
+        if (inputHeading.sqrMagnitude < 0.000001f)
+            return -1;
+
+        Vector3 currentHeading = FlattenDirection(root.forward, referenceForward);
+        Vector3 currentRight = Vector3.Cross(Vector3.up, currentHeading).normalized;
+        float forwardDot = Vector3.Dot(inputHeading, currentHeading);
+        float rightDot = Vector3.Dot(inputHeading, currentRight);
+        int actionId;
+        if (Mathf.Abs(forwardDot) >= Mathf.Abs(rightDot))
+            actionId = forwardDot >= 0f ? forwardStepAction : backStepAction;
         else
+            actionId = rightDot >= 0f ? rightStepAction : leftStepAction;
+
+        SetStepRuntimeState(direction, actionId, referenceForward, inputHeading);
+        return actionId;
+    }
+
+    void EnsureStepRuntimeState(int actionId)
+    {
+        if (hasStepRuntimeState)
+            return;
+
+        if (robo == null || robo.root == null)
+            return;
+
+        Transform root = robo.root.transform;
+        Vector3 referenceForward = FlattenDirection(root.forward, Vector3.forward);
+        Vector3 referenceRight = Vector3.Cross(Vector3.up, referenceForward).normalized;
+        int direction;
+        Vector3 inputHeading;
+        if (actionId == backStepAction)
+        {
+            direction = 2;
+            inputHeading = -referenceForward;
+        }
+        else if (actionId == leftStepAction)
+        {
+            direction = 4;
+            inputHeading = -referenceRight;
+        }
+        else if (actionId == rightStepAction)
+        {
+            direction = 6;
+            inputHeading = referenceRight;
+        }
+        else
+        {
+            direction = 8;
+            inputHeading = referenceForward;
+        }
+
+        SetStepRuntimeState(direction, actionId, referenceForward, inputHeading);
+    }
+
+    void SetStepRuntimeState(int direction, int actionId, Vector3 referenceForward, Vector3 rawInputHeading)
+    {
+        activeStepInputDirection = direction;
+        stepReferenceForward = FlattenDirection(referenceForward, Vector3.forward);
+        Vector3 inputHeading = FlattenDirection(rawInputHeading, stepReferenceForward);
+        stepMoveHeading = FlattenDirection(
+            rawInputHeading + stepReferenceForward * Mathf.Max(0f, stepTargetForwardBias),
+            inputHeading);
+
+        if (useOriginalStepFacing)
+        {
+            // FUN_004d0b70 chooses 9..12 from the input direction relative to
+            // the pre-step body facing. FUN_004d77e0 then turns toward the
+            // heading that makes that animation's local left/right/front/back
+            // direction coincide with the requested world movement.
+            stepFacingHeading = GetOriginalStepFacingHeading(actionId, inputHeading);
+        }
+        else if (preserveStepReferenceFacing)
+        {
+            stepFacingHeading = stepReferenceForward;
+        }
+        else if (actionId == backStepAction)
+        {
+            stepFacingHeading = -inputHeading;
+        }
+        else if (actionId == leftStepAction)
+        {
+            stepFacingHeading = Vector3.Cross(Vector3.up, inputHeading).normalized;
+        }
+        else if (actionId == rightStepAction)
+        {
+            stepFacingHeading = Vector3.Cross(inputHeading, Vector3.up).normalized;
+        }
+        else
+        {
+            stepFacingHeading = inputHeading;
+        }
+
+        stepFacingHeading = FlattenDirection(stepFacingHeading, stepReferenceForward);
+        hasStepRuntimeState = true;
+    }
+
+    Vector3 GetOriginalStepFacingHeading(int actionId, Vector3 inputHeading)
+    {
+        if (actionId == backStepAction)
+            return -inputHeading;
+        if (actionId == leftStepAction)
+            return Vector3.Cross(Vector3.up, inputHeading).normalized;
+        if (actionId == rightStepAction)
+            return Vector3.Cross(inputHeading, Vector3.up).normalized;
+        return inputHeading;
+    }
+
+    bool TryGetOriginalStyleStepWorldMove(
+        Transform root,
+        Vector3 scriptedLocalMove,
+        out Vector3 worldMove,
+        out bool usingFallbackMove)
+    {
+        worldMove = Vector3.zero;
+        usingFallbackMove = false;
+        if (root == null || !stepSequenceActive || !IsStepAction(currentAnimationIndex))
             return false;
 
-        return true;
+        EnsureStepRuntimeState(currentAnimationIndex);
+        if (!hasStepRuntimeState)
+            return false;
+
+        float horizontalAmount = new Vector2(scriptedLocalMove.x, scriptedLocalMove.z).magnitude;
+        if (horizontalAmount <= 0.000001f)
+        {
+            horizontalAmount = Mathf.Max(0f, stepFallbackMoveMagnitude);
+            usingFallbackMove = horizontalAmount > 0f;
+        }
+
+        float turnDegrees = Mathf.Max(0f, stepTurnDegreesPerTick);
+        Vector3 currentFacing = FlattenDirection(root.forward, stepFacingHeading);
+        Vector3 nextFacing = turnDegrees <= 0f
+            ? stepFacingHeading
+            : Vector3.RotateTowards(currentFacing, stepFacingHeading, turnDegrees * Mathf.Deg2Rad, 0f).normalized;
+        root.rotation = Quaternion.LookRotation(nextFacing, Vector3.up);
+
+        worldMove = stepMoveHeading * horizontalAmount + Vector3.up * scriptedLocalMove.y;
+        return worldMove.sqrMagnitude > 0.000001f;
+    }
+
+    bool ShouldFinishOriginalStyleStep()
+    {
+        if (!stepSequenceActive || !IsStepAction(currentAnimationIndex))
+            return false;
+
+        // FUN_004d77e0 subtracts four energy units first and forces its counter
+        // to the terminal value when the pool is exhausted.
+        if (maximumEnergy > 0f && !HasMovementEnergy())
+            return true;
+
+        int maximumTicks = GetOriginalStepMaximumTicks();
+        if (actionTick >= maximumTicks)
+            return true;
+
+        int minimumTicks = Mathf.Clamp(stepMinimumTicks, 1, maximumTicks);
+        if (actionTick < minimumTicks)
+            return false;
+
+        int currentDirection = state != null ? state.GetInt(190) : 0;
+        return currentDirection != activeStepInputDirection;
+    }
+
+    int GetOriginalStepMaximumTicks()
+    {
+        return Mathf.Max(1, stepMaximumTicks);
+    }
+
+    void ResetStepRuntimeState()
+    {
+        activeStepInputDirection = 0;
+        stepReferenceForward = Vector3.zero;
+        stepMoveHeading = Vector3.zero;
+        stepFacingHeading = Vector3.zero;
+        hasStepRuntimeState = false;
     }
 
     float GetActiveStepMoveTargetDistance()
@@ -933,43 +2176,17 @@ public class TestPlayController : MonoBehaviour
         if (!stepSequenceActive || !IsStepAction(currentAnimationIndex))
             return 0f;
 
-        if (stepMoveBudgetDistance > 0f)
-            return stepMoveBudgetDistance;
-
-        return Mathf.Max(0f, stepFallbackDistance);
-    }
-
-    int GetStepFallbackDurationTicks()
-    {
-        int duration = GetFiniteActionDurationTicks();
-        return Mathf.Max(1, Mathf.Min(duration, 30));
+        return 0f;
     }
 
     int GetRuntimeScriptLengthTicks(script scriptBlock)
     {
-        if (stepSequenceActive && IsStepAction(currentAnimationIndex))
-            return ResolveStepScriptTicks(scriptBlock);
-
         return Mathf.Max(1, scriptBlock.unk);
     }
 
     int ResolveStepScriptTicks(script scriptBlock)
     {
-        int maxTicks = Mathf.Max(1, maxStepScriptTicksPerBlock);
-        int rawTicks = Mathf.Max(1, scriptBlock.unk);
-        return Mathf.Min(rawTicks, maxTicks);
-    }
-
-    int GetStepActionFromDirection(int dir)
-    {
-        switch (dir)
-        {
-            case 8: return forwardStepAction;
-            case 2: return backStepAction;
-            case 4: return leftStepAction;
-            case 6: return rightStepAction;
-            default: return -1;
-        }
+        return Mathf.Max(1, scriptBlock.unk);
     }
 
     bool IsStepAction(int actionId)
@@ -980,6 +2197,22 @@ public class TestPlayController : MonoBehaviour
                actionId == rightStepAction;
     }
 
+    bool IsAirborneLocomotionAction(int actionId)
+    {
+        return actionId == airMoveAction || actionId == airIdleAction;
+    }
+
+    bool IsGroundRecoveryAction(int actionId)
+    {
+        return actionId == landingAction || actionId == stepLandingAction;
+    }
+
+    int GetAirborneLocomotionAction()
+    {
+        int direction = state != null ? state.GetInt(190) : 0;
+        return IsDirectionInput(direction) ? airMoveAction : airIdleAction;
+    }
+
     bool IsHeldAction(int actionId)
     {
         return actionId == guardAction ||
@@ -987,6 +2220,7 @@ public class TestPlayController : MonoBehaviour
                actionId == riseStartAction ||
                actionId == riseAction ||
                actionId == airMoveAction ||
+               actionId == airIdleAction ||
                IsStepAction(actionId);
     }
 
@@ -995,9 +2229,11 @@ public class TestPlayController : MonoBehaviour
         if (currentAnimationIndex == moveAction && moveAnimationActive && IsMoveInputHeld())
             return true;
         if (currentAnimationIndex == boostAction && boostMotionActive)
-            return IsBoostInputHeld();
-        if (currentAnimationIndex == airMoveAction && airborneFlag)
+            return !ShouldEndOriginalStyleBoost();
+        if (currentAnimationIndex == airIdleAction && stepRecoveryActive && airborneFlag)
             return true;
+        if (IsAirborneLocomotionAction(currentAnimationIndex) && airborneFlag)
+            return GetAirborneLocomotionAction() == currentAnimationIndex;
         if (currentAnimationIndex == boostAction)
             return false;
         return IsHeldAction(currentAnimationIndex) && GetHeldActionFromInput() == currentAnimationIndex;
@@ -1015,24 +2251,20 @@ public class TestPlayController : MonoBehaviour
     bool TryFinishFiniteActionByTicks()
     {
         bool stepAction = stepSequenceActive && IsStepAction(currentAnimationIndex);
-        bool landingActionActive = landingSequenceActive && currentAnimationIndex == landingAction;
+        bool landingActionActive = landingSequenceActive && IsGroundRecoveryAction(currentAnimationIndex);
         if (!stepAction && !landingActionActive)
+            return false;
+
+        // FUN_004d77e0 owns step completion. ANI block length and traveled
+        // distance are not the original step's termination conditions.
+        if (stepAction)
             return false;
 
         int durationTicks = GetFiniteActionDurationTicks();
         ApplyFiniteActionPoseProgress(durationTicks);
 
-        if (stepAction && GetActiveStepMoveTargetDistance() > 0f)
-            return false;
-
         if (actionTick < durationTicks)
             return false;
-
-        if (stepAction)
-        {
-            StartAirIdleSequence();
-            return true;
-        }
 
         landingSequenceActive = false;
         ChangeAnimation(idleAction);
@@ -1066,206 +2298,35 @@ public class TestPlayController : MonoBehaviour
         frameTime = Mathf.Clamp01(pose - frameIndex);
     }
 
-    float CalculateStepMoveBudgetDistance(animation anim)
-    {
-        if (anim == null || anim.scripts == null || anim.scripts.Count == 0)
-            return 0f;
-
-        Vector3 simulatedMove = Vector3.zero;
-        float simulatedVFMulti = Mathf.Max(0f, vFMulti);
-        float distance = 0f;
-        bool sawMove = false;
-
-        for (int i = 0; i < anim.scripts.Count; i++)
-        {
-            script block = anim.scripts[i];
-            ApplyScriptMotionPreview(block.squirrel, ref simulatedMove, ref simulatedVFMulti, ref sawMove);
-            int ticks = ResolveStepScriptTicks(block);
-            distance += simulatedMove.magnitude * moveScale * simulatedVFMulti * Time.fixedDeltaTime * ticks;
-        }
-
-        return sawMove ? Mathf.Max(0f, distance) : 0f;
-    }
-
-    void ApplyScriptMotionPreview(string scriptText, ref Vector3 simulatedMove, ref float simulatedVFMulti, ref bool sawMove)
-    {
-        if (string.IsNullOrEmpty(scriptText))
-            return;
-
-        string[] lines = scriptText.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
-        for (int i = 0; i < lines.Length; i++)
-        {
-            string line = CleanScriptPreviewLine(lines[i]);
-            if (string.IsNullOrEmpty(line))
-                continue;
-
-            if (IsPreviewControlLine(line))
-                continue;
-
-            string op;
-            int opIndex;
-            if (TryFindPreviewAssignment(line, out op, out opIndex))
-            {
-                string left = NormalizeName(line.Substring(0, opIndex));
-                string right = line.Substring(opIndex + op.Length).Trim();
-                if (right.StartsWith("(", StringComparison.Ordinal) && right.EndsWith(")", StringComparison.Ordinal))
-                    right = right.Substring(1, right.Length - 2);
-                ApplyMotionPreviewValue(left, op, ParsePreviewArgs(right), ref simulatedMove, ref simulatedVFMulti, ref sawMove);
-                continue;
-            }
-
-            int paren = line.IndexOf('(');
-            int close = line.LastIndexOf(')');
-            if (paren > 0 && close > paren)
-            {
-                string name = NormalizeName(line.Substring(0, paren));
-                List<TestPlayScriptValue> args = ParsePreviewArgs(line.Substring(paren + 1, close - paren - 1));
-                ApplyMotionPreviewValue(name, "", args, ref simulatedMove, ref simulatedVFMulti, ref sawMove);
-            }
-        }
-    }
-
-    void ApplyMotionPreviewValue(string key, string op, List<TestPlayScriptValue> values, ref Vector3 simulatedMove, ref float simulatedVFMulti, ref bool sawMove)
-    {
-        switch (key)
-        {
-            case "move":
-                SetVector(ref simulatedMove, values);
-                if (simulatedMove.sqrMagnitude > 0.000001f)
-                    sawMove = true;
-                break;
-            case "vf_multi":
-                if (values.Count > 0)
-                    simulatedVFMulti = Mathf.Max(0f, values[0].AsFloat(simulatedVFMulti));
-                break;
-        }
-    }
-
-    List<TestPlayScriptValue> ParsePreviewArgs(string argsText)
-    {
-        List<string> tokens = SplitPreviewArgs(argsText);
-        List<TestPlayScriptValue> values = new List<TestPlayScriptValue>();
-        for (int i = 0; i < tokens.Count; i++)
-        {
-            TestPlayScriptValue value;
-            TestPlayScriptValue.TryParse(tokens[i], state, out value);
-            values.Add(value);
-        }
-        return values;
-    }
-
-    static List<string> SplitPreviewArgs(string argsText)
-    {
-        List<string> args = new List<string>();
-        if (string.IsNullOrWhiteSpace(argsText))
-            return args;
-
-        int start = 0;
-        bool inQuote = false;
-        char quote = '\0';
-        for (int i = 0; i < argsText.Length; i++)
-        {
-            char c = argsText[i];
-            if ((c == '"' || c == '\'') && (i == 0 || argsText[i - 1] != '\\'))
-            {
-                if (!inQuote)
-                {
-                    inQuote = true;
-                    quote = c;
-                }
-                else if (quote == c)
-                {
-                    inQuote = false;
-                }
-            }
-            else if (c == ',' && !inQuote)
-            {
-                args.Add(argsText.Substring(start, i - start).Trim());
-                start = i + 1;
-            }
-        }
-
-        args.Add(argsText.Substring(start).Trim());
-        return args;
-    }
-
-    static string CleanScriptPreviewLine(string rawLine)
-    {
-        string line = (rawLine ?? "").Trim();
-        if (line.Length == 0 || line.StartsWith("'", StringComparison.Ordinal))
-            return "";
-        if (line.EndsWith(";", StringComparison.Ordinal))
-            line = line.Substring(0, line.Length - 1).Trim();
-        return line;
-    }
-
-    static bool IsPreviewControlLine(string line)
-    {
-        if (string.IsNullOrWhiteSpace(line))
-            return true;
-
-        string trimmed = line.Trim();
-        if (string.Equals(trimmed, "ELSE", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(trimmed, "ENDIF", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        return StartsWithPreviewCommand(trimmed, "IF");
-    }
-
-    static bool StartsWithPreviewCommand(string line, string command)
-    {
-        if (!line.StartsWith(command, StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        int index = command.Length;
-        while (index < line.Length && char.IsWhiteSpace(line[index]))
-            index++;
-        return index < line.Length && line[index] == '(';
-    }
-
-    static bool TryFindPreviewAssignment(string line, out string op, out int index)
-    {
-        int firstParen = line.IndexOf('(');
-        string[] ops = { "+=", "-=", "*=", "/=", "=" };
-        for (int i = 0; i < ops.Length; i++)
-        {
-            index = line.IndexOf(ops[i], StringComparison.Ordinal);
-            if (index >= 0)
-            {
-                if (firstParen >= 0 && index > firstParen)
-                    continue;
-                if (ops[i] == "=" && IsComparisonEquals(line, index))
-                    continue;
-                op = ops[i];
-                return true;
-            }
-        }
-
-        op = "";
-        index = -1;
-        return false;
-    }
-
-    static bool IsComparisonEquals(string line, int index)
-    {
-        if (index > 0 && (line[index - 1] == '=' || line[index - 1] == '!' || line[index - 1] == '<' || line[index - 1] == '>'))
-            return true;
-        return index + 1 < line.Length && line[index + 1] == '=';
-    }
-
     void ClearHeldMotionState()
     {
         moveCommand = Vector3.zero;
         forceCommand = Vector3.zero;
         moveLocked = false;
         shieldGuard = false;
+        ResetInputMoveHeading();
     }
 
-    void ExecuteScript(string text)
+    bool ExecuteScript(string text)
     {
+        abortScriptExecution = false;
         if (string.IsNullOrEmpty(text) || vm == null)
-            return;
+            return false;
         vm.Execute(text);
+        return abortScriptExecution;
+    }
+
+    void CompileAnimationScripts(animation targetAnimation)
+    {
+        if (vm == null || targetAnimation == null)
+            return;
+
+        vm.Compile(targetAnimation.squirrelInit);
+        if (targetAnimation.scripts == null)
+            return;
+
+        for (int i = 0; i < targetAnimation.scripts.Count; i++)
+            vm.Compile(targetAnimation.scripts[i].squirrel);
     }
 
     void HandleCommand(string name, List<TestPlayScriptValue> args, string rawLine)
@@ -1274,14 +2335,15 @@ public class TestPlayController : MonoBehaviour
             Debug.Log($"[TestPlayCommand] A{currentAnimationIndex} S{scriptIndex}: {rawLine.Trim()}");
 
         string key = NormalizeName(name);
+        RaiseRuntimeEvent(TestPlayRuntimeEventType.Command, name, args);
         switch (key)
         {
             case "move":
-                SetVector(ref moveCommand, args);
+                SetMoveVector(ref moveCommand, args);
                 LogMotionAssignment("Move", rawLine);
                 break;
             case "force":
-                SetVector(ref forceCommand, args);
+                SetForceVector(ref forceCommand, args);
                 LogMotionAssignment("Force", rawLine);
                 break;
             case "movelock":
@@ -1289,31 +2351,76 @@ public class TestPlayController : MonoBehaviour
                 LogMotionAssignment("MoveLock", rawLine);
                 break;
             case "lockbodyuptarget":
+                bodyUpAimRequested = true;
+                break;
             case "lockbodydowntarget":
+                bodyDownAimRequested = true;
+                break;
             case "lockbodytarget":
+                bodyUpAimRequested = true;
+                bodyDownAimRequested = true;
+                break;
             case "lockarm1target":
+                arm1AimRequested = true;
+                break;
             case "lockarm2target":
+                arm2AimRequested = true;
+                break;
             case "lockarmtarget":
-                AimAtTarget();
+                arm1AimRequested = true;
+                arm2AimRequested = true;
                 break;
             case "attack": HandleAttack(args); break;
+            case "attackpow": SetAttackPower(args); break;
+            case "attackdownf": SetAttackDown(args); break;
+            case "attackforce": SetAttackForce(args); break;
             case "weaponattack": SpawnWeapon(args, "WeaponAttack"); break;
             case "weaponattack2": SpawnWeapon(args, "WeaponAttack2"); break;
             case "runproc": SpawnRunProc(args, false); break;
             case "runproc2": SpawnRunProc(args, true); break;
-            case "burner": if (args.Count > 0) burnerRequestedIds.Add(args[0].AsInt()); break;
-            case "snd": Debug.Log("[TestPlay] Snd " + ArgsToString(args)); break;
-            case "voice": Debug.Log("[TestPlay] Voice " + ArgsToString(args)); break;
+            case "burner": HandleBurner(args); break;
+            case "burner2":
+                LogUnhandled("BURNER2 is recognized but disabled by the original runtime.");
+                RaiseRuntimeEvent(TestPlayRuntimeEventType.Warning, "BURNER2", args);
+                break;
+            case "snd":
+                RaiseRuntimeEvent(TestPlayRuntimeEventType.Sound, "Snd", args, args.Count > 0 ? args[0].ToString() : "");
+                break;
+            case "voice":
+                RaiseRuntimeEvent(TestPlayRuntimeEventType.Voice, "Voice", args, args.Count > 0 ? args[0].ToString() : "");
+                break;
+            case "cameffect":
+                SetCameraEffect(args.Count > 0 ? args[0].AsFloat() : 0f, args);
+                break;
             case "changescript":
-            case "goscriptindex": if (args.Count > 0) scriptIndex = Mathf.Max(0, args[0].AsInt()); scriptTick = 0; break;
+            case "goscriptindex":
+                if (args.Count > 0)
+                    scriptIndex = Mathf.Max(0, args[0].AsInt());
+                scriptTick = 0;
+                ResetScriptRepeatState();
+                abortScriptExecution = true;
+                break;
             case "goposeindex": if (args.Count > 0) frameIndex = Mathf.Max(0, args[0].AsInt()); frameTime = 0f; break;
-            case "changeanime": if (args.Count > 0) ChangeAnimation(args[0].AsInt()); break;
+            case "changeanime":
+                if (args.Count > 0)
+                    ChangeAnimation(args[0].AsInt());
+                abortScriptExecution = true;
+                break;
             case "changewapon":
             case "changeweapon": if (args.Count > 0) heldWeapon = args[0].ToString(); state.SetInt(152, string.Equals(heldWeapon, "SWORD", StringComparison.OrdinalIgnoreCase) ? 1 : 0); break;
             case "attackdelay": break;
-            case "execscripteverytime": executeScriptEveryTick = args.Count == 0 || args[0].AsBool(); break;
-            case "addenergy": if (args.Count > 0) state.SetFloat(100, state.GetFloat(100) + args[0].AsFloat()); break;
+            case "execscripteverytime":
+                scriptRepeatInterval = args.Count > 0 ? Mathf.Max(0, args[0].AsInt()) : 0;
+                scriptRepeatCounter = scriptRepeatInterval;
+                executeScriptRepeatedly = true;
+                break;
+            case "addenergy": if (args.Count > 0) SetMovementEnergy(currentEnergy + args[0].AsFloat()); break;
             case "addexgauge": if (args.Count > 0) state.SetInt(155, state.GetInt(155) + args[0].AsInt()); break;
+            case "catchlastchara":
+            case "catchchara":
+                // CatchLastChara is the original input token. CatchChara remains an alias
+                // for MODs created against the earlier Unity implementation.
+                break;
             default:
                 LogUnhandled("Command: " + name + " raw=" + rawLine.Trim());
                 break;
@@ -1326,11 +2433,11 @@ public class TestPlayController : MonoBehaviour
         switch (key)
         {
             case "move":
-                SetVector(ref moveCommand, values);
+                SetMoveVector(ref moveCommand, values);
                 LogMotionAssignment("Move", rawLine);
                 break;
             case "force":
-                SetVector(ref forceCommand, values);
+                SetForceVector(ref forceCommand, values);
                 LogMotionAssignment("Force", rawLine);
                 break;
             case "gvenable": gvEnable = values.Count > 0 && values[0].AsBool(); break;
@@ -1338,7 +2445,7 @@ public class TestPlayController : MonoBehaviour
             case "turnmoveang": turnMoveAng = values.Count > 0 ? values[0].AsFloat() : 0f; break;
             case "shildguard": shieldGuard = values.Count > 0 && values[0].AsBool(); break;
             case "attackflag": attackFlag = values.Count > 0 ? values[0].AsInt() : 0; break;
-            case "cameffect": camEffect = values.Count > 0 ? values[0].AsFloat() : 0f; break;
+            case "cameffect": SetCameraEffect(values.Count > 0 ? values[0].AsFloat() : 0f, values); break;
             case "vf_multi":
                 vFMulti = values.Count > 0 ? values[0].AsFloat(1f) : 1f;
                 LogMotionAssignment("vF_Multi", rawLine);
@@ -1355,36 +2462,175 @@ public class TestPlayController : MonoBehaviour
         }
     }
 
-    void SetVector(ref Vector3 targetVector, List<TestPlayScriptValue> args)
+    static void SetMoveVector(ref Vector3 targetVector, List<TestPlayScriptValue> args)
     {
-        if (args.Count > 0 && args[0].type != TestPlayScriptValueType.Stop) targetVector.x = args[0].AsFloat(targetVector.x);
-        if (args.Count > 1 && args[1].type != TestPlayScriptValueType.Stop) targetVector.y = args[1].AsFloat(targetVector.y);
-        if (args.Count > 2 && args[2].type != TestPlayScriptValueType.Stop) targetVector.z = args[2].AsFloat(targetVector.z);
+        if (args.Count > 0) targetVector.x = ApplyMoveComponent(targetVector.x, args[0]);
+        if (args.Count > 1) targetVector.y = ApplyMoveComponent(targetVector.y, args[1]);
+        if (args.Count > 2) targetVector.z = ApplyMoveComponent(targetVector.z, args[2]);
     }
 
-    void AimAtTarget()
+    void SetForceVector(ref Vector3 targetVector, List<TestPlayScriptValue> args)
     {
-        if (target == null || robo == null || robo.root == null)
+        if (args.Count > 0)
+        {
+            targetVector.x = ApplyForceComponent(targetVector.x, args[0]);
+            if (args[0].type == TestPlayScriptValueType.Stop) velocity.x = 0f;
+        }
+        if (args.Count > 1)
+        {
+            targetVector.y = ApplyForceComponent(targetVector.y, args[1]);
+            if (args[1].type == TestPlayScriptValueType.Stop) velocity.y = 0f;
+        }
+        if (args.Count > 2)
+        {
+            targetVector.z = ApplyForceComponent(targetVector.z, args[2]);
+            if (args[2].type == TestPlayScriptValueType.Stop) velocity.z = 0f;
+        }
+    }
+
+    static float ApplyMoveComponent(float current, TestPlayScriptValue value)
+    {
+        if (value.type == TestPlayScriptValueType.Stop)
+            return 0f;
+
+        float next = value.AsFloat(current);
+        return Mathf.Approximately(next, 0f) ? current : next;
+    }
+
+    static float ApplyForceComponent(float current, TestPlayScriptValue value)
+    {
+        if (value.type == TestPlayScriptValueType.Stop)
+            return 0f;
+        return value.AsFloat(current);
+    }
+
+    void ApplyQueuedAimCommands()
+    {
+        Transform activeLockTarget = GetLockedTargetTransform();
+        if (activeLockTarget == null)
             return;
 
-        Vector3 toTarget = target.transform.position - robo.root.transform.position;
-        toTarget.y = 0f;
+        if (bodyUpAimRequested)
+            RotateAimTransform(bodyUpAimRoot, activeLockTarget);
+        if (bodyDownAimRequested)
+            RotateAimTransform(bodyDownAimRoot, activeLockTarget);
+        if (arm1AimRequested)
+            RotateAimTransform(arm1AimRoot, activeLockTarget);
+        if (arm2AimRequested)
+            RotateAimTransform(arm2AimRoot, activeLockTarget);
+    }
+
+    void RotateAimTransform(Transform aimRoot, Transform activeLockTarget)
+    {
+        if (aimRoot == null || activeLockTarget == null)
+            return;
+
+        Vector3 toTarget = activeLockTarget.position - aimRoot.position;
         if (toTarget.sqrMagnitude < 0.0001f)
             return;
 
         Quaternion desired = Quaternion.LookRotation(toTarget.normalized, Vector3.up);
-        robo.root.transform.rotation = Quaternion.RotateTowards(robo.root.transform.rotation, desired, aimTurnSpeed * Time.fixedDeltaTime);
+        aimRoot.rotation = Quaternion.RotateTowards(
+            aimRoot.rotation,
+            desired,
+            Mathf.Max(0f, aimTurnSpeed) * GetOriginalTickDeltaTime());
     }
 
     void HandleAttack(List<TestPlayScriptValue> args)
     {
-        float damage = args.Count > 0 ? args[0].AsFloat(defaultProjectileDamage) : defaultProjectileDamage;
+        EnsureAttackProfile();
+        SetAttackPower(args.Count > 0 ? args[0].AsInt(Mathf.RoundToInt(defaultProjectileDamage)) : Mathf.RoundToInt(defaultProjectileDamage));
+        SetAttackDown(args.Count > 1 ? args[1].AsInt() : 0);
+        SetAttackForce(args.Count > 2 ? args[2].AsFloat() : 0f);
+        SetAttackForceY(args.Count > 3 ? args[3].AsFloat() : 0f);
+        RaiseRuntimeEvent(TestPlayRuntimeEventType.AttackProfileChanged, "ATTACK", args, "", attackProfile.power);
+
         if (target == null || robo == null || robo.root == null)
             return;
 
         float distance = Vector3.Distance(robo.root.transform.position, target.transform.position);
         if (distance <= meleeRange + target.hitRadius)
-            target.ApplyDamage(damage, target.transform.position, "ATTACK");
+        {
+            Vector3 direction = target.transform.position - robo.root.transform.position;
+            direction.y = 0f;
+            if (direction.sqrMagnitude > 0.0001f)
+                direction.Normalize();
+            target.ApplyImpact(attackProfile.power, direction * attackProfile.force + Vector3.up * attackProfile.forceY, attackProfile.down, "ATTACK");
+            RaiseRuntimeEvent(TestPlayRuntimeEventType.AttackHit, "ATTACK", args, "", attackProfile.power);
+        }
+    }
+
+    void SetAttackPower(List<TestPlayScriptValue> args)
+    {
+        SetAttackPower(args != null && args.Count > 0 ? args[0].AsInt() : 0);
+    }
+
+    void SetAttackDown(List<TestPlayScriptValue> args)
+    {
+        SetAttackDown(args != null && args.Count > 0 ? args[0].AsInt() : 0);
+    }
+
+    void SetAttackForce(List<TestPlayScriptValue> args)
+    {
+        SetAttackForce(args != null && args.Count > 0 ? args[0].AsFloat() : 0f);
+    }
+
+    void SetAttackPower(int value)
+    {
+        EnsureAttackProfile();
+        attackProfile.power = value;
+    }
+
+    void SetAttackDown(int value)
+    {
+        EnsureAttackProfile();
+        attackProfile.down = value;
+    }
+
+    void SetAttackForce(float value)
+    {
+        EnsureAttackProfile();
+        attackProfile.force = value;
+    }
+
+    void SetAttackForceY(float value)
+    {
+        EnsureAttackProfile();
+        attackProfile.forceY = value;
+    }
+
+    void EnsureAttackProfile()
+    {
+        if (attackProfile == null)
+            attackProfile = new TestPlayAttackProfile();
+    }
+
+    void HandleBurner(List<TestPlayScriptValue> args)
+    {
+        if (args == null || args.Count == 0)
+        {
+            LogUnhandled("BURNER requires an id.");
+            return;
+        }
+
+        int id = args[0].AsInt(-1);
+        if (id < 0 || id >= 20)
+        {
+            LogUnhandled("BURNER id out of original range 0..19: " + id);
+            return;
+        }
+
+        // The original executable reads a second float. Keep the historical one-argument
+        // Unity form as output=1 so existing MOD data remains previewable.
+        float output = args.Count > 1 ? args[1].AsFloat(1f) : 1f;
+        burnerRequestedOutputs[id] = output;
+        RaiseRuntimeEvent(TestPlayRuntimeEventType.BurnerOutput, "BURNER", args, "", id, output);
+    }
+
+    void SetCameraEffect(float value, List<TestPlayScriptValue> args)
+    {
+        camEffect = value;
+        RaiseRuntimeEvent(TestPlayRuntimeEventType.CameraEffect, "CamEffect", args, "", Mathf.RoundToInt(value), value);
     }
 
     void SpawnWeapon(List<TestPlayScriptValue> args, string source)
@@ -1392,7 +2638,7 @@ public class TestPlayController : MonoBehaviour
         int weaponType = args.Count > 1 ? args[1].AsInt() : 0;
         float energy = args.Count > 3 ? args[3].AsFloat() : 0f;
         if (energy > 0f)
-            state.SetFloat(100, state.GetFloat(100) - energy);
+            SetMovementEnergy(currentEnergy - energy);
 
         float damage = EstimateDamageForWeapon(weaponType);
         float speed = EstimateSpeed(args, defaultProjectileSpeed);
@@ -1404,6 +2650,8 @@ public class TestPlayController : MonoBehaviour
         int procType = args.Count > 1 ? args[1].AsInt() : 0;
         if (procType == 55 || procType == 57)
         {
+            if (extended && procType == 55)
+                SpawnOriginalSwordEffect(args, extended ? "RunProc2:55" : "RunProc:55");
             HandleAttack(new List<TestPlayScriptValue> { TestPlayScriptValue.Number(procType == 57 ? 80f : 50f) });
             return;
         }
@@ -1411,45 +2659,218 @@ public class TestPlayController : MonoBehaviour
         if (procType == 62)
         {
             int subtype = args.Count > 3 ? args[3].AsInt() : 0;
+            if (extended && TrySpawnOriginalSpecialEffect(args, subtype))
+                return;
             if (subtype == 3)
-                SpawnSimpleEffect(Color.cyan, 0.35f, 0.3f);
+                SpawnSimpleEffect((extended ? "RunProc2:" : "RunProc:") + procType + ":" + subtype, Color.cyan, 0.35f, 0.3f);
             return;
         }
 
-        SpawnProjectile((extended ? "RunProc2:" : "RunProc:") + procType, EstimateDamageForWeapon(procType), EstimateSpeed(args, defaultProjectileSpeed), IsHomingWeapon(procType));
+        int textureId = extended ? GetRunProcTextureId(args, procType) : -1;
+        Vector2 visualSize = GetRunProcVisualSize(args, procType);
+        SpawnProjectile((extended ? "RunProc2:" : "RunProc:") + procType,
+            EstimateDamageForWeapon(procType), EstimateSpeed(args, defaultProjectileSpeed),
+            IsHomingWeapon(procType), textureId, visualSize);
     }
 
     void SpawnProjectile(string source, float damage, float speed, bool homing)
     {
+        SpawnProjectile(source, damage, speed, homing, -1, Vector2.zero);
+    }
+
+    void SpawnProjectile(string source, float damage, float speed, bool homing, int textureId, Vector2 visualSize)
+    {
         if (robo == null || robo.root == null)
             return;
 
-        GameObject go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        Vector3 spawnPosition = robo.root.transform.position + robo.root.transform.forward * 1.5f + Vector3.up * 1.2f;
+        Quaternion spawnRotation = robo.root.transform.rotation;
+        GameObject go = presentationRuntime != null
+            ? presentationRuntime.CreateMappedEffect(source, spawnPosition, spawnRotation)
+            : null;
+        bool mappedEffect = go != null;
+        if (go == null && presentationRuntime != null && textureId >= 0)
+        {
+            Vector2 size = visualSize.sqrMagnitude > 0.0001f
+                ? visualSize
+                : Vector2.one * Mathf.Max(0.1f, projectileRadius * 4f);
+            GameObject visual = presentationRuntime.CreateOriginalTextureEffect(textureId, spawnPosition, spawnRotation, size, 0f, Color.white);
+            if (visual != null)
+            {
+                go = new GameObject("TestPlayProjectileRoot_" + source);
+                go.transform.SetPositionAndRotation(spawnPosition, spawnRotation);
+                visual.transform.SetParent(go.transform, true);
+                mappedEffect = true;
+            }
+        }
+        if (go == null)
+            go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         go.name = "TestPlayProjectile_" + source;
-        go.transform.position = robo.root.transform.position + robo.root.transform.forward * 1.5f + Vector3.up * 1.2f;
-        go.transform.rotation = robo.root.transform.rotation;
-        go.transform.localScale = Vector3.one * projectileRadius;
-        TestPlayProjectile projectile = go.AddComponent<TestPlayProjectile>();
+        go.transform.SetPositionAndRotation(spawnPosition, spawnRotation);
+        if (!mappedEffect)
+            go.transform.localScale = Vector3.one * projectileRadius;
+        TestPlayProjectile projectile = go.GetComponent<TestPlayProjectile>();
+        if (projectile == null)
+            projectile = go.AddComponent<TestPlayProjectile>();
         projectile.target = target;
         projectile.damage = damage;
         projectile.speed = speed;
         projectile.hitRadius = projectileRadius;
         projectile.homingTurnRate = homing ? 180f : 0f;
         projectile.sourceCommand = source;
+        spawnedTransientObjects.Add(go);
+        RaiseRuntimeEvent(TestPlayRuntimeEventType.WeaponSpawned, source, null, source, 0, damage);
     }
 
-    void SpawnSimpleEffect(Color color, float scale, float life)
+    bool TrySpawnOriginalSpecialEffect(List<TestPlayScriptValue> args, int subtype)
+    {
+        if (presentationRuntime == null || robo == null || robo.root == null)
+            return false;
+
+        string key = "RunProc2:62:" + subtype;
+        Vector3 basePosition = robo.root.transform.position - robo.root.transform.forward * 0.5f + Vector3.up;
+        switch (subtype)
+        {
+            case 3:
+            {
+                float sphereSize = Mathf.Clamp(Mathf.Abs(GetArg(args, 4, 35f)) * 0.01f, 0.2f, 6f);
+                float length = Mathf.Clamp(Mathf.Abs(GetArg(args, 5, 35f)) * 0.01f, 0.2f, 10f);
+                int variant = Mathf.RoundToInt(GetArg(args, 6, 0f));
+                string textureName = variant == 1 ? "burner4.png" : "burner3.png";
+                return SpawnOriginalNamedEffect(key, textureName, basePosition, new Vector2(sphereSize, length), 0.3f);
+            }
+            case 4:
+            {
+                int textureId = Mathf.RoundToInt(GetArg(args, 7, -1f));
+                float thickness = Mathf.Clamp(Mathf.Abs(GetArg(args, 5, 10f)) * 0.1f, 0.1f, 5f);
+                return SpawnOriginalTextureEffect(key, textureId, basePosition, Vector2.one * thickness, 0.4f);
+            }
+            case 7:
+            {
+                int textureId = Mathf.RoundToInt(GetArg(args, 6, -1f));
+                float size = Mathf.Clamp(Mathf.Abs(GetArg(args, 5, 50f)) * 0.01f, 0.1f, 8f);
+                float life = Mathf.Clamp(Mathf.Abs(GetArg(args, 10, 30f)) * 0.02f, 0.1f, 5f);
+                return SpawnOriginalTextureEffect(key, textureId, basePosition, Vector2.one * size, life);
+            }
+            case 10:
+            {
+                float size = Mathf.Clamp(Mathf.Abs(GetArg(args, 5, 100f)) * 0.01f, 0.1f, 8f);
+                return SpawnOriginalTextureEffect(key, 35, basePosition, Vector2.one * size, 0.8f);
+            }
+            case 11:
+                return SpawnOriginalTextureEffect(key, 40, basePosition, Vector2.one * 0.35f, 0.4f);
+        }
+        return false;
+    }
+
+    void SpawnOriginalSwordEffect(List<TestPlayScriptValue> args, string key)
     {
         if (robo == null || robo.root == null)
             return;
 
-        GameObject go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        int primaryTextureId = Mathf.RoundToInt(GetArg(args, 4, -1f));
+        int lineTextureId = Mathf.RoundToInt(GetArg(args, 5, 13f));
+        int textureId = presentationRuntime != null && presentationRuntime.HasOriginalTexture(primaryTextureId)
+            ? primaryTextureId
+            : lineTextureId;
+        float length = Mathf.Clamp(Mathf.Abs(GetArg(args, 3, 150f)) * 0.01f, 0.3f, 12f);
+        float life = Mathf.Clamp(Mathf.Abs(GetArg(args, 11, 18f)) * 0.02f, 0.15f, 2f);
+        Vector3 position = robo.root.transform.position + robo.root.transform.forward * (length * 0.5f) + Vector3.up * 1.2f;
+        SpawnOriginalTextureEffect(key, textureId, position, new Vector2(0.25f, length), life);
+    }
+
+    bool SpawnOriginalTextureEffect(string key, int textureId, Vector3 position, Vector2 size, float life)
+    {
+        if (presentationRuntime == null || textureId < 0)
+            return false;
+        GameObject go = presentationRuntime.CreateOriginalTextureEffect(textureId, position, robo.root.transform.rotation, size, life, Color.white);
+        return TrackOriginalEffect(go, key, life);
+    }
+
+    bool SpawnOriginalNamedEffect(string key, string textureName, Vector3 position, Vector2 size, float life)
+    {
+        if (presentationRuntime == null)
+            return false;
+        GameObject go = presentationRuntime.CreateOriginalNamedTextureEffect(textureName, position, robo.root.transform.rotation, size, life, Color.white);
+        return TrackOriginalEffect(go, key, life);
+    }
+
+    bool TrackOriginalEffect(GameObject go, string key, float life)
+    {
+        if (go == null)
+            return false;
+        go.name = "TestPlayEffect_" + key;
+        spawnedTransientObjects.Add(go);
+        RaiseRuntimeEvent(TestPlayRuntimeEventType.EffectSpawned, key, null, key, 0, life);
+        return true;
+    }
+
+    static int GetRunProcTextureId(List<TestPlayScriptValue> args, int procType)
+    {
+        switch (procType)
+        {
+            case 1: return Mathf.RoundToInt(GetArg(args, 8, -1f));
+            case 24:
+            case 25:
+            case 28: return Mathf.RoundToInt(GetArg(args, 7, -1f));
+            case 60: return Mathf.RoundToInt(GetArg(args, 6, -1f));
+            default: return -1;
+        }
+    }
+
+    static Vector2 GetRunProcVisualSize(List<TestPlayScriptValue> args, int procType)
+    {
+        float thickness = 0.5f;
+        float length = 1f;
+        switch (procType)
+        {
+            case 1:
+                length = Mathf.Abs(GetArg(args, 4, 100f)) * 0.01f;
+                thickness = Mathf.Abs(GetArg(args, 6, 20f)) * 0.01f;
+                break;
+            case 24:
+            case 25:
+                thickness = Mathf.Abs(GetArg(args, 4, 80f)) * 0.01f;
+                length = Mathf.Abs(GetArg(args, 6, 80f)) * 0.01f;
+                break;
+            case 28:
+                thickness = Mathf.Abs(GetArg(args, 4, 80f)) * 0.01f;
+                length = Mathf.Abs(GetArg(args, 5, 80f)) * 0.01f;
+                break;
+            case 60:
+                length = Mathf.Abs(GetArg(args, 4, 4f)) * 0.1f;
+                thickness = 0.25f;
+                break;
+        }
+        return new Vector2(Mathf.Clamp(thickness, 0.05f, 5f), Mathf.Clamp(length, 0.1f, 12f));
+    }
+
+    static float GetArg(List<TestPlayScriptValue> args, int index, float fallback)
+    {
+        return args != null && index >= 0 && index < args.Count ? args[index].AsFloat() : fallback;
+    }
+
+    void SpawnSimpleEffect(string effectKey, Color color, float scale, float life)
+    {
+        if (robo == null || robo.root == null)
+            return;
+
+        Vector3 position = robo.root.transform.position - robo.root.transform.forward * 0.5f;
+        GameObject go = presentationRuntime != null
+            ? presentationRuntime.CreateMappedEffect(effectKey, position, robo.root.transform.rotation)
+            : null;
+        bool mappedEffect = go != null;
+        if (go == null)
+            go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         go.name = "TestPlayEffect";
-        go.transform.position = robo.root.transform.position - robo.root.transform.forward * 0.5f;
-        go.transform.localScale = Vector3.one * scale;
+        go.transform.position = position;
+        if (!mappedEffect)
+            go.transform.localScale = Vector3.one * scale;
         Renderer renderer = go.GetComponent<Renderer>();
-        if (renderer != null)
+        if (!mappedEffect && renderer != null)
             renderer.material.color = color;
+        spawnedTransientObjects.Add(go);
+        RaiseRuntimeEvent(TestPlayRuntimeEventType.EffectSpawned, effectKey, null, effectKey, 0, life);
         Destroy(go, life);
     }
 
@@ -1480,7 +2901,8 @@ public class TestPlayController : MonoBehaviour
             if (info == null || info.Ps == null)
                 continue;
 
-            bool requested = burnerRequestedIds.Contains(info.Id);
+            float output;
+            bool requested = burnerRequestedOutputs.TryGetValue(info.Id, out output) && output > 0f;
             if (requested)
             {
                 if (!info.Ps.isPlaying)
@@ -1510,10 +2932,14 @@ public class TestPlayController : MonoBehaviour
             if (cone == null)
                 continue;
 
-            bool requested = burnerRequestedIds.Contains(info.Id) && info.Scale > 0f;
-            float length = Mathf.Max(0f, info.Scale * burnerLengthMultiplier);
+            float output;
+            bool requested = burnerRequestedOutputs.TryGetValue(info.Id, out output) && output > 0f && info.Scale > 0f;
+            float outputScale = Mathf.Max(0f, output);
+            float length = Mathf.Max(0f, info.Scale * burnerLengthMultiplier * outputScale);
             float radius = Mathf.Max(0.001f, length * burnerRadiusRatio);
-            cone.SetTarget(requested, length, radius, burnerConeColor, burnerFadeSpeed);
+            Color outputColor = burnerConeColor;
+            outputColor.a *= Mathf.Clamp01(outputScale);
+            cone.SetTarget(requested, length, radius, outputColor, burnerFadeSpeed);
         }
 
         foreach (var kv in burnerCones)
@@ -1562,7 +2988,7 @@ public class TestPlayController : MonoBehaviour
 
     void StopAllBurnerEffects()
     {
-        burnerRequestedIds.Clear();
+        burnerRequestedOutputs.Clear();
         HideAllBurnerCones();
 
         if (sptSource == null || sptSource.LastSptData == null)
@@ -1613,7 +3039,7 @@ public class TestPlayController : MonoBehaviour
 
         string rootName = robo != null && robo.root != null ? robo.root.name : "(null)";
         Debug.Log(string.Format(
-            "[TestPlay][MotionAssign] tick={0} action={1}:{2} script={3} root={4} label={5} raw=\"{6}\" move={7} force={8} moveLocked={9} vF={10:F3} moveScale={11:F3}",
+            "[TestPlay][MotionAssign] tick={0} action={1}:{2} script={3} root={4} label={5} raw=\"{6}\" move={7} force={8} moveLocked={9} vF={10:F3} aniScale={11:F3}",
             tick,
             currentAnimationIndex,
             currentAnimationName,
@@ -1625,7 +3051,7 @@ public class TestPlayController : MonoBehaviour
             FormatVector(forceCommand),
             moveLocked,
             vFMulti,
-            moveScale));
+            aniUnitsToUnityScale));
     }
 
     void LogMotionRootDebug(Transform root, Vector3 positionBefore, Vector3 localMove, Vector3 worldMove, Vector3 scriptedMove, Vector3 appliedMove, bool usingInputMove, bool usingStepFallbackMove, float debugStepMovedDistance, float debugStepTargetDistance)
@@ -1641,7 +3067,7 @@ public class TestPlayController : MonoBehaviour
 
         Vector3 positionAfter = root.position;
         Debug.Log(string.Format(
-            "[TestPlay][RootMotion] tick={0} action={1}:{2} script={3}/{4} root={5} path={6} pos={7}->{8} delta={9} localMove={10} worldMove={11} scriptedMove={12} appliedMove={13} force={14} velocity={15} moveLocked={16} inputMove={17} stepFallbackMove={18} vF={19:F3} moveScale={20:F3} dt={21:F4} step={22} stepDist={23:F4}/{24:F4}",
+            "[TestPlay][RootMotion] tick={0} action={1}:{2} script={3}/{4} root={5} path={6} pos={7}->{8} delta={9} localMove={10} worldMove={11} scriptedMove={12} appliedMove={13} force={14} velocity={15} moveLocked={16} inputMove={17} stepFallbackMove={18} vF={19:F3} aniScale={20:F3} tickDt={21:F4} step={22} stepDist={23:F4}/{24:F4}",
             tick,
             currentAnimationIndex,
             currentAnimationName,
@@ -1662,14 +3088,14 @@ public class TestPlayController : MonoBehaviour
             usingInputMove,
             usingStepFallbackMove,
             vFMulti,
-            moveScale,
-            Time.fixedDeltaTime,
+            aniUnitsToUnityScale,
+            GetOriginalTickDeltaTime(),
             stepSequenceActive && IsStepAction(currentAnimationIndex),
             debugStepMovedDistance,
             debugStepTargetDistance));
     }
 
-    void LogGroundingRootDebug(bool forceAirborne, bool applyGravity, Vector3 requestedMove, Vector3 controllerMove, Vector3 actualMove)
+    void LogGroundingRootDebug(bool forceAirborne, bool gravityEnabled, Vector3 requestedMove, Vector3 controllerMove, Vector3 actualMove)
     {
         if (!logGroundingDebug)
             return;
@@ -1681,14 +3107,14 @@ public class TestPlayController : MonoBehaviour
             return;
 
         Debug.Log(string.Format(
-            "[TestPlay][Grounding] tick={0} action={1}:{2} grounded={3} airborne={4} forceAir={5} gravity={6} fallSpeed={7:F4} flags={8} requested={9} controllerMove={10} actual={11}",
+            "[TestPlay][Grounding] tick={0} action={1}:{2} grounded={3} airborne={4} forceAir={5} gvEnable={6} fallSpeed={7:F4} flags={8} requested={9} controllerMove={10} actual={11}",
             tick,
             currentAnimationIndex,
             currentAnimationName,
             groundedFlag,
             airborneFlag,
             forceAirborne,
-            applyGravity,
+            gravityEnabled,
             verticalFallSpeed,
             groundingCollisionFlags,
             FormatVector(requestedMove),
@@ -1727,11 +3153,12 @@ public class TestPlayController : MonoBehaviour
         frameTime = 0f;
         tick = 0;
         initFired = false;
-        executeScriptEveryTick = false;
+        ResetScriptRepeatState();
+        abortScriptExecution = false;
         animeLoop = false;
         moveLocked = false;
         shieldGuard = false;
-        gvEnable = false;
+        gvEnable = true;
         attackFlag = 0;
         swordCancelAction = -1;
         shotTurnAng = 0f;
@@ -1741,30 +3168,85 @@ public class TestPlayController : MonoBehaviour
         moveCommand = Vector3.zero;
         forceCommand = Vector3.zero;
         velocity = Vector3.zero;
+        pendingDrivenHorizontalVelocity = Vector3.zero;
+        hasPendingDrivenHorizontalVelocity = false;
         verticalFallSpeed = 0f;
         groundedFlag = false;
         groundingCollisionFlags = CollisionFlags.None;
         riseKeyHeld = false;
         previousRiseKeyHeld = false;
+        lastRiseTapTick = int.MinValue;
         riseSequenceActive = false;
         landingSequenceActive = false;
         stepSequenceActive = false;
+        ClearStepRecovery();
         previousAirborneFlag = false;
         boostFromRiseActive = false;
         boostMotionActive = false;
+        ResetBoostRuntimeState();
         moveAnimationActive = false;
         actionTick = 0;
-        stepMoveBudgetDistance = 0f;
         stepMovedDistance = 0f;
+        ResetStepRuntimeState();
         airborneFlag = false;
-        state.SetInt(200, 0);
+        currentHP = 0f;
+        maximumHP = 0f;
+        currentEnergy = 0f;
+        maximumEnergy = 0f;
+        currentAuxiliaryEnergy = 0f;
+        maximumAuxiliaryEnergy = 0f;
+        configuredScore = 0;
+        configuredRestBody = 0;
+        lastSyncedMovementEnergyInt = 0;
+        lastSyncedMovementEnergyFloat = 0f;
+        lastSyncedAuxiliaryEnergyInt = 0;
+        lastSyncedAuxiliaryEnergyFloat = 0f;
+        if (attackProfile == null)
+            attackProfile = new TestPlayAttackProfile();
+        attackProfile.Reset();
         previousDirectionInput = 0;
         lastDirectionTap = 0;
         stepDirection = 0;
-        lastDirectionTapTime = -1f;
-        burnerRequestedIds.Clear();
+        lastDirectionTapTick = int.MinValue;
+        ClearTargetLock();
+        bodyUpAimRequested = false;
+        bodyDownAimRequested = false;
+        arm1AimRequested = false;
+        arm2AimRequested = false;
+        burnerRequestedOutputs.Clear();
         HideAllBurnerCones();
         ClearPoseTransition();
+    }
+
+    void RaiseRuntimeEvent(TestPlayRuntimeEventType type, string command, List<TestPlayScriptValue> args, string symbol = "", int intValue = 0, float floatValue = 0f)
+    {
+        Action<TestPlayRuntimeEvent> handler = RuntimeEventRaised;
+        if (handler == null)
+            return;
+
+        handler(new TestPlayRuntimeEvent
+        {
+            type = type,
+            command = command ?? "",
+            symbol = symbol ?? "",
+            actionIndex = currentAnimationIndex,
+            scriptIndex = scriptIndex,
+            tick = tick,
+            intValue = intValue,
+            floatValue = floatValue,
+            arguments = args != null ? args.ToArray() : new TestPlayScriptValue[0]
+        });
+    }
+
+    void DestroyTransientObjects()
+    {
+        for (int i = 0; i < spawnedTransientObjects.Count; i++)
+        {
+            GameObject transient = spawnedTransientObjects[i];
+            if (transient != null)
+                Destroy(transient);
+        }
+        spawnedTransientObjects.Clear();
     }
 
     void LogUnhandled(string message)
@@ -1817,7 +3299,7 @@ public class TestPlayController : MonoBehaviour
         }
 
         transitionTick = 0;
-        transitionTickTotal = Mathf.Max(1, Mathf.RoundToInt(seconds / Mathf.Max(Time.fixedDeltaTime, 0.0001f)));
+        transitionTickTotal = Mathf.Max(1, Mathf.RoundToInt(seconds / GetOriginalTickDeltaTime()));
     }
 
     float ResolveTransitionSeconds(int fromAction, int toAction)
@@ -1889,4 +3371,6 @@ public class TestPlayController : MonoBehaviour
             values[i] = args[i].ToString();
         return string.Join(",", values);
     }
+
+
 }

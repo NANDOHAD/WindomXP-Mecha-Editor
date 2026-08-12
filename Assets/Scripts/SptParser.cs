@@ -47,6 +47,8 @@ public class BurnerSetInfo
 /// </summary>
 public class SptRuntimeData
 {
+    public const int OriginalSubLockDistanceCount = 20;
+
     // ---- BURNERSET ----
     public readonly Dictionary<int, BurnerSetInfo> BurnerSets = new Dictionary<int, BurnerSetInfo>();
 
@@ -59,7 +61,20 @@ public class SptRuntimeData
     public int HP;
     public int Generator;
     public int Energy;
+    public int Score;
+    public int RestBody;
     public float LockDist;
+    public readonly Dictionary<int, int> SubLockDistances = new Dictionary<int, int>();
+
+    // A value of zero and a missing statement have different meanings in the
+    // original parser. Keep presence information so callers can apply their own
+    // compatibility fallback without losing that distinction.
+    public bool HasHP;
+    public bool HasGenerator;
+    public bool HasEnergy;
+    public bool HasScore;
+    public bool HasRestBody;
+    public bool HasLockDist;
 
     // ---- エフェクト設定 ----
     /// <summary>バーナーエフェクトの Prefab。BurnerSetInfo.Scale をスケールに掛け合わせて使う。</summary>
@@ -77,6 +92,12 @@ public static class SptParser
     static readonly Regex RxSimpleKV = new Regex(
         @"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?)\s*;",
         RegexOptions.Compiled);
+
+    // Original data uses the command-style SubLockDist(index, distance) form.
+    // Accept '=' as well because older MOD tools have emitted both spellings.
+    static readonly Regex RxSubLockDist = new Regex(
+        @"^SubLockDist\s*(?:\(|=)\s*([+-]?\d+)\s*,\s*([+-]?\d+)\s*\)?\s*;",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     /// <summary>Script.spt のテキスト全体を受け取り、SptRuntimeData を返す。</summary>
     public static SptRuntimeData Parse(string sptText)
@@ -109,6 +130,17 @@ public static class SptParser
                 continue;
             }
 
+            // --- SubLockDist(index, distance) ---
+            var mSubLock = RxSubLockDist.Match(line);
+            if (mSubLock.Success &&
+                int.TryParse(mSubLock.Groups[1].Value, out int subLockIndex) &&
+                int.TryParse(mSubLock.Groups[2].Value, out int subLockDistance) &&
+                subLockIndex >= 0 && subLockIndex < SptRuntimeData.OriginalSubLockDistanceCount)
+            {
+                data.SubLockDistances[subLockIndex] = subLockDistance;
+                continue;
+            }
+
             // --- シンプルな Key=Value 設定 ---
             var mKV = RxSimpleKV.Match(line);
             if (mKV.Success)
@@ -119,12 +151,15 @@ public static class SptParser
                 {
                     case "Name":        data.Name      = val; break;
                     case "NameEng":     data.NameEng   = val; break;
-                    case "HP":          int.TryParse(val, out data.HP); break;
-                    case "Generator":   int.TryParse(val, out data.Generator); break;
-                    case "Energy":      int.TryParse(val, out data.Energy); break;
-                    case "LockDist":    float.TryParse(val, System.Globalization.NumberStyles.Float,
-                                            System.Globalization.CultureInfo.InvariantCulture,
-                                            out data.LockDist);
+                    case "HP":          data.HasHP = TryParseInt(val, out data.HP); break;
+                    case "Generator":   data.HasGenerator = TryParseInt(val, out data.Generator); break;
+                    case "Energy":      data.HasEnergy = TryParseInt(val, out data.Energy); break;
+                    case "Score":       data.HasScore = TryParseInt(val, out data.Score); break;
+                    case "RestBody":    data.HasRestBody = TryParseInt(val, out data.RestBody); break;
+                    case "LockDist":
+                        data.HasLockDist = TryParseInt(val, out int lockDistance);
+                        if (data.HasLockDist)
+                            data.LockDist = lockDistance;
                         break;
                 }
             }
@@ -203,6 +238,15 @@ public static class SptParser
 
     static SptDirection ParseDirection(string s) =>
         Enum.TryParse<SptDirection>(s.Trim(), ignoreCase: true, out var d) ? d : SptDirection.UP;
+
+    static bool TryParseInt(string value, out int result)
+    {
+        return int.TryParse(
+            value,
+            System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out result);
+    }
 
     /// <summary>
     /// エフェクトは「ローカルZ軸の正方向」に吹き出す。
