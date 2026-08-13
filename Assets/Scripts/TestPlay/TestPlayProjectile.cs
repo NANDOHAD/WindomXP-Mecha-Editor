@@ -8,6 +8,9 @@ public class TestPlayProjectile : MonoBehaviour
     public float lifeSeconds = 3f;
     public float hitRadius = 0.5f;
     public float homingTurnRate = 0f;
+    public int downValue;
+    public float horizontalImpactForce;
+    public float verticalImpactForce;
     public string sourceCommand = "Projectile";
 
     float age;
@@ -39,7 +42,8 @@ public class TestPlayProjectile : MonoBehaviour
             float radius = hitRadius + target.hitRadius;
             if ((target.transform.position - transform.position).sqrMagnitude <= radius * radius)
             {
-                target.ApplyDamage(damage, transform.position, sourceCommand);
+                Vector3 impact = transform.forward * horizontalImpactForce + Vector3.up * verticalImpactForce;
+                target.ApplyImpact(damage, impact, downValue, sourceCommand);
                 Destroy(gameObject);
             }
         }

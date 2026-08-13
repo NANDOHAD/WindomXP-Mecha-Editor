@@ -41,8 +41,8 @@
 | 同じ方向の矢印キーを2回入力 | 各方向のステップ。入力方向を開始時の機体正面から見た前/後/左/右へ分類し、`11` / `12` / `9` / `10`を選ぶ。ステップだけを理由に空中扱いにはせず、原作の最短16tick・最長61tick条件で終了する。接地中はステップ着地ID `6`、既に空中なら空中停止ID `8`へ移る。 |
 | `Z` | 地上ではジャンプ開始ID `3`を完了して上昇ID `7`へ進む。短押しでもID `3`を中断せず、ID `7`を最低5tick再生する。上昇ID `7`は原作の12コールバックで空中移動／停止へ遷移し、保持だけで無限に上昇しない。空中停止中の保持／単押しは、空中停止を11tick待ってからエネルギー80を使って再上昇する。 |
 | `Z` を短時間内に2回入力 | `@int[191]` ブースト開始入力。既定の判定間隔は`doubleTapBoostSeconds=0.3`秒で、空中からブーストダッシュID `22`へ移る。 |
-| `X` | `@int[192]` 射撃。 |
-| `C` | `@int[193]` 格闘。 |
+| `X` | `@int[192]` 射撃。押下エッジで銃形態ならID `100`、サーベル形態なら持替えID `68`を選ぶ。ブーストID `22`の6tick目以降は形態より優先して飛行射撃ID `106`。保持中は状態値を維持するが自動再入力しない。 |
+| `C` | `@int[193]` 格闘。銃形態では持替えID `18`、サーベル形態では前`130`、中立`131`、左`141`、右`146`、後`151`を選ぶ。格闘中の再押下はScriptの`SwordCancel`先へ連携する。 |
 | `V` | `@int[194]` 防御。 |
 | `S` | `@int[195]` ロック取得／解除。現在は単一の`target`候補をトグルする。 |
 | `A` / `D` / `F` | `@int[196]` - `@int[198]` サブ攻撃。 |
@@ -62,8 +62,12 @@
 - `ExecScriptEveryTime(0)`は毎tick、`ExecScriptEveryTime(n)`は概ね`n + 1` tick周期で現在ブロックを再実行する。
 - `unk == 999999999` のスクリプトブロックを原作終端番兵として扱う。
 - 原作のブロック選択処理に合わせ、ブロック入場時に`Move`、`Force`、攻撃状態、ガード、`CamEffect`、`vF_Multi`、BURNER要求を既定値へ戻してから命令列を実行する。
-- `WeaponAttack` / `WeaponAttack2` / `RunProc` / `RunProc2` の簡易弾または簡易エフェクト。`RunProc2`タイプ1/24/25/28/60、タイプ55、タイプ62サブタイプ3/4/7/10/11は、対応する原作テクスチャがあれば加算合成表示へ接続する。引数位置は`GUIDE4.txt`由来のため原作推定を含む。
-- `ATTACK(power, down, force, forceY)`を4つの攻撃状態へ展開し、テスト用近距離判定ではダメージ、ダウン値、水平/垂直衝撃値を記録する。
+- `WeaponAttack` / `WeaponAttack2` / `RunProc` / `RunProc2` の簡易弾または簡易エフェクト。`RunProc2`タイプ1/24/25/28/60、タイプ55、タイプ62サブタイプ3/4/7/10/11は、対応する原作テクスチャがあれば加算合成表示へ接続する。type 55はサーベル表示だけ、type 57は現在の攻撃プロファイルを使う格闘命中判定として分離する。引数位置は`GUIDE4.txt`由来のため原作推定を含む。
+- `ATTACK(power, down, force, forceY)`を威力、ダウン値、水平/垂直衝撃値へ展開する。`ATTACK`単独では命中せず、type 57格闘判定または発射体衝突時に4値を適用する。発射体は生成時の値を保持する。
+- X/Cは原作の押下済みbyteに合わせて押下エッジだけで開始し、`AttackDelay(slot,ticks)`の0～4スロットを60Hzで減算する。スロット0/1がX/Cに対応する。
+- 銃／サーベル形態は`ChangeWeapon`と`@int[152]`を同期する。サーベル形態の基本アクション0～49は、対応ANIが存在する場合に+50側を再生する。通常攻撃完了時は接地ならアクション6、空中なら8へ戻る。
+- 格闘は方向別ID `130` / `131` / `141` / `146` / `151`を選び、C再押下を保留し、Scriptが`SwordCancel`先を設定した時点で連携する。誘導格闘130は5エネルギー/tickを消費し、6tick目以降に対象との中心間距離が`meleeApproachDistance`、既定3.5未満、またはゲージ枯渇になると136へ進む。開始15tick後のブースト／ステップキャンセルも受け付ける。
+- 射撃中の左右入力4/6は、現在ブロックの`ShotTurnAng`を機体Yawへ反映する。
 - `LockBody...` / `LockArm...` はブロック内の照準要求として保持し、`bodyUpAimRoot` / `bodyDownAimRoot` / `arm1AimRoot` / `arm2AimRoot`が設定されている場合だけ、その表示Transformを対象へ向ける。ボーン割り当ては機体依存で、角度引数の厳密な意味も未確定なためUnity近似である。未設定時に機体ルートを回す旧フォールバックは廃止し、移動方位とカメラ基準を照準命令が書き換えないようにした。
 - `BURNER(id, output)` と既存 `UI_SPT.LastSptData` の連携。IDは原作どおり0～19。既存MODの1引数形式は`output=1`として扱う。`BURNER2`は認識するが命令化しない。
 - `CatchLastChara`を原作トークンとして認識する。旧Unity実装向けの`CatchChara`も互換別名として残す。
@@ -87,7 +91,7 @@
 - ステップは原作`FUN_004d77e0`の継続条件に合わせ、開始後`stepMinimumTicks`、既定16tickまでは入力を離しても継続し、それ以降は入力解放・方向変更で終了する。押し続けても`stepMaximumTicks`、既定61tickで終了する。毎tickのエネルギー消費は`stepEnergyPerTick`、既定4で、0になった場合は16tickを待たず終了する。接地状態はステップ開始で変更せず、接地中の終了は専用`stepLandingAction`、既定ID `6`、既に空中なら空中停止ID `8`へ移行する。空中ステップ後に同じ方向を押し続けている間はID `8`を維持し、上向き`Force`を持つID `4`へ直結させない。方向解放または変更後の新規空中移動ではID `4`を再利用できる。ANIブロックの`unk`は丸めず、実データどおり8tickの初速区間から120tickの減速区間へ進む。`Move`がない場合だけ`stepFallbackMoveMagnitude`を同じ世界方向へ適用する。
 - `useColliderGrounding` がオンの場合、テストプレイ開始時に機体ルートへランタイム用 `CharacterController` を追加または取得する。重力を含む原作tick速度は先に一度だけ計算し、`CharacterController.Move()`は衝突解決と接地判定にだけ使う。天井／床衝突時は該当するY速度を止める。接地先はUnity Colliderで、接地中は `airborneFlag` をオフ、非接地中はオンにする。上昇/ブースト中は一時的に空中扱いを強制するが、ステップは実際の接地状態を保持する。`gravity` / `terminalFallSpeed` / `groundedVerticalSpeed` / `applyGravityDuringForcedAirborneActions`は旧シーン互換用フィールドであり、原作準拠経路では使用しない。
 - `characterControllerRadius` / `characterControllerHeight` / `characterControllerCenter` は機体サイズに合わせて調整する。足元が床に埋まる、または接地しない場合は、まず `characterControllerCenter.y` と `characterControllerHeight` を見直す。
-- 射撃、格闘、特殊武器は単発型。アニメーション/スクリプト終端まで進めてからIdleへ戻る。
+- A/D/Fの特殊武器は従来どおり単発型。X/C通常攻撃は上記の形態切替、方向分岐、連携、6/8復帰を使う。
 - アクション切替時は現在表示中のパーツ姿勢から次アクションの姿勢へ短時間ブレンドする。`blendActionTransitions`、`actionTransitionSeconds`、`heldReleaseTransitionSeconds` で調整する。
 
 ## 原作寄せテストプレイカメラ
@@ -143,7 +147,7 @@ ID 21～96は登録表に根拠がないため割り当てない。`burner.wav`�
 
 ## 回帰検証
 
-Unityメニューの `Tools > WindomXP > Test Play > Run Runtime Verification` から原作確定仕様とUnity操作補正の検証を実行できます。現在は、セミコロン分割、コメント、内部変数範囲、複合代入、ネストIF、6比較演算子、命令走査中断、`ExecScriptEveryTime`周期、`ATTACK`の4引数、`BURNER`の出力値とID範囲、固定`Snd` ID表、原作テクスチャロード順と`GUIDE4.txt`由来IDの分離、60Hz tick、入力ラッチ、tick二度押し窓、`LockDist`取得／解除、照準Transform分離、FOV 60、テストカメラの開始/終了、左右旋回方向、後退時の距離・高さ・対象維持、後ろ斜め時の前方回り込み防止、対象／カメラ／入力開始時自機正面の基準切替、保持入力中の論理カメラ方位更新、方向コード1～9、Script前進量の方向変換、実際のRootMotion座標、入力方向と開始姿勢からのステップID 9～12選択、ローカル方向と進行方向を一致させる姿勢、前方0.3補正、16/61tick境界、ステップ4エネルギー消費と枯渇終了、接地ステップのID 6復帰、空中ステップ後のID 8入力保持、方向変更時の回復解除、ANIブロック長維持、空中アクションID、12度／14度／15度／内積式旋回、30/31tick境界、上昇12tick・空中停止11tickの再上昇境界、空中ブースト開始時のGenerator/5、Forceのtick速度積分・上昇上限・水平慣性、重力0.013／終端-0.8、vF適用順、空中移動Forceの蓄積上限と解放後の下降、エネルギー消費・接地回復を146項目で検査します。
+Unityメニューの `Tools > WindomXP > Test Play > Run Runtime Verification` から原作確定仕様とUnity操作補正の検証を実行できます。現在は、従来のスクリプト、60Hz入力、ロック、カメラ、移動、ステップ、ジャンプ、ブースト検証に加え、X保持の非連射、18/68の形態切替、基本アクション+50、方向別格闘、`AttackDelay`、`ATTACK`非即時命中、type 55/57分離、発射体プロファイル、保留付き`SwordCancel`、攻撃後6復帰、格闘誘導の5/tick消費、`ShotTurnAng`を含む171項目を検査します。
 
 ## 移動デバッグ
 

@@ -25,6 +25,7 @@ public static class TestPlayRuntimeVerification
         VerifyFlowInterruption(ref assertions);
         VerifyRepeatInterval(ref assertions);
         VerifyOriginalAttackAndBurnerArguments(ref assertions);
+        VerifyOriginalNormalAttackFlow(ref assertions);
         VerifyOriginalSoundIds(ref assertions);
         VerifyOriginalTextureTables(ref assertions);
         VerifyOriginalSimulationClockAndLock(ref assertions);
@@ -107,6 +108,10 @@ public static class TestPlayRuntimeVerification
                 "original integer resource slots 100..103 mirror SPT runtime values", ref assertions);
             Require(controller.configuredScore == 800 && controller.configuredRestBody == 2,
                 "SPT Score and RestBody reach test-play runtime state", ref assertions);
+            Require(TestPlayHudRuntime.ResolveMechaName(controller) == "StatusTest",
+                "test-play HUD resolves the machine name from SPT Name", ref assertions);
+            Require(Mathf.Approximately(TestPlayHudRuntime.CalculateFillAmount(900f, 3600f), 0.25f),
+                "test-play HUD gauge fill uses the current-to-maximum ratio", ref assertions);
 
             controller.SetAirborneFlag(true);
             controller.state.SetInt(100, 3500);
@@ -245,6 +250,191 @@ public static class TestPlayRuntimeVerification
         finally
         {
             UnityEngine.Object.DestroyImmediate(go);
+        }
+    }
+
+    static void VerifyOriginalNormalAttackFlow(ref int assertions)
+    {
+        GameObject controllerObject = new GameObject("TestPlayVerification_NormalAttackController");
+        GameObject rootObject = new GameObject("TestPlayVerification_NormalAttackRoot");
+        GameObject targetObject = new GameObject("TestPlayVerification_NormalAttackTarget");
+        GameObject spawnedProjectile = null;
+        try
+        {
+            TestPlayController controller = controllerObject.AddComponent<TestPlayController>();
+            RoboStructure robo = controllerObject.AddComponent<RoboStructure>();
+            TestPlayTargetDummy target = targetObject.AddComponent<TestPlayTargetDummy>();
+            target.logHits = false;
+            rootObject.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            targetObject.transform.position = Vector3.forward * 2f;
+            robo.root = rootObject;
+            robo.ani = new ani2 { animations = new List<animation>() };
+            for (int i = 0; i < 200; i++)
+            {
+                robo.ani.animations.Add(new animation
+                {
+                    name = "VerificationAction" + i,
+                    frames = new List<hod2v1>(),
+                    scripts = new List<script> { new script { unk = 1, time = 0f, squirrel = "" } }
+                });
+            }
+
+            controller.robo = robo;
+            controller.target = target;
+            controller.maximumEnergy = 100f;
+            controller.currentEnergy = 100f;
+            controller.state.ResetDefaults();
+            controller.state.SetInt(100, 100);
+            controller.state.SetFloat(100, 100f);
+
+            MethodInfo setWeapon = typeof(TestPlayController).GetMethod("SetHeldWeapon", InstancePrivate);
+            MethodInfo resolveShot = typeof(TestPlayController).GetMethod("ResolveShotInputAction", InstancePrivate);
+            MethodInfo resolveMelee = typeof(TestPlayController).GetMethod("ResolveMeleeInputAction", InstancePrivate);
+            MethodInfo resolveWeaponAction = typeof(TestPlayController).GetMethod("ResolveActionForWeaponMode", InstancePrivate);
+            MethodInfo handle = typeof(TestPlayController).GetMethod("HandleCommand", InstancePrivate);
+            MethodInfo spawnRunProc = typeof(TestPlayController).GetMethod("SpawnRunProc", InstancePrivate);
+            MethodInfo updateCooldowns = typeof(TestPlayController).GetMethod("UpdateOriginalAttackCooldowns", InstancePrivate);
+            MethodInfo updateAttack = typeof(TestPlayController).GetMethod("TryUpdateNormalAttackSequence", InstancePrivate);
+            MethodInfo updateInput = typeof(TestPlayController).GetMethod("UpdateInputState", InstancePrivate);
+            MethodInfo getOneShot = typeof(TestPlayController).GetMethod("GetOneShotActionFromInput", InstancePrivate);
+            MethodInfo applyShotSteering = typeof(TestPlayController).GetMethod("ApplyOriginalShotSteering", InstancePrivate);
+            MethodInfo finishAnimation = typeof(TestPlayController).GetMethod("FinishCurrentAnimation", InstancePrivate);
+            MethodInfo energyTick = typeof(TestPlayController).GetMethod("UpdateOriginalMovementEnergy", InstancePrivate);
+            MethodInfo spawnProjectile = typeof(TestPlayController).GetMethod(
+                "SpawnProjectile",
+                InstancePrivate,
+                null,
+                new[] { typeof(string), typeof(float), typeof(float), typeof(bool) },
+                null);
+            Require(setWeapon != null && resolveShot != null && resolveMelee != null && resolveWeaponAction != null &&
+                    handle != null && spawnRunProc != null && updateCooldowns != null && updateAttack != null &&
+                    updateInput != null && getOneShot != null && applyShotSteering != null &&
+                    finishAnimation != null && energyTick != null && spawnProjectile != null,
+                "original normal-attack runtime helpers are available", ref assertions);
+
+            setWeapon.Invoke(controller, new object[] { "GUN" });
+            Require((int)resolveShot.Invoke(controller, null) == controller.shotAction,
+                "gun-mode X selects action 100", ref assertions);
+            Require((int)resolveMelee.Invoke(controller, new object[] { 8 }) == controller.switchToSwordAction,
+                "gun-mode C first selects weapon-switch action 18", ref assertions);
+
+            SetField(controller, "sampledShotKeyHeld", true);
+            updateInput.Invoke(controller, null);
+            Require((int)getOneShot.Invoke(controller, null) == controller.shotAction,
+                "the initial X press edge starts a shot", ref assertions);
+            updateInput.Invoke(controller, null);
+            Require(controller.state.GetInt(192) == 1 && (int)getOneShot.Invoke(controller, null) == -1,
+                "holding X keeps its script state but does not auto-repeat the attack", ref assertions);
+            SetField(controller, "sampledShotKeyHeld", false);
+            updateInput.Invoke(controller, null);
+
+            controller.currentAnimationIndex = controller.boostAction;
+            SetField(controller, "boostMotionActive", true);
+            SetField(controller, "actionTick", 5);
+            Require((int)resolveShot.Invoke(controller, null) == -1,
+                "boost X is ignored through the original first five ticks", ref assertions);
+            SetField(controller, "actionTick", 6);
+            Require((int)resolveShot.Invoke(controller, null) == controller.boostShotAction,
+                "boost X after tick 5 selects original action 106", ref assertions);
+
+            controller.currentAnimationIndex = controller.idleAction;
+            SetField(controller, "boostMotionActive", false);
+            setWeapon.Invoke(controller, new object[] { "SWORD" });
+            Require((int)resolveShot.Invoke(controller, null) == controller.switchToGunAction,
+                "sword-mode X first selects weapon-switch action 68", ref assertions);
+            controller.currentAnimationIndex = controller.boostAction + 50;
+            SetField(controller, "boostMotionActive", true);
+            Require((int)resolveShot.Invoke(controller, null) == controller.boostShotAction,
+                "boost action 106 takes precedence over sword-mode weapon switching", ref assertions);
+            controller.currentAnimationIndex = controller.idleAction + 50;
+            SetField(controller, "boostMotionActive", false);
+            Require((int)resolveMelee.Invoke(controller, new object[] { 8 }) == controller.meleeAction,
+                "forward C selects melee approach action 130", ref assertions);
+            Require((int)resolveMelee.Invoke(controller, new object[] { 0 }) == controller.neutralMeleeAction &&
+                    (int)resolveMelee.Invoke(controller, new object[] { 4 }) == controller.leftMeleeAction &&
+                    (int)resolveMelee.Invoke(controller, new object[] { 6 }) == controller.rightMeleeAction &&
+                    (int)resolveMelee.Invoke(controller, new object[] { 2 }) == controller.backMeleeAction,
+                "neutral/left/right/back C select actions 131/141/146/151", ref assertions);
+            Require((int)resolveWeaponAction.Invoke(controller, new object[] { controller.moveAction }) == controller.moveAction + 50,
+                "sword mode resolves basic action IDs through the original +50 table", ref assertions);
+
+            rootObject.transform.rotation = Quaternion.identity;
+            controller.currentAnimationIndex = controller.shotAction;
+            controller.state.SetInt(190, 4);
+            SetField(controller, "attackSequenceActive", true);
+            SetField(controller, "shotTurnAng", 20f);
+            applyShotSteering.Invoke(controller, new object[] { rootObject.transform });
+            Require(Mathf.Abs(Vector3.Angle(Vector3.forward, rootObject.transform.forward) - 20f) < 0.01f &&
+                    rootObject.transform.forward.x < 0f,
+                "ShotTurnAng steers a held-left shot by the scripted angle", ref assertions);
+            rootObject.transform.rotation = Quaternion.identity;
+
+            handle.Invoke(controller, new object[] { "AttackDelay", Values(0f, 3f), "AttackDelay(0,3);" });
+            Require(controller.GetAttackCooldownTicks(0) == 3, "AttackDelay stores the X cooldown slot", ref assertions);
+            updateCooldowns.Invoke(controller, null);
+            Require(controller.GetAttackCooldownTicks(0) == 2, "attack cooldowns decrement once per original tick", ref assertions);
+
+            target.hp = 1000f;
+            handle.Invoke(controller, new object[] { "ATTACK", Values(37f, 44f, 2f, 3f), "ATTACK(37,44,2,3);" });
+            Require(Mathf.Approximately(target.hp, 1000f),
+                "ATTACK configures a profile without applying an immediate hit", ref assertions);
+            spawnRunProc.Invoke(controller, new object[] { Values(1f, 55f), true });
+            Require(Mathf.Approximately(target.hp, 1000f),
+                "RunProc2 type 55 is a sword visual and does not damage", ref assertions);
+            spawnRunProc.Invoke(controller, new object[] { Values(1f, 57f), true });
+            Require(Mathf.Approximately(target.hp, 963f) && target.lastDownValue == 44 &&
+                    target.lastImpactForce == new Vector3(0f, 3f, 2f),
+                "RunProc2 type 57 applies the active ATTACK power/down/force profile", ref assertions);
+
+            spawnProjectile.Invoke(controller, new object[] { "VerificationShot", 37f, 20f, false });
+            List<GameObject> transients = (List<GameObject>)GetField(controller, "spawnedTransientObjects");
+            spawnedProjectile = transients[transients.Count - 1];
+            TestPlayProjectile projectile = spawnedProjectile.GetComponent<TestPlayProjectile>();
+            Require(projectile != null && projectile.downValue == 44 &&
+                    Mathf.Approximately(projectile.horizontalImpactForce, 2f) &&
+                    Mathf.Approximately(projectile.verticalImpactForce, 3f),
+                "projectiles snapshot the active ATTACK impact profile", ref assertions);
+
+            controller.ChangeAnimation(controller.neutralMeleeAction);
+            SetField(controller, "attackSequenceActive", true);
+            SetField(controller, "swordCancelAction", 0);
+            SetField(controller, "meleeKeyPressedThisTick", true);
+            updateAttack.Invoke(controller, null);
+            Require(controller.currentAnimationIndex == controller.neutralMeleeAction &&
+                    (bool)GetField(controller, "meleeComboInputPending"),
+                "a melee C edge remains pending until a SwordCancel window opens", ref assertions);
+            SetField(controller, "meleeKeyPressedThisTick", false);
+            SetField(controller, "swordCancelAction", 132);
+            updateAttack.Invoke(controller, null);
+            Require(controller.currentAnimationIndex == 132,
+                "pending C follows the scripted SwordCancel action when it becomes available", ref assertions);
+
+            SetField(controller, "attackSequenceActive", true);
+            SetField(controller, "meleeApproachActive", false);
+            controller.SetAirborneFlag(false);
+            finishAnimation.Invoke(controller, null);
+            Require(controller.currentAnimationIndex == controller.stepLandingAction + 50,
+                "grounded attack completion returns through action 6 and its sword variant", ref assertions);
+
+            controller.currentAnimationIndex = controller.meleeAction;
+            SetField(controller, "attackSequenceActive", true);
+            SetField(controller, "meleeApproachActive", true);
+            controller.currentEnergy = 100f;
+            controller.state.SetInt(100, 100);
+            controller.state.SetFloat(100, 100f);
+            SetField(controller, "lastSyncedMovementEnergyInt", 100);
+            SetField(controller, "lastSyncedMovementEnergyFloat", 100f);
+            energyTick.Invoke(controller, null);
+            Require(Mathf.Approximately(controller.currentEnergy, 95f),
+                "melee approach action 130 consumes five movement-energy units per tick", ref assertions);
+        }
+        finally
+        {
+            if (spawnedProjectile != null)
+                UnityEngine.Object.DestroyImmediate(spawnedProjectile);
+            UnityEngine.Object.DestroyImmediate(targetObject);
+            UnityEngine.Object.DestroyImmediate(rootObject);
+            UnityEngine.Object.DestroyImmediate(controllerObject);
         }
     }
 

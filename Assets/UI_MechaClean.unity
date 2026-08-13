@@ -45310,6 +45310,7 @@ MonoBehaviour:
   sptSource: {fileID: 77937709}
   presentationRuntime: {fileID: 1726638252}
   cameraController: {fileID: 1641867160}
+  hudRuntime: {fileID: 0}
   playModeActive: 0
   startOnPlay: 0
   logCommands: 0
@@ -45353,6 +45354,8 @@ MonoBehaviour:
   riseTurnDegreesPerTick: 14
   boostInitialTurnDegreesPerTick: 15
   riseMinimumReleaseTicks: 5
+  riseMaximumTicks: 12
+  airRiseMinimumIdleTicks: 11
   boostMinimumReleaseTicks: 31
   doubleTapBoostSeconds: 0.3
   stepFallbackMoveMagnitude: 0.51
@@ -45371,7 +45374,9 @@ MonoBehaviour:
   bodyDownAimRoot: {fileID: 0}
   arm1AimRoot: {fileID: 0}
   arm2AimRoot: {fileID: 0}
+  fallbackMaximumHP: 1000
   fallbackMaximumEnergy: 1000
+  fallbackMaximumAuxiliaryEnergy: 1000
   riseEnergyPerTick: 5
   boostEnergyPerTick: 5
   stepEnergyPerTick: 4
@@ -45409,8 +45414,14 @@ MonoBehaviour:
   airborneFlag: 0
   groundedFlag: 0
   verticalFallSpeed: 0
+  currentHP: 0
+  maximumHP: 0
   currentEnergy: 0
   maximumEnergy: 0
+  currentAuxiliaryEnergy: 0
+  maximumAuxiliaryEnergy: 0
+  configuredScore: 0
+  configuredRestBody: 0
   targetLockActive: 0
   activeTargetDistance: 0
   currentAnimationName: 
