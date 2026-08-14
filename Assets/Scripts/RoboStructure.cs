@@ -259,6 +259,12 @@ public class RoboStructure : MonoBehaviour
 
     void ImportModelEncrypted(GameObject GO, string file)
     {
+        // HOD part names are also used for bones and attachment points. Such
+        // nodes intentionally have no standalone .x model, but must remain in
+        // the hierarchy so ANI/SPT references can resolve their transforms.
+        if (!File.Exists(file))
+            return;
+
         try
         {
             string Modelpath = Path.GetDirectoryName(file);

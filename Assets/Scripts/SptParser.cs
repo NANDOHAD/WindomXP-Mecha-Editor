@@ -5,8 +5,9 @@ using UnityEngine;
 
 /// <summary>
 /// Script.spt の BURNERSET / WEAPONPOINT などを解析してランタイムデータを構築するパーサー。
-/// エフェクト方向は「エフェクトが原点からZ軸方向に吹き出す」仕様に基づき、
-/// UP = ローカルZ+, DOWN = ローカルZ- (= XZ平面上で180度回転) として扱う。
+/// エフェクト方向は「エフェクトが原点からZ軸方向に吹き出す」仕様に基づく。
+/// 実SPT/HODではUP/DOWN双方のOutputボーン姿勢に外向き基準が含まれるため、
+/// Unity表示Adapterではどちらも追加回転なしのローカルZ+として扱う。
 /// </summary>
 public enum SptDirection { UP, DOWN, FORWARD, BACK, LEFT, RIGHT }
 
@@ -22,7 +23,7 @@ public class BurnerSetInfo
     /// <summary>エフェクトの大きさ（スケール）。0 の場合は非表示扱い。</summary>
     public float Scale;
 
-    /// <summary>吹き出し方向。UP=ローカルZ+, DOWN=ローカルZ-。</summary>
+    /// <summary>SPTの方向指定。UP/DOWNはOutputボーンのローカルZ+をそのまま使う。</summary>
     public SptDirection Direction;
 
     /// <summary>
@@ -84,6 +85,9 @@ public class SptRuntimeData
 /// <summary>Script.spt テキストを解析して SptRuntimeData を返す静的パーサー。</summary>
 public static class SptParser
 {
+    static Material defaultBurnerParticleMaterial;
+    static Texture2D defaultBurnerParticleTexture;
+
     // BURNERSET(id, frameName, scale, direction)
     static readonly Regex RxBurnerSet = new Regex(
         @"BURNERSET\s*\(\s*(\d+)\s*,\s*([^,]+?)\s*,\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*,\s*(UP|DOWN|FORWARD|BACK|LEFT|RIGHT)\s*\)",
@@ -221,7 +225,8 @@ public static class SptParser
             {
                 goEffect = new GameObject($"Burner_{info.Id}_{info.FrameName}");
                 goEffect.transform.SetParent(info.BoneTr, worldPositionStays: false);
-                goEffect.AddComponent<ParticleSystem>();
+                ParticleSystem defaultParticle = goEffect.AddComponent<ParticleSystem>();
+                ConfigureDefaultBurnerParticle(defaultParticle);
             }
 
             goEffect.transform.localPosition = Vector3.zero;
@@ -232,6 +237,93 @@ public static class SptParser
             ps.Stop(withChildren: true, stopBehavior: ParticleSystemStopBehavior.StopEmittingAndClear);
             info.Ps = ps;
         }
+    }
+
+    static void ConfigureDefaultBurnerParticle(ParticleSystem particleSystem)
+    {
+        if (particleSystem == null)
+            return;
+
+        ParticleSystem.MainModule main = particleSystem.main;
+        main.simulationSpace = ParticleSystemSimulationSpace.Local;
+        main.startLifetime = 0.25f;
+        main.startSpeed = 1.5f;
+        main.startSize = 0.14f;
+        main.startColor = new Color(0.45f, 0.85f, 1f, 0.85f);
+        main.maxParticles = 64;
+
+        ParticleSystem.EmissionModule emission = particleSystem.emission;
+        emission.rateOverTime = 40f;
+
+        ParticleSystem.ShapeModule shape = particleSystem.shape;
+        shape.shapeType = ParticleSystemShapeType.Cone;
+        shape.angle = 8f;
+        shape.radius = 0.03f;
+
+        ParticleSystemRenderer renderer = particleSystem.GetComponent<ParticleSystemRenderer>();
+        Material compatibleMaterial = GetDefaultBurnerParticleMaterial();
+        if (renderer != null && compatibleMaterial != null)
+            renderer.sharedMaterial = compatibleMaterial;
+    }
+
+    static Material GetDefaultBurnerParticleMaterial()
+    {
+        if (defaultBurnerParticleMaterial != null)
+            return defaultBurnerParticleMaterial;
+
+        Shader shader = null;
+        if (UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline != null)
+            shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+        if (shader == null)
+            shader = Shader.Find("Legacy Shaders/Particles/Additive");
+        if (shader == null)
+            shader = Shader.Find("Particles/Standard Unlit");
+        if (shader == null)
+            shader = Shader.Find("Sprites/Default");
+        if (shader == null)
+            return null;
+
+        defaultBurnerParticleMaterial = new Material(shader)
+        {
+            name = "TestPlayDefaultBurnerParticleMaterial",
+            hideFlags = HideFlags.HideAndDontSave
+        };
+        Texture2D particleTexture = GetDefaultBurnerParticleTexture();
+        if (defaultBurnerParticleMaterial.HasProperty("_MainTex"))
+            defaultBurnerParticleMaterial.SetTexture("_MainTex", particleTexture);
+        if (defaultBurnerParticleMaterial.HasProperty("_BaseMap"))
+            defaultBurnerParticleMaterial.SetTexture("_BaseMap", particleTexture);
+        return defaultBurnerParticleMaterial;
+    }
+
+    static Texture2D GetDefaultBurnerParticleTexture()
+    {
+        if (defaultBurnerParticleTexture != null)
+            return defaultBurnerParticleTexture;
+
+        const int Size = 32;
+        defaultBurnerParticleTexture = new Texture2D(Size, Size, TextureFormat.RGBA32, false, true)
+        {
+            name = "TestPlayDefaultBurnerParticleTexture",
+            hideFlags = HideFlags.HideAndDontSave,
+            wrapMode = TextureWrapMode.Clamp,
+            filterMode = FilterMode.Bilinear
+        };
+
+        Color[] pixels = new Color[Size * Size];
+        for (int y = 0; y < Size; y++)
+        {
+            for (int x = 0; x < Size; x++)
+            {
+                float nx = ((x + 0.5f) / Size) * 2f - 1f;
+                float ny = ((y + 0.5f) / Size) * 2f - 1f;
+                float alpha = Mathf.Pow(Mathf.Clamp01(1f - Mathf.Sqrt(nx * nx + ny * ny)), 2f);
+                pixels[y * Size + x] = new Color(0.65f, 0.9f, 1f, alpha);
+            }
+        }
+        defaultBurnerParticleTexture.SetPixels(pixels);
+        defaultBurnerParticleTexture.Apply(false, true);
+        return defaultBurnerParticleTexture;
     }
 
     // ---- ヘルパー ----
@@ -250,14 +342,13 @@ public static class SptParser
 
     /// <summary>
     /// エフェクトは「ローカルZ軸の正方向」に吹き出す。
-    /// UP   = そのまま (ローカルZ+)
-    /// DOWN = Z軸を反転 (ローカルZ-)
+    /// UP/DOWN = Outputボーン姿勢をそのまま使用 (ローカルZ+)
     /// </summary>
     static Quaternion DirectionToRotation(SptDirection dir)
     {
         switch (dir)
         {
-            case SptDirection.DOWN:    return Quaternion.Euler(180f, 0f, 0f);
+            case SptDirection.DOWN:    return Quaternion.identity;
             case SptDirection.FORWARD: return Quaternion.Euler(-90f,  0f, 0f);
             case SptDirection.BACK:    return Quaternion.Euler( 90f,  0f, 0f);
             case SptDirection.LEFT:    return Quaternion.Euler(0f,  90f, 0f);

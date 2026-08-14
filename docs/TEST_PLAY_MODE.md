@@ -4,16 +4,30 @@
 
 実装は、擬似コードと実データから確認できた「原作確定」、動作から補う「原作推定」、DirectX9固有処理を置き換える「Unity代替」を区別します。
 
+再設計Phase 0で確定した原作との差分、未解決事項、tickトレース契約、後続Phaseの実装境界は [TEST_PLAY_PHASE0_REDESIGN_SPEC.md](TEST_PLAY_PHASE0_REDESIGN_SPEC.md)、Phase 1の共通ANI中間表現とtrack schedulerは [TEST_PLAY_PHASE1_IMPLEMENTATION.md](TEST_PLAY_PHASE1_IMPLEMENTATION.md)、Phase 2のAction／Motion／Locomotion Coreは [TEST_PLAY_PHASE2_IMPLEMENTATION.md](TEST_PLAY_PHASE2_IMPLEMENTATION.md)、Phase 3のCombat Coreと60Hz発射体は [TEST_PLAY_PHASE3_IMPLEMENTATION.md](TEST_PLAY_PHASE3_IMPLEMENTATION.md)、Phase 4のPresentation EventとUnity表示Adapterは [TEST_PLAY_PHASE4_IMPLEMENTATION.md](TEST_PLAY_PHASE4_IMPLEMENTATION.md)、Phase 5の実機体golden traceと反復決定性検証は [TEST_PLAY_PHASE5_IMPLEMENTATION.md](TEST_PLAY_PHASE5_IMPLEMENTATION.md) を参照してください。
+
 ## 追加したコンポーネント
 
 | ファイル | 役割 |
 | --- | --- |
 | `TestPlayController.cs` | 入力、ANI tick、HOD補間、Script命令、簡易武器生成をまとめるテストプレイ本体。 |
 | `TestPlayScriptVM.cs` | `IF`、関数呼び出し、代入、`@int/@float`、`STOP` を扱う簡易Script VM。 |
+| `TestPlayAniProgram.cs` | ANIをcommand、assignment、condition、operandへ変換する共通中間表現・コンパイラ・実行器。 |
+| `TestPlayAniAnimationProgram.cs` | `animation` / `script`を初期プログラム、block時間、HOD進行量、終端へ変換する。 |
+| `TestPlayAniTrackScheduler.cs` | Main / Secondary / Sub trackのblock進行、repeat、loop、jump、tick traceを管理する。 |
+| `TestPlayActionCore.cs` | 要求、論理、表示、Scriptの各アクションIDとANI channelを分離する。 |
+| `TestPlayMotionCore.cs` | Force、重力、水平減衰、速度倍率、Unity変位を決定的に積分する。 |
+| `TestPlayLocomotionCore.cs` | 移動状態を分類し、上昇、空中、着地、ステップ、ブーストの遷移条件を判定する。 |
+| `TestPlayPhase2TickTrace.cs` | Action／Locomotion／Motion Coreの1 tick結果をCulture非依存JSONへ変換する。 |
+| `TestPlayCombatCore.cs` | 攻撃受付、AttackDelay、格闘連携、payload、hit result、発射体1 tickを決定する。 |
+| `TestPlayCombatTrace.cs` | 攻撃プロファイル、クールダウン、spawn／hit／cancelをPhase 2 traceへ追加する。 |
+| `TestPlayPresentationCore.cs` | Snd、Voice、BURNER、Proc、texture、CamEffectの原作識別情報・根拠・Unity Adapterを分離する。 |
+| `TestPlayPresentationTrace.cs` | 型付き演出イベントと全引数をPhase 3 traceへ決定的に追加する。 |
+| `TestPlayGoldenTrace.cs` | GT-001～GT-010の入力列、Phase 5 tick snapshot、JSONL session、SHA-256比較を定義する。 |
 | `TestPlayStateTable.cs` | ゲーム本体の `@int[]` / `@float[]` 風の状態テーブル。 |
 | `TestPlayScriptValue.cs` | Script引数の数値、シンボル、`STOP` 表現。 |
 | `TestPlayTargetDummy.cs` | ロック対象/被弾対象のダミー。 |
-| `TestPlayProjectile.cs` | `WeaponAttack` / `RunProc2` 用の簡易弾。 |
+| `TestPlayProjectile.cs` | `WeaponAttack` / `RunProc2`のUnity表示Adapter。移動、寿命、homing、命中は60Hz Combat Coreへ委譲する。 |
 | `TestPlayCameraController.cs` | テストプレイ中だけ編集用`FreeCam`を置き換え、機体後方追従、ロック対象フレーミング、障害物回避、`CamEffect`近似を担当する。 |
 | `TestPlayRuntimeEvent.cs` | スクリプト、戦闘、エフェクト、音声を接続する型付きイベントと攻撃プロファイル。 |
 | `TestPlayPresentationRuntime.cs` | `Snd` / `Voice`、原作テクスチャID、Unity上の演出生成を接続する演出層。 |
@@ -22,6 +36,12 @@
 | `Assets/Editor/TestPlayOriginalTextureSetup.cs` | `Assets/IMG_TX`を原本のまま保持し、テスト用復号コピーと原作ロード順/スクリプトID対応を再生成する。 |
 | `Assets/TestPlayOriginalEffect.shader` | URP用の両面・Z書き込みなし・加算合成シェーダー。 |
 | `Assets/Editor/TestPlayRuntimeVerification.cs` | 原作確定仕様のエディタ回帰検証。 |
+| `Assets/Editor/TestPlayPhase1Verification.cs` | 共通ANI中間表現、編集プレビュー共有、track scheduler、traceの回帰検証。 |
+| `Assets/Editor/TestPlayPhase2Verification.cs` | action source分離、Force演算順、移動状態と境界、Phase 2 traceの回帰検証。 |
+| `Assets/Editor/TestPlayPhase3Verification.cs` | 攻撃受付、連携、値の根拠区分、命中結果、60Hz発射体、Phase 3 traceの回帰検証。 |
+| `Assets/Editor/TestPlayPhase4Verification.cs` | 演出ID、根拠区分、Unity Adapter、診断、Phase 4 traceの回帰検証。 |
+| `Assets/Editor/TestPlayPhase5Verification.cs` | golden scenario、決定的replay、JSONL／hash、実機体manifestの回帰検証。 |
+| `Assets/Editor/TestPlayGoldenTraceVerification.cs` | 実ANI／SPT上で全GTを2回実行し、全tickの完全一致とaction／command anchorを検証する。 |
 
 ## 手動セットアップ
 
@@ -39,7 +59,7 @@
 | --- | --- |
 | 矢印キー | `@int[190]` 方向入力。上下左右は原作コード`8` / `2` / `4` / `6`、同時押しの斜めは`7` / `9` / `1` / `3`。通常移動は `moveAction`、既定ID `1` を押下中ループ再生する。 |
 | 同じ方向の矢印キーを2回入力 | 各方向のステップ。入力方向を開始時の機体正面から見た前/後/左/右へ分類し、`11` / `12` / `9` / `10`を選ぶ。ステップだけを理由に空中扱いにはせず、原作の最短16tick・最長61tick条件で終了する。接地中はステップ着地ID `6`、既に空中なら空中停止ID `8`へ移る。 |
-| `Z` | 地上ではジャンプ開始ID `3`を完了して上昇ID `7`へ進む。短押しでもID `3`を中断せず、ID `7`を最低5tick再生する。上昇ID `7`は原作の12コールバックで空中移動／停止へ遷移し、保持だけで無限に上昇しない。空中停止中の保持／単押しは、空中停止を11tick待ってからエネルギー80を使って再上昇する。 |
+| `Z` | 地上ではジャンプ開始ID `3`を完了して上昇ID `7`へ進む。短押しでもID `3`を中断せず、ID `7`を最低5tick再生する。Z保持・空中・エネルギーありの間は上昇を継続するが、モーションは1回だけ再生して最終ポーズを保持する。空中停止中の保持／単押しは、空中停止を11tick待ってからエネルギー80を使って再上昇する。 |
 | `Z` を短時間内に2回入力 | `@int[191]` ブースト開始入力。既定の判定間隔は`doubleTapBoostSeconds=0.3`秒で、空中からブーストダッシュID `22`へ移る。 |
 | `X` | `@int[192]` 射撃。押下エッジで銃形態ならID `100`、サーベル形態なら持替えID `68`を選ぶ。ブーストID `22`の6tick目以降は形態より優先して飛行射撃ID `106`。保持中は状態値を維持するが自動再入力しない。 |
 | `C` | `@int[193]` 格闘。銃形態では持替えID `18`、サーベル形態では前`130`、中立`131`、左`141`、右`146`、後`151`を選ぶ。格闘中の再押下はScriptの`SwordCancel`先へ連携する。 |
@@ -64,21 +84,26 @@
 - 原作のブロック選択処理に合わせ、ブロック入場時に`Move`、`Force`、攻撃状態、ガード、`CamEffect`、`vF_Multi`、BURNER要求を既定値へ戻してから命令列を実行する。
 - `WeaponAttack` / `WeaponAttack2` / `RunProc` / `RunProc2` の簡易弾または簡易エフェクト。`RunProc2`タイプ1/24/25/28/60、タイプ55、タイプ62サブタイプ3/4/7/10/11は、対応する原作テクスチャがあれば加算合成表示へ接続する。type 55はサーベル表示だけ、type 57は現在の攻撃プロファイルを使う格闘命中判定として分離する。引数位置は`GUIDE4.txt`由来のため原作推定を含む。
 - `ATTACK(power, down, force, forceY)`を威力、ダウン値、水平/垂直衝撃値へ展開する。`ATTACK`単独では命中せず、type 57格闘判定または発射体衝突時に4値を適用する。発射体は生成時の値を保持する。
+- ANIの攻撃プロファイルは`OriginalScriptProfile`、威力未設定時の既存タイプ別推定値は`UnityFallback`として区別する。発射体はrender frameの可変時間で直接移動せず、60Hz tickで寿命、homing、移動後の半径命中判定を更新する。
 - X/Cは原作の押下済みbyteに合わせて押下エッジだけで開始し、`AttackDelay(slot,ticks)`の0～4スロットを60Hzで減算する。スロット0/1がX/Cに対応する。
-- 銃／サーベル形態は`ChangeWeapon`と`@int[152]`を同期する。サーベル形態の基本アクション0～49は、対応ANIが存在する場合に+50側を再生する。通常攻撃完了時は接地ならアクション6、空中なら8へ戻る。
-- 格闘は方向別ID `130` / `131` / `141` / `146` / `151`を選び、C再押下を保留し、Scriptが`SwordCancel`先を設定した時点で連携する。誘導格闘130は5エネルギー/tickを消費し、6tick目以降に対象との中心間距離が`meleeApproachDistance`、既定3.5未満、またはゲージ枯渇になると136へ進む。開始15tick後のブースト／ステップキャンセルも受け付ける。
+- 銃／サーベル形態は`ChangeWeapon`と`@int[152]`を同期する。`@int[151]`は原作`FUN_004b8250`がANI実行直前に書くアニメーションチャンネル値であり、基本アクション0～49は原作`FUN_004d2030`どおり主0→副1の順に同じブロックを実行する。これによりチャンネル0側の移動・ジャンプ`Force`と、チャンネル1側の持替え18/68を両立する。サーベル形態では対応ANIが存在する場合に+50側のHOD姿勢を再生し、+50側にスクリプトがない場合は元の0～49側をスクリプトとフレーム時間の供給元にする。通常攻撃完了時は接地ならアクション6、空中なら8へ戻る。
+- 格闘は方向別ID `130` / `131` / `141` / `146` / `151`を選び、格闘テーブル130～155の実行中は原作の主チャンネル値`@int[151]=0`を使う。C再押下を保留し、実データの`SwordCancel=132`や`133`が設定される受付ブロックへ到達した時点で連携する。誘導格闘130は5エネルギー/tickを消費し、6tick目以降に対象との中心間距離が`meleeApproachDistance`、既定3.5未満、またはゲージ枯渇になると136へ進む。開始15tick後のブースト／ステップキャンセルも受け付ける。
+- MOD側の最終段にHODフレームだけがありスクリプト時間がない場合は、Unity側の明示的なフォールバックとして1フレームを60Hzの1tickで進める。最終フレーム後は接地なら6/56を経由して立ち0/50へ戻し、最後の攻撃姿勢を保持し続けない。
+- 接地復帰6/56には、開始時に確定した有限時間を別カウンターで監視する。`ChangeAnime(56)`のような自己遷移で通常のスクリプト末尾判定が毎tick中断されても、その有限時間を1tick超えた時点で接地状態を解除し、立ち0/50へ必ず戻す。これは原作の接地コールバックが完了後に立ち0へ明示遷移することを守るUnity側の異常ANIフォールバックである。
+- サーベル側の接地56と立ち50のようなスクリプトなしアクションへ移る際は、直前の格闘ブロックが残した照準要求、`Move`、`Force`、攻撃状態を明示的に消す。接地完了時には遷移ブレンドも終えて立ちHODの先頭フレームを即時適用し、接地姿勢へ格闘段ごとの一時状態が重ならないようにする。
+- 原作`+0xBA8`に対応する`@int[150]`は0=接地、1=空中として`airborneFlag`と同期する。接地5/6は原作の接地分岐からだけ入るため、その再生中と立ち0/50へ切り替えた同じ物理tickでは接地を優先し、ANI更新後に行われるCharacterController更新が空中状態を再設定しないようにする。
 - 射撃中の左右入力4/6は、現在ブロックの`ShotTurnAng`を機体Yawへ反映する。
 - `LockBody...` / `LockArm...` はブロック内の照準要求として保持し、`bodyUpAimRoot` / `bodyDownAimRoot` / `arm1AimRoot` / `arm2AimRoot`が設定されている場合だけ、その表示Transformを対象へ向ける。ボーン割り当ては機体依存で、角度引数の厳密な意味も未確定なためUnity近似である。未設定時に機体ルートを回す旧フォールバックは廃止し、移動方位とカメラ基準を照準命令が書き換えないようにした。
 - `BURNER(id, output)` と既存 `UI_SPT.LastSptData` の連携。IDは原作どおり0～19。既存MODの1引数形式は`output=1`として扱う。`BURNER2`は認識するが命令化しない。
 - `CatchLastChara`を原作トークンとして認識する。旧Unity実装向けの`CatchChara`も互換別名として残す。
-- `Snd` / `Voice`は型付きイベントを発行し、`TestPlayPresentationRuntime`の対応表にAudioClipがあれば機体位置から再生する。原作擬似コードで確認できる距離40の判定に合わせ、既定の最大距離は40。未登録素材は一度だけ警告する。短い固定効果音は開始時に音声データをプリロードする。
+- `Snd` / `Voice`はPhase 4の型付きPresentation Eventを発行し、原作ID／シンボル、全引数、根拠区分、選択Adapterをtick traceへ残す。`TestPlayPresentationRuntime`の対応表にAudioClipがあれば機体位置から再生する。原作擬似コードで確認できる距離40の判定に合わせ、既定の最大距離は40。未登録素材は一度だけ警告する。短い固定効果音は開始時に音声データをプリロードする。
 - `TestPlayPresentationRuntime.effects`へ`WeaponAttack:種別`や`RunProc2:種別:サブ種別`をキーとしてPrefabを登録すると、簡易球の代わりに対応エフェクトを生成する。
 - `TestPlayPresentationRuntime.originalTextures`は原作の起動時ロード順と、別資料である`GUIDE4.txt`のスクリプトテクスチャIDを別フィールドで保持する。両者は同じ番号体系ではない。
 - 移動は `idleAction` とは別の `moveAction` を使い、`@int[190]` を更新しながら方向キー押下中は既定ID `1` をループ再生する。原作の通常移動と同様に、Script内の`Move`が持つ水平速度を方向入力で作った移動方位へ割り当てるため、前進値だけを持つアニメーションでも後・左・右・斜めへ移動する。Scriptに水平`Move`がない場合だけ`inputMoveMagnitude`を使う。方向キー2回入力時のみステップアクションへ入る。
-- 移動基準は切替可能。`useTargetRelativeMovement`がオンで、Sキーにより取得済みのロック対象が有効なら、毎tick更新する自機→対象方向を優先し、前=対象方向、後=対象から離れる方向、左右=対象方向に直交する方向とする。単に`target`がInspector設定されただけでは対象基準へ切り替わらない。対象基準が無効または利用不能で`useCameraRelativeMovement`がオンなら、`CamEffect`や視覚補間を適用する前の論理カメラ水平Forward/Rightを使う。両方をオフにすると、入力開始時の機体正面をキー解放まで保持する。通常・空中・上昇・ブースト・ステップ開始判定は同じ優先順位を使い、開始済みステップの移動方位だけは途中のカメラ移動で曲がらないよう固定する。
+- 移動基準は切替可能。`useTargetRelativeMovement`がオンで、Sキーにより取得済みのロック対象が有効なら、毎tick更新する自機→対象方向を優先し、前=対象方向、後=対象から離れる方向、左右=対象方向に直交する方向とする。単に`target`がInspector設定されただけでは対象基準へ切り替わらない。対象基準が無効または利用不能で`useCameraRelativeMovement`がオンなら、`CamEffect`や視覚補間を適用する前の論理カメラ水平Forward/Rightを方向入力開始時に取得し、キー解放まで保持する。これにより非ロック時の後退で、旋回後の機体正面を次tickのカメラ基準として再読込して方位が反転する循環を防ぐ。両方をオフにすると、入力開始時の機体正面を同様に保持する。通常・空中・上昇・ブースト・ステップ開始判定は同じ優先順位を使い、開始済みステップの移動方位だけは途中のカメラ移動で曲がらないよう固定する。
 - 通常移動の旋回量は`inputTurnDegreesPerTick`で調整する。既定値は通常移動更新`FUN_004d5420`で確認した12度/tick。`0`にすると即時に入力方向へ向く。ブースト開始時の15度/tickと、その後の内積式旋回は別設定として維持する。
 - `airborneFlag` がオンの場合、方向入力中は空中移動`airMoveAction`、既定ID `4`、中立時は空中停止`airIdleAction`、既定ID `8`をループ再生する。接地した時点で着地`landingAction`、既定ID `5`を再生し、完了後に通常アイドルID `0`へ戻る。旧シーンで着地IDがジャンプ開始と同じ`3`の場合は起動時に`5`へ正規化する。
-- 上昇ID `7`は原作`FUN_004d5b60`→`FUN_004d5ec0`に合わせて毎tickエネルギー5を消費する。`c38=0～11`の12コールバックで上昇を終え、Z保持だけでANIブロックを無限ループさせない。Z保持中の方向入力へは最大14度/tickで姿勢を向ける。地上の短押しでもジャンプ開始ID `3`を完了後、ID `7`を最低5tick維持してから空中移動／停止へ移る。
+- 上昇ID `7`は原作`FUN_004d5b60`→`FUN_004d5ec0`に合わせて毎tickエネルギー5を消費する。Z保持・空中・エネルギーありの間は継続し、Z解放は5tick目以降、エネルギー枯渇は即座に空中移動／停止へ送る。HODモーションは`FUN_0056d600`→`FUN_0056dbe0`の非ループ指定に合わせて1回だけ進め、ANIスクリプト終端後は最終ポーズと最後の`Force`状態を保持する。Z保持中の方向入力へは最大14度/tickで姿勢を向ける。
 - `Move`と`Force`はANI座標/tickのまま一度だけ積分し、最後に`aniUnitsToUnityScale`、既定`0.7`でUnity座標へ変換する。旧`moveScale=35` / `forceScale=35`は既存シーンとInspector互換のため残すが、原作準拠経路では使用しない。
 - `Force`は原作`FUN_004cd840`どおり1 tick当たりの速度差分として積分する。上昇ID `7`と、上向きForceを持つ方向入力中の空中移動ID `4`は、Y速度をANI座標の`0.15`へ制限してから`0.04` / `0.02`を加える。`GvEnable`時は`0.013/tick`をY速度から引き、`-0.8/tick`を終端とする。その後、水平Force速度へ空中`0.95`または接地`0.9`を掛け、3軸速度へ`vF_Multi`を一度だけ適用する。`Force(...STOP...)`は対象軸の現在速度も停止する。
 - 移動・空中移動・ステップ・ブーストから上昇へ移る場合は、直前のScript水平速度を上昇中の慣性へ引き継ぐ。この引き渡し箇所は擬似コード上で未特定のため、実プレイ挙動を再現する明示的な推定実装である。
@@ -109,7 +134,7 @@
 
 ## BURNER表示
 
-`TestPlayController.useConeBurnerEffects` がオンの場合、テストプレイ中の `BURNER(id, output)` はParticleSystemを再生せず、`TestPlayBurnerCone` を対象ボーンへ生成して表示する。長さは `Script.spt` の `BURNERSET(id, frameName, scale, direction)` の `scale`、`burnerLengthMultiplier`、`output`を掛けた値になる。太さは長さに `burnerRadiusRatio` を掛ける。`direction` は `DOWN` をローカルZプラス方向、`UP` をローカルZマイナス方向として扱う。見た目の点火/消灯速度は `burnerFadeSpeed`、色は `burnerConeColor` で調整する。`output`を表示長とアルファへ割り当てる処理は、原作の共有出力値をUnityで可視化するための暫定的な「Unity代替」である。
+`TestPlayController.useConeBurnerEffects` がオンの場合、テストプレイ中の `BURNER(id, output)` はParticleSystemを再生せず、互換クラス名`TestPlayBurnerCone`の表示Adapterを対象ボーンへ生成する。`useOriginalBurnerTexture`がオンでGUIDEテクスチャID `8`の`burner.png`が登録済みなら、原作から復号した青白い噴射テクスチャを加算合成の交差板2枚へ貼り、どのゲームプレイ視点からも噴射形状が見えるようにする。未登録時だけ従来の単色Coneへ戻る。長さは `Script.spt` の `BURNERSET(id, frameName, scale, direction)` の `scale`、`burnerLengthMultiplier`、`output`を掛けた値、太さは長さに `burnerRadiusRatio` を掛けた値とする。交差板／ConeはいずれもローカルZプラスへ伸びる。実SPT/HODでは`UP`／`DOWN`双方のOutputボーン姿勢に外向き基準が含まれているため、Unity表示Adapterではどちらにも追加回転を掛けず、ボーンのローカルZプラスをそのまま使う。見た目の点火/消灯速度は `burnerFadeSpeed`で調整する。テクスチャ使用時は原作色を保持して出力アルファだけを掛け、フォールバックConeだけ`burnerConeColor`を使う。`WindomXP/TestPlayOriginalEffect`はURPとBuilt-in Render Pipelineの両方に描画Passを持ち、Graphics SettingsのSRP Asset有無にかかわらず表示する。`useConeBurnerEffects`がオフの場合も、現在のRender Pipelineに対応するParticleシェーダーとランタイム生成した青白い円形テクスチャを使い、未設定マテリアルのピンク表示を避ける。`output`を表示長・太さ・アルファへ割り当てる式自体は、原作の共有出力値をUnityで可視化するための暫定的な「Unity代替」である。
 
 ## 原作効果音
 
@@ -143,11 +168,17 @@ ID 21～96は登録表に根拠がないため割り当てない。`burner.wav`�
 - `loadSequence`: `WindomXP_orig_decompiled.c` 21410～21453行で確認した起動時ロード順。原作確定。
 - `scriptTextureId`: `解析資料/GUIDE4.txt`が示す`RunProc2`等のテクスチャ番号。資料由来で、ロード順とは途中から一致しない。
 
-表示は`WindomXP/TestPlayOriginalEffect`シェーダーを使う。加算合成、カメラ正対、寿命フェードはDirectX9描画をUnityで再現するための「Unity代替」であり、個別エフェクトのUVアニメーション、色、拡大率、寿命の厳密値は今後の実機比較対象である。
+表示はURP／Built-in両対応の`WindomXP/TestPlayOriginalEffect`シェーダーを使う。加算合成、カメラ正対、寿命フェードはDirectX9描画をUnityで再現するための「Unity代替」であり、個別エフェクトのUVアニメーション、色、拡大率、寿命の厳密値は今後の実機比較対象である。
 
 ## 回帰検証
 
-Unityメニューの `Tools > WindomXP > Test Play > Run Runtime Verification` から原作確定仕様とUnity操作補正の検証を実行できます。現在は、従来のスクリプト、60Hz入力、ロック、カメラ、移動、ステップ、ジャンプ、ブースト検証に加え、X保持の非連射、18/68の形態切替、基本アクション+50、方向別格闘、`AttackDelay`、`ATTACK`非即時命中、type 55/57分離、発射体プロファイル、保留付き`SwordCancel`、攻撃後6復帰、格闘誘導の5/tick消費、`ShotTurnAng`を含む171項目を検査します。
+Unityメニューの `Tools > WindomXP > Test Play > Run Runtime Verification` から原作確定仕様とUnity操作補正の検証を実行できます。現在は、Phase 4までの373項目に、Phase 5のgolden scenario、Phase 5 trace、JSONL／SHA-256、決定的入力replay、実機体manifest 82項目と、非ロック移動基準／BURNER方向・原作テクスチャ・実描画・Particleシェーダーの回帰検査10項目を加えた465項目を検査します。
+
+2026-08-15のUnity `6000.5.0f1`実測では465項目が全件通過しました。
+
+`Tools > WindomXP > Test Play > Run Real-Mech Golden Traces`では、`ガンダムTR-1ヘイズル改`の実`Script.ani` / `Script.spt`を読み込み、GT-001～GT-010をそれぞれ2回実行します。全tickがbyte単位で一致した場合だけ`Logs/TestPlayGolden`へUnity基準traceを出力します。これは`RealAniObserved`、つまり実データをUnity Coreで実行した基準値であり、原作EXEから採取した観測値ではありません。
+
+同日の実測では10/10シナリオが成功し、各2回の全tickが完全一致しました。
 
 ## 移動デバッグ
 

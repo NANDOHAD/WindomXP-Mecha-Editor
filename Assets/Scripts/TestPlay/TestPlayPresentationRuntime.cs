@@ -74,15 +74,15 @@ public class TestPlayPresentationRuntime : MonoBehaviour
     {
         if (controller == source && controller != null)
         {
-            controller.RuntimeEventRaised -= HandleRuntimeEvent;
-            controller.RuntimeEventRaised += HandleRuntimeEvent;
+            controller.PresentationEventRaised -= HandlePresentationEvent;
+            controller.PresentationEventRaised += HandlePresentationEvent;
             return;
         }
 
         Unbind();
         controller = source;
         if (controller != null)
-            controller.RuntimeEventRaised += HandleRuntimeEvent;
+            controller.PresentationEventRaised += HandlePresentationEvent;
     }
 
     public void StopPresentation()
@@ -156,21 +156,53 @@ public class TestPlayPresentationRuntime : MonoBehaviour
         return binding != null && binding.texture != null;
     }
 
+    public Texture2D GetOriginalTexture(int textureId)
+    {
+        TestPlayTextureBinding binding = FindOriginalTexture(originalTextures, textureId);
+        return binding != null ? binding.texture : null;
+    }
+
+    public bool HasMappedEffect(string key)
+    {
+        if (effects == null)
+            return false;
+
+        for (int i = 0; i < effects.Count; i++)
+        {
+            TestPlayEffectBinding binding = effects[i];
+            if (binding != null && binding.prefab != null &&
+                string.Equals(binding.key, key, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
+
+    public TestPlayPresentationAdapterKind ResolveAudioAdapter(TestPlayPresentationEventType type, string key)
+    {
+        List<TestPlayAudioBinding> bindings = type == TestPlayPresentationEventType.Voice
+            ? voices
+            : sounds;
+        TestPlayAudioBinding binding = FindBinding(bindings, key);
+        return binding != null && binding.clip != null
+            ? TestPlayPresentationAdapterKind.AudioClip
+            : TestPlayPresentationAdapterKind.None;
+    }
+
     void Unbind()
     {
         if (controller != null)
-            controller.RuntimeEventRaised -= HandleRuntimeEvent;
+            controller.PresentationEventRaised -= HandlePresentationEvent;
     }
 
-    void HandleRuntimeEvent(TestPlayRuntimeEvent runtimeEvent)
+    void HandlePresentationEvent(TestPlayPresentationEvent presentationEvent)
     {
-        switch (runtimeEvent.type)
+        switch (presentationEvent.type)
         {
-            case TestPlayRuntimeEventType.Sound:
-                PlayBinding(sounds, runtimeEvent.symbol, soundSource, "Snd");
+            case TestPlayPresentationEventType.Sound:
+                PlayBinding(sounds, presentationEvent.symbol, soundSource, "Snd");
                 break;
-            case TestPlayRuntimeEventType.Voice:
-                PlayBinding(voices, runtimeEvent.symbol, voiceSource, "Voice");
+            case TestPlayPresentationEventType.Voice:
+                PlayBinding(voices, presentationEvent.symbol, voiceSource, "Voice");
                 break;
         }
     }

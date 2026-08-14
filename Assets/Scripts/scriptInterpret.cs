@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -37,10 +38,12 @@ public class scriptInterpreter
     public readonly Dictionary<string, int> getVariables = new Dictionary<string, int>();
     public readonly Dictionary<string, int> staticVariables = new Dictionary<string, int>();
     public readonly Dictionary<string, int> unknownIdentifiers = new Dictionary<string, int>();
+    readonly Dictionary<string, TestPlayAniProgram> compiledPrograms = new Dictionary<string, TestPlayAniProgram>();
     bool hasNewSymbols = false;
     public bool HasNewSymbols => hasNewSymbols;
     public bool LogLines { get; set; } = true;
     public bool LogUnknownSymbols { get; set; } = false;
+    public TestPlayAniProgram LastCompiledProgram { get; private set; }
 
     static void Inc(Dictionary<string, int> dict, string key, ref bool changedFlag)
     {
@@ -64,12 +67,155 @@ public class scriptInterpreter
         invalidLine = 0;
         if (string.IsNullOrEmpty(script))
             return;
-        lines = script.Split((char)0x0A);
-        lineLoc = 0;
-        for (; lineLoc < lines.Length; lineLoc++)
+
+        if (!compiledPrograms.TryGetValue(script, out TestPlayAniProgram program))
         {
-            string line = lines[lineLoc].Trim();
-            InterpretLine(line, invokeCallbacks);
+            program = TestPlayAniCompiler.Compile(script);
+            compiledPrograms.Add(script, program);
+        }
+        LastCompiledProgram = program;
+        for (int i = 0; i < LastCompiledProgram.diagnostics.Count; i++)
+        {
+            TestPlayAniDiagnostic diagnostic = LastCompiledProgram.diagnostics[i];
+            invalidLine++;
+            invalidLines.Add(diagnostic.rawText);
+            if (LogUnknownSymbols)
+                Debug.LogWarning($"[scriptInterpreter] {diagnostic.code}: {diagnostic.rawText}");
+        }
+
+        ExecuteTypedInstructions(LastCompiledProgram.instructions, invokeCallbacks);
+    }
+
+    public void ClearCompiledPrograms()
+    {
+        compiledPrograms.Clear();
+        LastCompiledProgram = null;
+    }
+
+    void ExecuteTypedInstructions(List<TestPlayAniInstruction> instructions, bool invokeCallbacks)
+    {
+        for (int i = 0; i < instructions.Count; i++)
+        {
+            TestPlayAniInstruction instruction = instructions[i];
+            if (LogLines)
+                Debug.Log(instruction.rawText);
+
+            if (instruction.kind == TestPlayAniInstructionKind.Conditional)
+            {
+                Inc(calledFunctions, "IF", ref hasNewSymbols);
+                if (!invokeCallbacks)
+                {
+                    // Symbol collection must not depend on the current preview state.
+                    ExecuteTypedInstructions(instruction.thenInstructions, false);
+                    ExecuteTypedInstructions(instruction.elseInstructions, false);
+                }
+                else
+                {
+                    List<TestPlayAniInstruction> branch = EvaluateTypedCondition(instruction.condition)
+                        ? instruction.thenInstructions
+                        : instruction.elseInstructions;
+                    ExecuteTypedInstructions(branch, true);
+                }
+                continue;
+            }
+
+            if (instruction.kind == TestPlayAniInstructionKind.Assignment)
+            {
+                ExecuteTypedAssignment(instruction, invokeCallbacks);
+                continue;
+            }
+
+            ExecuteTypedCommand(instruction, invokeCallbacks);
+        }
+    }
+
+    void ExecuteTypedCommand(TestPlayAniInstruction instruction, bool invokeCallbacks)
+    {
+        string functionName = instruction.name.Trim();
+        Inc(calledFunctions, functionName, ref hasNewSymbols);
+        scriptVar[] values = new scriptVar[instruction.arguments.Count];
+        for (int i = 0; i < instruction.arguments.Count; i++)
+            values[i] = interpretVariable(instruction.arguments[i].rawText);
+
+        if (registeredFunc.TryGetValue(functionName, out var function))
+        {
+            if (invokeCallbacks)
+                function(values);
+            return;
+        }
+
+        invalidLine++;
+        invalidLines.Add(instruction.rawText);
+        Inc(unknownFunctions, functionName, ref hasNewSymbols);
+        if (LogUnknownSymbols)
+            Debug.LogWarning($"[scriptInterpreter] Unknown function: {functionName}");
+    }
+
+    void ExecuteTypedAssignment(TestPlayAniInstruction instruction, bool invokeCallbacks)
+    {
+        string variableName = instruction.name.Trim();
+        Inc(setVariables, variableName, ref hasNewSymbols);
+        scriptVar incoming = instruction.arguments.Count > 0
+            ? interpretVariable(instruction.arguments[0].rawText)
+            : new scriptVar { type = scriptVarType.EMPTY };
+
+        if (registeredSetVar.TryGetValue(variableName, out var setter))
+        {
+            if (!invokeCallbacks)
+                return;
+
+            if (instruction.assignmentOperator == "=" ||
+                !registeredGetVar.TryGetValue(variableName, out var getter))
+            {
+                setter(incoming);
+                return;
+            }
+
+            scriptVar current = getter();
+            if (current.type != scriptVarType.NUM || incoming.type != scriptVarType.NUM)
+            {
+                setter(incoming);
+                return;
+            }
+
+            float value = current.num;
+            switch (instruction.assignmentOperator)
+            {
+                case "+=": value += incoming.num; break;
+                case "-=": value -= incoming.num; break;
+                case "*=": value *= incoming.num; break;
+                case "/=": if (Math.Abs(incoming.num) > 0.000001f) value /= incoming.num; break;
+            }
+            setter(convertFloat(value));
+            return;
+        }
+
+        invalidLine++;
+        invalidLines.Add(instruction.rawText);
+        Inc(unknownSetVariables, variableName, ref hasNewSymbols);
+        if (LogUnknownSymbols)
+            Debug.LogWarning($"[scriptInterpreter] Unknown variable setter: {variableName}");
+    }
+
+    bool EvaluateTypedCondition(TestPlayAniCondition condition)
+    {
+        if (condition == null)
+            return false;
+
+        scriptVar left = interpretVariable(condition.left.rawText);
+        scriptVar right = interpretVariable(condition.right.rawText);
+        if (left.type != scriptVarType.NUM || right.type != scriptVarType.NUM)
+            return false;
+
+        switch ((condition.comparisonOperator ?? "").Trim())
+        {
+            case "==": return left.num == right.num;
+            case "!=": return left.num != right.num;
+            case ">=": return left.num >= right.num;
+            case "<=": return left.num <= right.num;
+            case ">": return left.num > right.num;
+            case "<": return left.num < right.num;
+            default: return false;
         }
     }
 

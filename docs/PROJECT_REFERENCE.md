@@ -52,7 +52,7 @@ Assimp DLLは `Assets/Assimp/Plugins/` とリポジトリ直下にあります�
 - `findCypher(path)` がフォルダ内ファイルからキーを検出します。
 - `Transcode(path)` / `Transcode(byte[])` は復号にも再暗号化にも使える対称処理です。
 
-`RoboStructure.buildStructure()` は機体フォルダ内を走査してキーを検出し、各パーツ名に対応するモデルファイルを `ImportModelEncrypted()` で復号してAssimpへ渡します。
+`RoboStructure.buildStructure()` は機体フォルダ内を走査してキーを検出し、HODパーツ名と同名の実ファイルが存在する場合だけ `ImportModelEncrypted()` で復号してAssimpへ渡します。HODパーツ名はボーンや接続ポイントとしても使われるため、同名の `.x` が存在しないノードも正常な非描画ノードとして階層に残します。
 
 ### HOD形式
 
@@ -97,6 +97,9 @@ HODはパーツ階層とトランスフォームを持つ姿勢データです�
 
 `script` は時間/フレーム進行用パラメータとANI内スクリプト本文を保持します。
 
+原作実行ファイルの擬似コードをテストプレイ実装の入口から参照する場合は、まず
+[WINDOMXP_ORIGINAL_BEHAVIOR_REFERENCE.md](WINDOMXP_ORIGINAL_BEHAVIOR_REFERENCE.md) を確認してください。
+関数索引、原作確定値とUnity代替の区別、`Script.ani` のロードから命令実行・移動積分までの正規化した処理順をまとめています。
 オリジナル版実行ファイルの最新逆コンパイル解析は `docs/SCRIPT_ANI_ORIGINAL_DECOMPILED_ANALYSIS.md` に分離しています。原作は `ANI` の200スロット固定読み込みと `AN2` の可変アニメーション数を同じローダーで処理し、本文を専用パーサーで命令オブジェクトへ変換してから実行します。
 
 ### Script.spt

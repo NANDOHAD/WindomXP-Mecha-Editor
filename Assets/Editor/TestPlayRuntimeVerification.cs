@@ -26,13 +26,20 @@ public static class TestPlayRuntimeVerification
         VerifyRepeatInterval(ref assertions);
         VerifyOriginalAttackAndBurnerArguments(ref assertions);
         VerifyOriginalNormalAttackFlow(ref assertions);
+        VerifyOriginalBasicAniChannelsAndJump(ref assertions);
         VerifyOriginalSoundIds(ref assertions);
         VerifyOriginalTextureTables(ref assertions);
+        VerifyBurnerDirectionAndVisual(ref assertions);
         VerifyOriginalSimulationClockAndLock(ref assertions);
         VerifyCameraControllerLifecycle(ref assertions);
         VerifyMovementReferenceModes(ref assertions);
         VerifyOriginalDirectionMovement(ref assertions);
         VerifyOriginalJumpAndBoost(ref assertions);
+        assertions += TestPlayPhase1Verification.RunAll();
+        assertions += TestPlayPhase2Verification.RunAll();
+        assertions += TestPlayPhase3Verification.RunAll();
+        assertions += TestPlayPhase4Verification.RunAll();
+        assertions += TestPlayPhase5Verification.RunAll();
         return assertions;
     }
 
@@ -279,6 +286,72 @@ public static class TestPlayRuntimeVerification
                 });
             }
 
+            // Real switch blocks gate ChangeWeapon behind the standing/lower-body
+            // state.  Keep that condition in the probe so a zero/default-state
+            // regression cannot hide behind a direct SetHeldWeapon call.
+            robo.ani.animations[controller.switchToSwordAction].scripts = new List<script>
+            {
+                new script
+                {
+                    unk = 1,
+                    time = 0f,
+                    squirrel = "IF(@int[151],==,1);\nChangeWeapon(SWORD);\nENDIF;"
+                }
+            };
+            robo.ani.animations[controller.switchToGunAction].scripts = new List<script>
+            {
+                new script
+                {
+                    unk = 1,
+                    time = 0f,
+                    squirrel = "IF(@int[151],==,1);\nChangeWeapon(GUN);\nENDIF;"
+                }
+            };
+            robo.ani.animations[controller.neutralMeleeAction].scripts = new List<script>
+            {
+                new script { unk = 1, time = 0f, squirrel = "" },
+                new script
+                {
+                    unk = 10,
+                    time = 0.05f,
+                    squirrel = "IF(@int[151],==,0);\nSwordCancel=132;\nENDIF;"
+                }
+            };
+            robo.ani.animations[133].scripts = new List<script>();
+            robo.ani.animations[133].frames = new List<hod2v1>
+            {
+                new hod2v1("ComboEnd0") { parts = new List<hod2v1_Part>() },
+                new hod2v1("ComboEnd1") { parts = new List<hod2v1_Part>() },
+                new hod2v1("ComboEnd2") { parts = new List<hod2v1_Part>() }
+            };
+            int swordRecoveryAction = controller.stepLandingAction + 50;
+            robo.ani.animations[controller.stepLandingAction].scripts = new List<script>
+            {
+                new script { unk = 2, time = 0.5f, squirrel = "" }
+            };
+            robo.ani.animations[swordRecoveryAction].scripts = new List<script>();
+            robo.ani.animations[swordRecoveryAction].frames = new List<hod2v1>
+            {
+                new hod2v1("Recovery0") { parts = new List<hod2v1_Part>() },
+                new hod2v1("Recovery1") { parts = new List<hod2v1_Part>() }
+            };
+            robo.ani.animations[controller.idleAction + 50].scripts = new List<script>();
+            robo.ani.animations[controller.idleAction + 50].frames = new List<hod2v1>
+            {
+                new hod2v1("SwordIdle") { parts = new List<hod2v1_Part>() }
+            };
+            robo.ani.animations[controller.moveAction].scripts = new List<script>
+            {
+                new script { unk = 4, time = 0.5f, squirrel = "AnimeLoop=1;" }
+            };
+            robo.ani.animations[controller.moveAction + 50].scripts = new List<script>();
+            robo.ani.animations[controller.moveAction + 50].frames = new List<hod2v1>
+            {
+                new hod2v1("SwordWalk0") { parts = new List<hod2v1_Part>() },
+                new hod2v1("SwordWalk1") { parts = new List<hod2v1_Part>() },
+                new hod2v1("SwordWalk2") { parts = new List<hod2v1_Part>() }
+            };
+
             controller.robo = robo;
             controller.target = target;
             controller.maximumEnergy = 100f;
@@ -296,9 +369,12 @@ public static class TestPlayRuntimeVerification
             MethodInfo updateCooldowns = typeof(TestPlayController).GetMethod("UpdateOriginalAttackCooldowns", InstancePrivate);
             MethodInfo updateAttack = typeof(TestPlayController).GetMethod("TryUpdateNormalAttackSequence", InstancePrivate);
             MethodInfo updateInput = typeof(TestPlayController).GetMethod("UpdateInputState", InstancePrivate);
+            MethodInfo awake = typeof(TestPlayController).GetMethod("Awake", InstancePrivate);
+            MethodInfo tickAnimation = typeof(TestPlayController).GetMethod("TickAnimation", InstancePrivate);
+            MethodInfo startGroundRecovery = typeof(TestPlayController).GetMethod("StartGroundRecoverySequence", InstancePrivate);
+            MethodInfo applyRootMotion = typeof(TestPlayController).GetMethod("ApplyRootMotion", InstancePrivate);
             MethodInfo getOneShot = typeof(TestPlayController).GetMethod("GetOneShotActionFromInput", InstancePrivate);
             MethodInfo applyShotSteering = typeof(TestPlayController).GetMethod("ApplyOriginalShotSteering", InstancePrivate);
-            MethodInfo finishAnimation = typeof(TestPlayController).GetMethod("FinishCurrentAnimation", InstancePrivate);
             MethodInfo energyTick = typeof(TestPlayController).GetMethod("UpdateOriginalMovementEnergy", InstancePrivate);
             MethodInfo spawnProjectile = typeof(TestPlayController).GetMethod(
                 "SpawnProjectile",
@@ -308,15 +384,44 @@ public static class TestPlayRuntimeVerification
                 null);
             Require(setWeapon != null && resolveShot != null && resolveMelee != null && resolveWeaponAction != null &&
                     handle != null && spawnRunProc != null && updateCooldowns != null && updateAttack != null &&
-                    updateInput != null && getOneShot != null && applyShotSteering != null &&
-                    finishAnimation != null && energyTick != null && spawnProjectile != null,
+                    updateInput != null && awake != null && tickAnimation != null && startGroundRecovery != null &&
+                    applyRootMotion != null && getOneShot != null && applyShotSteering != null &&
+                    energyTick != null && spawnProjectile != null,
                 "original normal-attack runtime helpers are available", ref assertions);
 
+            awake.Invoke(controller, null);
+            controller.SetAirborneFlag(false);
+            Require(controller.state.GetInt(150) == 0,
+                "original @int[150] is zero while grounded", ref assertions);
+            controller.SetAirborneFlag(true);
+            Require(controller.state.GetInt(150) == 1,
+                "original @int[150] is one while airborne", ref assertions);
+            controller.SetAirborneFlag(false);
             setWeapon.Invoke(controller, new object[] { "GUN" });
+            Require(controller.state.GetInt(151) == 1,
+                "normal test-play state starts on ANI execution channel 1", ref assertions);
             Require((int)resolveShot.Invoke(controller, null) == controller.shotAction,
                 "gun-mode X selects action 100", ref assertions);
             Require((int)resolveMelee.Invoke(controller, new object[] { 8 }) == controller.switchToSwordAction,
                 "gun-mode C first selects weapon-switch action 18", ref assertions);
+
+            controller.ChangeAnimation(controller.switchToSwordAction);
+            tickAnimation.Invoke(controller, null);
+            Require(controller.state.GetInt(152) == 1 && controller.heldWeapon == "SWORD" &&
+                    controller.currentAnimationIndex == controller.idleAction + 50,
+                "action 18 conditional ChangeWeapon switches to sword before returning to the sword idle table", ref assertions);
+            controller.ChangeAnimation(controller.moveAction);
+            tickAnimation.Invoke(controller, null);
+            tickAnimation.Invoke(controller, null);
+            Require(controller.currentAnimationIndex == controller.moveAction + 50 &&
+                    ReferenceEquals(GetField(controller, "currentScriptAnimation"), robo.ani.animations[controller.moveAction]) &&
+                    controller.frameIndex == 1,
+                "sword walk uses action 51 poses with action 1 script timing", ref assertions);
+            controller.ChangeAnimation(controller.switchToGunAction);
+            tickAnimation.Invoke(controller, null);
+            Require(controller.state.GetInt(152) == 0 && controller.heldWeapon == "GUN" &&
+                    controller.currentAnimationIndex == controller.idleAction,
+                "action 68 conditional ChangeWeapon switches back to gun", ref assertions);
 
             SetField(controller, "sampledShotKeyHeld", true);
             updateInput.Invoke(controller, null);
@@ -397,24 +502,96 @@ public static class TestPlayRuntimeVerification
 
             controller.ChangeAnimation(controller.neutralMeleeAction);
             SetField(controller, "attackSequenceActive", true);
-            SetField(controller, "swordCancelAction", 0);
             SetField(controller, "meleeKeyPressedThisTick", true);
             updateAttack.Invoke(controller, null);
-            Require(controller.currentAnimationIndex == controller.neutralMeleeAction &&
+            Require(controller.state.GetInt(151) == 0 &&
+                    controller.currentAnimationIndex == controller.neutralMeleeAction &&
                     (bool)GetField(controller, "meleeComboInputPending"),
-                "a melee C edge remains pending until a SwordCancel window opens", ref assertions);
+                "melee action 131 uses ANI channel 0 and keeps an early C edge pending", ref assertions);
             SetField(controller, "meleeKeyPressedThisTick", false);
-            SetField(controller, "swordCancelAction", 132);
+            tickAnimation.Invoke(controller, null);
+            tickAnimation.Invoke(controller, null);
             updateAttack.Invoke(controller, null);
-            Require(controller.currentAnimationIndex == 132,
-                "pending C follows the scripted SwordCancel action when it becomes available", ref assertions);
+            Require(controller.currentAnimationIndex == 132 && controller.state.GetInt(151) == 0,
+                "pending C follows the real channel-0 SwordCancel=132 script window", ref assertions);
 
+            controller.ChangeAnimation(133);
             SetField(controller, "attackSequenceActive", true);
             SetField(controller, "meleeApproachActive", false);
             controller.SetAirborneFlag(false);
-            finishAnimation.Invoke(controller, null);
+            tickAnimation.Invoke(controller, null);
+            tickAnimation.Invoke(controller, null);
+            Require(controller.currentAnimationIndex == 133,
+                "a scriptless combo finisher remains active through its HOD frames", ref assertions);
+            tickAnimation.Invoke(controller, null);
             Require(controller.currentAnimationIndex == controller.stepLandingAction + 50,
-                "grounded attack completion returns through action 6 and its sword variant", ref assertions);
+                "a scriptless combo finisher returns through action 6 and its sword variant", ref assertions);
+            tickAnimation.Invoke(controller, null);
+            tickAnimation.Invoke(controller, null);
+            Require(controller.currentAnimationIndex == controller.idleAction + 50,
+                "no-input combo completion reaches the sword standing pose after recovery", ref assertions);
+
+            robo.ani.animations[swordRecoveryAction].scripts = new List<script>
+            {
+                new script
+                {
+                    unk = 1,
+                    time = 0f,
+                    squirrel = "ChangeAnime(" + swordRecoveryAction + ");"
+                }
+            };
+            startGroundRecovery.Invoke(controller, new object[] { controller.stepLandingAction });
+            tickAnimation.Invoke(controller, null);
+            Require(controller.currentAnimationIndex == swordRecoveryAction,
+                "a self-redirecting recovery script reproduces the stuck landing state", ref assertions);
+            tickAnimation.Invoke(controller, null);
+            Require(controller.currentAnimationIndex == controller.idleAction + 50 &&
+                    !(bool)GetField(controller, "landingSequenceActive"),
+                "the independent recovery clock guarantees the sword standing state", ref assertions);
+
+            int[] comboStageActions = { 131, 132, 133 };
+            int[][] comboStageDurations =
+            {
+                new[] { 5, 10, 3, 4, 3, 10, 15, 20, 0 },
+                new[] { 1, 10, 3, 4, 3, 10, 15, 15, 0 },
+                new[] { 1, 14, 0, 7, 10, 10, 30, 0 }
+            };
+            robo.ani.animations[swordRecoveryAction].scripts = new List<script>();
+            for (int stage = 0; stage < comboStageActions.Length; stage++)
+            {
+                List<script> stageScripts = new List<script>();
+                int attackDurationTicks = 0;
+                for (int block = 0; block < comboStageDurations[stage].Length; block++)
+                {
+                    int blockTicks = comboStageDurations[stage][block];
+                    stageScripts.Add(new script { unk = blockTicks, time = 0f, squirrel = "" });
+                    attackDurationTicks += Mathf.Max(1, blockTicks);
+                }
+
+                robo.ani.animations[comboStageActions[stage]].scripts = stageScripts;
+                controller.ChangeAnimation(comboStageActions[stage]);
+                SetField(controller, "attackSequenceActive", true);
+                SetField(controller, "meleeApproachActive", false);
+                controller.SetAirborneFlag(false);
+                for (int attackTick = 0; attackTick < attackDurationTicks; attackTick++)
+                    tickAnimation.Invoke(controller, null);
+
+                Require(controller.currentAnimationIndex == swordRecoveryAction,
+                    "combo stage " + (stage + 1) + " enters sword recovery", ref assertions);
+                SetField(controller, "bodyUpAimRequested", true);
+                int recoveryTicks = robo.ani.animations[swordRecoveryAction].frames.Count;
+                for (int recoveryTick = 0; recoveryTick < recoveryTicks; recoveryTick++)
+                    tickAnimation.Invoke(controller, null);
+
+                Require(controller.currentAnimationIndex == controller.idleAction + 50 &&
+                        controller.frameIndex == 0 &&
+                        !(bool)GetField(controller, "landingSequenceActive") &&
+                        !(bool)GetField(controller, "bodyUpAimRequested"),
+                    "combo stage " + (stage + 1) + " clears recovery state and applies sword standing", ref assertions);
+                applyRootMotion.Invoke(controller, null);
+                Require(controller.groundedFlag && !controller.airborneFlag && controller.state.GetInt(150) == 0,
+                    "combo stage " + (stage + 1) + " stays grounded on the recovery-to-standing physics tick", ref assertions);
+            }
 
             controller.currentAnimationIndex = controller.meleeAction;
             SetField(controller, "attackSequenceActive", true);
@@ -433,6 +610,161 @@ public static class TestPlayRuntimeVerification
             if (spawnedProjectile != null)
                 UnityEngine.Object.DestroyImmediate(spawnedProjectile);
             UnityEngine.Object.DestroyImmediate(targetObject);
+            UnityEngine.Object.DestroyImmediate(rootObject);
+            UnityEngine.Object.DestroyImmediate(controllerObject);
+        }
+    }
+
+    static void VerifyOriginalBasicAniChannelsAndJump(ref int assertions)
+    {
+        GameObject controllerObject = new GameObject("TestPlayVerification_BasicAniChannelsController");
+        GameObject rootObject = new GameObject("TestPlayVerification_BasicAniChannelsRoot");
+        try
+        {
+            TestPlayController controller = controllerObject.AddComponent<TestPlayController>();
+            RoboStructure robo = controllerObject.AddComponent<RoboStructure>();
+            robo.root = rootObject;
+            robo.ani = new ani2 { animations = new List<animation>() };
+            for (int i = 0; i < 100; i++)
+            {
+                robo.ani.animations.Add(new animation
+                {
+                    name = "BasicChannelAction" + i,
+                    frames = new List<hod2v1>(),
+                    scripts = new List<script>()
+                });
+            }
+
+            robo.ani.animations[controller.idleAction].scripts = new List<script>
+            {
+                new script { unk = 1, time = 0f, squirrel = "" }
+            };
+            robo.ani.animations[controller.riseStartAction].scripts = new List<script>
+            {
+                new script
+                {
+                    unk = 1,
+                    time = 0f,
+                    squirrel =
+                        "IF(@int[151],==,0); Force=(0,STOP,0); GvEnable=0; ENDIF;" +
+                        "IF(@int[151],==,1); @int[178]=1; ENDIF;"
+                }
+            };
+            robo.ani.animations[controller.riseAction].scripts = new List<script>
+            {
+                new script
+                {
+                    unk = 5,
+                    time = 0f,
+                    squirrel =
+                        "IF(@int[151],==,0); Force=(0,0.04,0); GvEnable=0; ENDIF;" +
+                        "IF(@int[151],==,1); @int[179]=1; ENDIF;"
+                }
+            };
+            robo.ani.animations[controller.riseAction].frames = new List<hod2v1>
+            {
+                new hod2v1("GunRise0") { parts = new List<hod2v1_Part>() },
+                new hod2v1("GunRise1") { parts = new List<hod2v1_Part>() },
+                new hod2v1("GunRise2") { parts = new List<hod2v1_Part>() }
+            };
+
+            int swordIdleAction = controller.idleAction + 50;
+            int swordRiseStartAction = controller.riseStartAction + 50;
+            int swordRiseAction = controller.riseAction + 50;
+            robo.ani.animations[swordIdleAction].frames = new List<hod2v1>
+            {
+                new hod2v1("SwordIdle") { parts = new List<hod2v1_Part>() }
+            };
+            robo.ani.animations[swordRiseStartAction].frames = new List<hod2v1>
+            {
+                new hod2v1("SwordJumpStart") { parts = new List<hod2v1_Part>() }
+            };
+            robo.ani.animations[swordRiseAction].frames = new List<hod2v1>
+            {
+                new hod2v1("SwordRise0") { parts = new List<hod2v1_Part>() },
+                new hod2v1("SwordRise1") { parts = new List<hod2v1_Part>() },
+                new hod2v1("SwordRise2") { parts = new List<hod2v1_Part>() }
+            };
+
+            controller.robo = robo;
+            controller.useColliderGrounding = false;
+            controller.maximumEnergy = 1000f;
+            controller.currentEnergy = 1000f;
+            controller.state.ResetDefaults();
+
+            MethodInfo awake = typeof(TestPlayController).GetMethod("Awake", InstancePrivate);
+            MethodInfo setWeapon = typeof(TestPlayController).GetMethod("SetHeldWeapon", InstancePrivate);
+            MethodInfo updateAction = typeof(TestPlayController).GetMethod("UpdateActionFromInput", InstancePrivate);
+            MethodInfo tickAnimation = typeof(TestPlayController).GetMethod("TickAnimation", InstancePrivate);
+            MethodInfo applyRootMotion = typeof(TestPlayController).GetMethod("ApplyRootMotion", InstancePrivate);
+            Require(awake != null && setWeapon != null && updateAction != null &&
+                    tickAnimation != null && applyRootMotion != null,
+                "basic dual-channel jump runtime helpers are available", ref assertions);
+
+            awake.Invoke(controller, null);
+            setWeapon.Invoke(controller, new object[] { "GUN" });
+            controller.SetAirborneFlag(false);
+            controller.ChangeAnimation(controller.idleAction);
+            SetField(controller, "riseKeyHeld", true);
+            updateAction.Invoke(controller, null);
+            Require(controller.currentAnimationIndex == controller.riseStartAction,
+                "grounded Z input starts gun jump action 3", ref assertions);
+            tickAnimation.Invoke(controller, null);
+            tickAnimation.Invoke(controller, null);
+            applyRootMotion.Invoke(controller, null);
+            Require(controller.currentAnimationIndex == controller.riseAction &&
+                    controller.state.GetInt(178) == 1 && controller.state.GetInt(179) == 1 &&
+                    controller.state.GetInt(151) == 1 && rootObject.transform.position.y > 0f,
+                "basic jump ANI runs main-channel lift and secondary-channel work", ref assertions);
+            for (int heldTick = 0; heldTick < controller.riseMaximumTicks + 10; heldTick++)
+            {
+                updateAction.Invoke(controller, null);
+                tickAnimation.Invoke(controller, null);
+            }
+            Require(controller.currentAnimationIndex == controller.riseAction &&
+                    (bool)GetField(controller, "animationPoseHeldAtEnd") &&
+                    controller.frameIndex == robo.ani.animations[controller.riseAction].frames.Count - 1 &&
+                    (int)GetField(controller, "actionTick") > controller.riseMaximumTicks,
+                "held gun jump plays action 7 once and keeps its final pose without a 12-tick cutoff", ref assertions);
+            SetField(controller, "riseKeyHeld", false);
+            updateAction.Invoke(controller, null);
+            Require(controller.currentAnimationIndex == controller.airIdleAction,
+                "releasing Z after the minimum rise window leaves the held pose for air-stop action 8", ref assertions);
+
+            rootObject.transform.position = Vector3.zero;
+            SetField(controller, "velocity", Vector3.zero);
+            SetField(controller, "forceCommand", Vector3.zero);
+            SetField(controller, "riseSequenceActive", false);
+            SetField(controller, "previousAirborneFlag", false);
+            SetField(controller, "riseKeyHeld", false);
+            controller.SetAirborneFlag(false);
+            controller.state.SetInt(178, 0);
+            controller.state.SetInt(179, 0);
+            setWeapon.Invoke(controller, new object[] { "SWORD" });
+            controller.ChangeAnimation(controller.idleAction);
+            SetField(controller, "riseKeyHeld", true);
+            updateAction.Invoke(controller, null);
+            Require(controller.currentAnimationIndex == swordRiseStartAction,
+                "grounded Z input starts sword jump pose action 53", ref assertions);
+            tickAnimation.Invoke(controller, null);
+            tickAnimation.Invoke(controller, null);
+            applyRootMotion.Invoke(controller, null);
+            Require(controller.currentAnimationIndex == swordRiseAction &&
+                    ReferenceEquals(GetField(controller, "currentScriptAnimation"), robo.ani.animations[controller.riseAction]) &&
+                    controller.state.GetInt(178) == 1 && controller.state.GetInt(179) == 1 &&
+                    rootObject.transform.position.y > 0f,
+                "sword jump poses 53/57 reuse dual-channel scripts 3/7 and rise", ref assertions);
+            for (int heldTick = 0; heldTick < controller.riseMaximumTicks + 10; heldTick++)
+            {
+                updateAction.Invoke(controller, null);
+                tickAnimation.Invoke(controller, null);
+            }
+            Require(controller.currentAnimationIndex == swordRiseAction &&
+                    (bool)GetField(controller, "animationPoseHeldAtEnd") && controller.frameIndex == 2,
+                "held sword jump plays pose action 57 once and keeps its final frame", ref assertions);
+        }
+        finally
+        {
             UnityEngine.Object.DestroyImmediate(rootObject);
             UnityEngine.Object.DestroyImmediate(controllerObject);
         }
@@ -480,6 +812,144 @@ public static class TestPlayRuntimeVerification
         bool found = TestPlayOriginalTextureSetup.TryGetScriptTextureFileName(textureId, out string fileName);
         Require(found && string.Equals(fileName, expectedFileName, StringComparison.OrdinalIgnoreCase),
             "guide script texture id " + textureId, ref assertions);
+    }
+
+    static void VerifyBurnerDirectionAndVisual(ref int assertions)
+    {
+        MethodInfo testPlayRotation = typeof(TestPlayController).GetMethod("BurnerDirectionToRotation", StaticPrivate);
+        MethodInfo sptRotation = typeof(SptParser).GetMethod("DirectionToRotation", StaticPrivate);
+        Require(testPlayRotation != null && sptRotation != null,
+            "SPT and TestPlay burner direction adapters are available", ref assertions);
+
+        Quaternion testPlayUp = (Quaternion)testPlayRotation.Invoke(null, new object[] { SptDirection.UP });
+        Quaternion testPlayDown = (Quaternion)testPlayRotation.Invoke(null, new object[] { SptDirection.DOWN });
+        Quaternion sptUp = (Quaternion)sptRotation.Invoke(null, new object[] { SptDirection.UP });
+        Quaternion sptDown = (Quaternion)sptRotation.Invoke(null, new object[] { SptDirection.DOWN });
+        Require(
+            Vector3.Dot(testPlayUp * Vector3.forward, Vector3.forward) > 0.999f &&
+            Vector3.Dot(testPlayDown * Vector3.forward, Vector3.forward) > 0.999f,
+            "TestPlay BURNERSET UP and DOWN preserve the HOD output local Z+ basis", ref assertions);
+        Require(
+            Vector3.Dot(sptUp * Vector3.forward, testPlayUp * Vector3.forward) > 0.999f &&
+            Vector3.Dot(sptDown * Vector3.forward, testPlayDown * Vector3.forward) > 0.999f,
+            "SPT preview and TestPlay use the same burner direction convention", ref assertions);
+
+        Texture2D burnerTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(
+            "Assets/Generated/TestPlay/OriginalTextures/07_burner.png");
+        Shader effectShader = AssetDatabase.LoadAssetAtPath<Shader>("Assets/TestPlayOriginalEffect.shader");
+        Require(burnerTexture != null && effectShader != null,
+            "decrypted original burner texture and additive shader are available", ref assertions);
+
+        GameObject burnerObject = new GameObject("TestPlayVerificationBurnerVisual");
+        try
+        {
+            TestPlayBurnerCone burner = burnerObject.AddComponent<TestPlayBurnerCone>();
+            burner.ConfigureVisual(burnerTexture, effectShader);
+            burner.SetTarget(true, 2f, 0.2f, Color.white, 0f);
+
+            Mesh mesh = burnerObject.GetComponent<MeshFilter>().sharedMesh;
+            MeshRenderer renderer = burnerObject.GetComponent<MeshRenderer>();
+            Require(burner.UsesOriginalTexture && mesh != null && mesh.vertexCount == 8 && mesh.uv.Length == 8,
+                "burner uses the original texture on crossed plume planes", ref assertions);
+            Require(
+                Mathf.Approximately(mesh.bounds.min.z, 0f) && Mathf.Approximately(mesh.bounds.max.z, 1f) &&
+                Vector3.Distance(burnerObject.transform.localScale, new Vector3(0.4f, 0.4f, 2f)) < 0.0001f,
+                "original burner plume is rooted at its SPT point and scales along local Z", ref assertions);
+            Require(
+                renderer.sharedMaterial != null && renderer.sharedMaterial.GetTexture("_MainTex") == burnerTexture,
+                "burner material carries the decrypted original texture", ref assertions);
+            Require(
+                CountRenderedBurnerPixels(burnerObject) > 0,
+                "burner shader renders visible pixels in the active render pipeline", ref assertions);
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(burnerObject);
+        }
+
+        GameObject particleRoot = new GameObject("TestPlayVerificationBurnerParticleRoot");
+        try
+        {
+            SptRuntimeData data = new SptRuntimeData();
+            BurnerSetInfo info = new BurnerSetInfo
+            {
+                Id = 0,
+                FrameName = particleRoot.name,
+                Scale = 1f,
+                Direction = SptDirection.UP,
+                BoneTr = particleRoot.transform
+            };
+            data.BurnerSets.Add(info.Id, info);
+            SptParser.BuildBurnerEffects(data);
+            ParticleSystemRenderer particleRenderer = info.Ps != null
+                ? info.Ps.GetComponent<ParticleSystemRenderer>()
+                : null;
+            Shader particleShader = particleRenderer != null && particleRenderer.sharedMaterial != null
+                ? particleRenderer.sharedMaterial.shader
+                : null;
+            Require(
+                particleShader != null && particleShader.isSupported &&
+                !string.Equals(particleShader.name, "Hidden/InternalErrorShader", StringComparison.Ordinal),
+                "fallback burner particle uses a supported non-error shader", ref assertions);
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(particleRoot);
+        }
+    }
+
+    static int CountRenderedBurnerPixels(GameObject burnerObject)
+    {
+        const int DiagnosticLayer = 31;
+        int oldLayer = burnerObject.layer;
+        GameObject cameraObject = new GameObject("TestPlayVerificationBurnerCamera");
+        RenderTexture renderTexture = null;
+        Texture2D readback = null;
+        RenderTexture oldActive = RenderTexture.active;
+        try
+        {
+            burnerObject.layer = DiagnosticLayer;
+            Camera camera = cameraObject.AddComponent<Camera>();
+            camera.clearFlags = CameraClearFlags.SolidColor;
+            camera.backgroundColor = Color.black;
+            camera.cullingMask = 1 << DiagnosticLayer;
+            camera.orthographic = true;
+            camera.orthographicSize = 1.2f;
+            camera.nearClipPlane = 0.01f;
+            camera.farClipPlane = 10f;
+            camera.transform.position = new Vector3(0f, 3f, 1f);
+            camera.transform.rotation = Quaternion.LookRotation(Vector3.down, Vector3.forward);
+
+            renderTexture = new RenderTexture(64, 64, 24, RenderTextureFormat.ARGB32);
+            camera.targetTexture = renderTexture;
+            camera.Render();
+            camera.targetTexture = null;
+
+            RenderTexture.active = renderTexture;
+            readback = new Texture2D(64, 64, TextureFormat.RGBA32, false);
+            readback.ReadPixels(new Rect(0, 0, 64, 64), 0, 0);
+            readback.Apply();
+
+            int visiblePixels = 0;
+            Color32[] pixels = readback.GetPixels32();
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                Color32 pixel = pixels[i];
+                if (pixel.r > 4 || pixel.g > 4 || pixel.b > 4)
+                    visiblePixels++;
+            }
+            return visiblePixels;
+        }
+        finally
+        {
+            burnerObject.layer = oldLayer;
+            RenderTexture.active = oldActive;
+            if (readback != null)
+                UnityEngine.Object.DestroyImmediate(readback);
+            if (renderTexture != null)
+                UnityEngine.Object.DestroyImmediate(renderTexture);
+            UnityEngine.Object.DestroyImmediate(cameraObject);
+        }
     }
 
     static void VerifyOriginalSimulationClockAndLock(ref int assertions)
@@ -707,8 +1177,8 @@ public static class TestPlayRuntimeVerification
             rootObject.transform.rotation = Quaternion.LookRotation(Vector3.back);
             object[] updatedCameraArgs = { rootObject.transform, new Vector3(0f, 0f, 0.2f), Vector3.zero };
             bool updatedCameraMove = (bool)buildMove.Invoke(controller, updatedCameraArgs);
-            Require(updatedCameraMove && Vector3.Dot(((Vector3)updatedCameraArgs[2]).normalized, Vector3.back) > 0.999f,
-                "held input follows an updated logical camera heading", ref assertions);
+            Require(updatedCameraMove && Vector3.Dot(((Vector3)updatedCameraArgs[2]).normalized, Vector3.right) > 0.999f,
+                "held input keeps the camera basis captured at input start", ref assertions);
 
             controller.useCameraRelativeMovement = false;
             resetHeading.Invoke(controller, null);
@@ -797,6 +1267,34 @@ public static class TestPlayRuntimeVerification
             Require(movedBack && Vector3.Distance(backMove, Vector3.back * 0.15f) < 0.0001f,
                 "script forward magnitude is redirected backward", ref assertions);
 
+            // Non-lock camera movement basis follows the mech's live facing. The
+            // controller must latch the basis for one held direction; otherwise a
+            // DOWN input flips its desired heading every tick after the mech turns.
+            controller.ClearTargetLock();
+            controller.useTargetRelativeMovement = false;
+            controller.useCameraRelativeMovement = true;
+            TestPlayCameraController nonLockCamera = controllerObject.AddComponent<TestPlayCameraController>();
+            nonLockCamera.controller = controller;
+            nonLockCamera.controlledCamera = controllerObject.AddComponent<Camera>();
+            controller.cameraController = nonLockCamera;
+            nonLockCamera.EnterTestPlayCamera(controller);
+            rootObject.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            resetHeading.Invoke(controller, null);
+            controller.state.SetInt(190, 2);
+            object[] firstHeldBackArgs = { rootObject.transform, new Vector3(0f, 0f, 0.15f), Vector3.zero };
+            object[] secondHeldBackArgs = { rootObject.transform, new Vector3(0f, 0f, 0.15f), Vector3.zero };
+            bool firstHeldBack = (bool)buildMove.Invoke(controller, firstHeldBackArgs);
+            bool secondHeldBack = (bool)buildMove.Invoke(controller, secondHeldBackArgs);
+            Require(
+                firstHeldBack && secondHeldBack &&
+                Vector3.Dot(((Vector3)firstHeldBackArgs[2]).normalized, Vector3.back) > 0.999f &&
+                Vector3.Dot(((Vector3)secondHeldBackArgs[2]).normalized, Vector3.back) > 0.999f,
+                "held non-lock DOWN keeps its initial camera basis and remains backward", ref assertions);
+
+            nonLockCamera.ExitTestPlayCamera();
+            controller.useCameraRelativeMovement = false;
+            controller.useTargetRelativeMovement = true;
+            controller.TryAcquireTargetLock();
             resetHeading.Invoke(controller, null);
             controller.state.SetInt(190, 6);
             object[] fallbackArgs = { rootObject.transform, Vector3.zero, Vector3.zero };
@@ -1075,12 +1573,14 @@ public static class TestPlayRuntimeVerification
             SetField(controller, "riseSequenceActive", true);
             SetField(controller, "riseKeyHeld", true);
             controller.state.SetInt(191, 0);
-            SetField(controller, "actionTick", controller.riseMaximumTicks - 2);
+            controller.currentEnergy = 1000f;
+            SetField(controller, "actionTick", controller.riseMaximumTicks + 10);
             Require(!(bool)endRise.Invoke(controller, null),
-                "rise remains active until the original final action-7 callback", ref assertions);
-            SetField(controller, "actionTick", controller.riseMaximumTicks - 1);
+                "held rise remains active beyond the legacy 12-tick limit", ref assertions);
+            controller.currentEnergy = 0f;
             Require((bool)endRise.Invoke(controller, null),
-                "held neutral rise exits after the original 12 action-7 callbacks", ref assertions);
+                "held rise ends when movement energy is depleted", ref assertions);
+            controller.currentEnergy = 1000f;
             SetField(controller, "actionTick", controller.riseMinimumReleaseTicks - 1);
             SetField(controller, "riseKeyHeld", false);
             Require(!(bool)endRise.Invoke(controller, null),

@@ -111,8 +111,8 @@ public class TestPlayCameraController : MonoBehaviour
         {
             if (controller != null)
             {
-                controller.RuntimeEventRaised -= HandleRuntimeEvent;
-                controller.RuntimeEventRaised += HandleRuntimeEvent;
+                controller.PresentationEventRaised -= HandlePresentationEvent;
+                controller.PresentationEventRaised += HandlePresentationEvent;
             }
             return;
         }
@@ -400,12 +400,12 @@ public class TestPlayCameraController : MonoBehaviour
         controlledCamera.transform.SetPositionAndRotation(position, rotation);
     }
 
-    void HandleRuntimeEvent(TestPlayRuntimeEvent runtimeEvent)
+    void HandlePresentationEvent(TestPlayPresentationEvent presentationEvent)
     {
-        if (!approximateCameraEffects || runtimeEvent.type != TestPlayRuntimeEventType.CameraEffect)
+        if (!approximateCameraEffects || presentationEvent.type != TestPlayPresentationEventType.CameraEffect)
             return;
 
-        float value = Mathf.Abs(runtimeEvent.floatValue);
+        float value = Mathf.Abs(presentationEvent.output);
         if (value <= 0.0001f)
         {
             shakeTimeRemaining = 0f;
@@ -432,13 +432,13 @@ public class TestPlayCameraController : MonoBehaviour
     void SubscribeController()
     {
         if (controller != null)
-            controller.RuntimeEventRaised += HandleRuntimeEvent;
+            controller.PresentationEventRaised += HandlePresentationEvent;
     }
 
     void UnsubscribeController()
     {
         if (controller != null)
-            controller.RuntimeEventRaised -= HandleRuntimeEvent;
+            controller.PresentationEventRaised -= HandlePresentationEvent;
     }
 
     Transform GetPlayerRoot()

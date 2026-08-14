@@ -17,7 +17,11 @@ public class TestPlayStateTable
         Array.Clear(floats, 0, floats.Length);
 
         floats[100] = 1000f; // Energy candidate.
-        ints[150] = 1;       // Grounded candidate.
+        ints[150] = 1;       // Original +0xBA8: 0 = grounded, 1 = airborne.
+        // FUN_004b8250 exposes the currently executed animation channel through
+        // @int[151]. Switch/basic actions start on channel 1; melee 130..155
+        // changes it to channel 0 when ChangeAnimation selects the action.
+        ints[151] = 1;
         ints[152] = 0;       // 0 = gun, 1 = sword.
         ints[156] = 1;       // Self state: standing candidate.
     }

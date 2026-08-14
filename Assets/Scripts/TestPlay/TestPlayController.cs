@@ -96,7 +96,7 @@ public class TestPlayController : MonoBehaviour
     [Min(1)]
     public int riseMinimumReleaseTicks = 5;
     [Min(1)]
-    [Tooltip("原作FUN_004d5b60/004d5ec0の上昇コールバックがaction 7を維持する最大tick数。原作はc38=0～11の12回です。")]
+    [Tooltip("旧シーンとのInspector互換用。原作準拠の上昇ID 7はZ保持とエネルギーが続く限り継続するため、終了条件には使用しません。")]
     public int riseMaximumTicks = 12;
     [Min(1)]
     [Tooltip("原作FUN_004d68e0が空中停止から再上昇を受け付ける最小action 8 tick数。c38が10を超えてから受け付けます。")]
@@ -193,6 +193,10 @@ public class TestPlayController : MonoBehaviour
 
     [Header("Burner Preview")]
     public bool useConeBurnerEffects = true;
+    [Tooltip("原作テクスチャ登録表の burner.png をバーナー表示へ使用します。未登録時は従来の単色Coneへフォールバックします。")]
+    public bool useOriginalBurnerTexture = true;
+    [Tooltip("GUIDEテクスチャ表で burner.png に対応するScript Texture ID。")]
+    public int originalBurnerTextureId = 8;
     public float burnerLengthMultiplier = 1f;
     [Range(0.02f, 1f)]
     public float burnerRadiusRatio = 0.25f;
@@ -234,6 +238,7 @@ public class TestPlayController : MonoBehaviour
     public TestPlayAttackProfile attackProfile = new TestPlayAttackProfile();
 
     public event Action<TestPlayRuntimeEvent> RuntimeEventRaised;
+    public event Action<TestPlayPresentationEvent> PresentationEventRaised;
 
     [Header("Debug Logging")]
     public bool logMotionDebug;
@@ -243,6 +248,9 @@ public class TestPlayController : MonoBehaviour
 
     TestPlayScriptVM vm;
     animation currentAnimation;
+    animation currentScriptAnimation;
+    TestPlayActionSelection currentActionSelection;
+    TestPlayMotionStep lastMotionStep;
     int scriptTick;
     bool initFired;
     bool executeScriptRepeatedly;
@@ -250,6 +258,7 @@ public class TestPlayController : MonoBehaviour
     int scriptRepeatCounter;
     bool abortScriptExecution;
     bool animeLoop;
+    bool animationPoseHeldAtEnd;
     bool moveLocked;
     bool shieldGuard;
     bool gvEnable;
@@ -269,6 +278,9 @@ public class TestPlayController : MonoBehaviour
     int lastRiseTapTick = int.MinValue;
     bool riseSequenceActive;
     bool landingSequenceActive;
+    int groundRecoveryElapsedTicks;
+    int groundRecoveryDurationTicks;
+    bool groundRecoveryCompletedThisTick;
     bool stepSequenceActive;
     bool previousAirborneFlag;
     bool boostFromRiseActive;
@@ -340,6 +352,12 @@ public class TestPlayController : MonoBehaviour
     bool attackSequenceActive;
     bool meleeApproachActive;
     bool meleeComboInputPending;
+    readonly List<TestPlayCombatTraceEvent> currentCombatTraceEvents = new List<TestPlayCombatTraceEvent>();
+    readonly List<TestPlayCombatTraceEvent> pendingCombatTraceEvents = new List<TestPlayCombatTraceEvent>();
+    bool simulatingCombatTick;
+    readonly List<TestPlayPresentationEvent> currentPresentationTraceEvents = new List<TestPlayPresentationEvent>();
+    readonly List<TestPlayPresentationEvent> pendingPresentationTraceEvents = new List<TestPlayPresentationEvent>();
+    bool simulatingPresentationTick;
 
     struct TestPlayPosePart
     {
@@ -405,6 +423,9 @@ public class TestPlayController : MonoBehaviour
     void SimulateOriginalTick()
     {
         tick++;
+        BeginCombatTraceTick();
+        BeginPresentationTraceTick();
+        groundRecoveryCompletedThisTick = false;
         UpdateOriginalAttackCooldowns();
         UpdateInputState();
         UpdateTargetLock();
@@ -415,6 +436,8 @@ public class TestPlayController : MonoBehaviour
         ApplyQueuedAimCommands();
         ApplyRootMotion();
         ConsumeLatchedInput();
+        simulatingCombatTick = false;
+        simulatingPresentationTick = false;
     }
 
     public void StartTestPlay()
@@ -498,13 +521,15 @@ public class TestPlayController : MonoBehaviour
     void ChangeAnimation(int actionId, bool restartSameAction)
     {
         NormalizeActionIds();
-        actionId = ResolveActionForWeaponMode(actionId);
-        int logicalActionId = GetLogicalActionId(actionId);
+        TestPlayActionSelection selection = ResolveActionSelection(actionId);
+        actionId = selection.poseActionId;
+        int logicalActionId = selection.logicalActionId;
 
         if (ShouldRedirectBoostToAirIdle(logicalActionId))
         {
-            actionId = ResolveActionForWeaponMode(airMoveAction);
-            logicalActionId = airMoveAction;
+            selection = ResolveActionSelection(airMoveAction);
+            actionId = selection.poseActionId;
+            logicalActionId = selection.logicalActionId;
             restartSameAction = false;
         }
 
@@ -524,10 +549,14 @@ public class TestPlayController : MonoBehaviour
 
         StartPoseTransition(currentAnimationIndex, actionId);
 
+        currentActionSelection = selection;
         currentAnimationIndex = actionId;
         currentAnimation = robo.ani.animations[actionId];
+        currentScriptAnimation = robo.ani.animations[selection.scriptActionId];
         currentAnimationName = currentAnimation != null ? currentAnimation.name : "";
-        CompileAnimationScripts(currentAnimation);
+        SyncAniScriptExecutionChannel(actionId);
+        CompileAnimationScripts(currentScriptAnimation);
+        animationPoseHeldAtEnd = false;
         scriptIndex = 0;
         scriptTick = 0;
         frameIndex = 0;
@@ -593,17 +622,28 @@ public class TestPlayController : MonoBehaviour
         {
             initFired = true;
             int initAction = currentAnimationIndex;
-            bool initInterrupted = ExecuteScript(currentAnimation.squirrelInit);
+            bool initInterrupted = ExecuteCurrentAnimationScript(currentScriptAnimation != null ? currentScriptAnimation.squirrelInit : "");
             if (initInterrupted || currentAnimationIndex != initAction)
                 return;
         }
 
         actionTick++;
-        bool hasScripts = currentAnimation.scripts != null && currentAnimation.scripts.Count > 0;
+        if (TryFinishGroundRecoveryByWatchdog())
+            return;
+
+        if (animationPoseHeldAtEnd)
+        {
+            ApplyPose();
+            return;
+        }
+
+        bool hasScripts = currentScriptAnimation != null &&
+                          currentScriptAnimation.scripts != null &&
+                          currentScriptAnimation.scripts.Count > 0;
         if (hasScripts)
         {
-            scriptIndex = Mathf.Clamp(scriptIndex, 0, currentAnimation.scripts.Count - 1);
-            script currentScript = currentAnimation.scripts[scriptIndex];
+            scriptIndex = Mathf.Clamp(scriptIndex, 0, currentScriptAnimation.scripts.Count - 1);
+            script currentScript = currentScriptAnimation.scripts[scriptIndex];
 
             if (IsScriptTerminator(currentScript))
             {
@@ -624,7 +664,7 @@ public class TestPlayController : MonoBehaviour
                 int actionBeforeScript = currentAnimationIndex;
                 int scriptBeforeExecution = scriptIndex;
                 burnerRequestedOutputs.Clear();
-                bool interrupted = ExecuteScript(currentScript.squirrel);
+                bool interrupted = ExecuteCurrentAnimationScript(currentScript.squirrel);
                 ApplyBurners();
                 if (interrupted || currentAnimationIndex != actionBeforeScript || scriptIndex != scriptBeforeExecution)
                     return;
@@ -637,7 +677,7 @@ public class TestPlayController : MonoBehaviour
                 scriptTick = 0;
                 scriptIndex++;
                 ResetScriptRepeatState();
-                if (scriptIndex >= currentAnimation.scripts.Count || IsScriptTerminator(currentAnimation.scripts[scriptIndex]))
+                if (scriptIndex >= currentScriptAnimation.scripts.Count || IsScriptTerminator(currentScriptAnimation.scripts[scriptIndex]))
                 {
                     FinishCurrentAnimation();
                     return;
@@ -657,6 +697,9 @@ public class TestPlayController : MonoBehaviour
         else
         {
             StopAllBurnerEffects();
+            if (TryTickScriptlessNormalAttack())
+                return;
+
             if (stepSequenceActive && IsStepAction(currentAnimationIndex))
             {
                 ApplyFiniteActionPoseProgress(GetOriginalStepMaximumTicks());
@@ -668,8 +711,7 @@ public class TestPlayController : MonoBehaviour
                 int frameCount = currentAnimation.frames != null ? currentAnimation.frames.Count : 0;
                 if (frameCount <= 0 || frameIndex >= frameCount)
                 {
-                    landingSequenceActive = false;
-                    ChangeAnimation(idleAction);
+                    CompleteGroundRecoverySequence();
                     return;
                 }
             }
@@ -734,8 +776,7 @@ public class TestPlayController : MonoBehaviour
 
         if (landingSequenceActive && IsGroundRecoveryAction(currentAnimationIndex))
         {
-            landingSequenceActive = false;
-            ChangeAnimation(idleAction);
+            CompleteGroundRecoverySequence();
             return;
         }
 
@@ -751,6 +792,12 @@ public class TestPlayController : MonoBehaviour
         {
             ApplyPendingDrivenHorizontalInertia();
             ChangeAnimation(riseAction);
+            return;
+        }
+
+        if (IsCurrentAction(riseAction) && riseSequenceActive)
+        {
+            HoldCurrentAnimationAtLastPose();
             return;
         }
 
@@ -855,6 +902,7 @@ public class TestPlayController : MonoBehaviour
         if (!CaptureDrivenHorizontalVelocity(scriptedVelocity))
             DecayPendingDrivenHorizontalVelocity();
         float unitScale = Mathf.Max(0f, aniUnitsToUnityScale);
+        lastMotionStep = TestPlayMotionCore.ComposeDisplacement(lastMotionStep, scriptedVelocity, unitScale);
         Vector3 scriptedMove = scriptedVelocity * unitScale;
         Vector3 requestedMove = (scriptedVelocity + velocity) * unitScale;
         Vector3 appliedMove = MoveRootWithColliderGrounding(root, requestedMove);
@@ -875,32 +923,25 @@ public class TestPlayController : MonoBehaviour
         // FUN_004d5b60 / FUN_004d5ec0 clamp the current rise speed before the
         // ANI Force value is added by FUN_004cd840. Force is a per-tick velocity
         // delta in the original, not a per-second acceleration.
-        float verticalLimit = Mathf.Max(0f, riseVerticalVelocityLimit);
         bool limitUpwardVelocity =
             (IsCurrentAction(riseAction) && riseSequenceActive) ||
             IsCurrentAction(airMoveAction);
-        if (limitUpwardVelocity && velocity.y > verticalLimit)
-            velocity.y = verticalLimit;
-
-        velocity += forceCommand;
-
-        // FUN_004cd840: GvEnable時はY速度が-0.8を下回るまで0.013/tickを減算する。
-        if (gvEnable)
+        lastMotionStep = TestPlayMotionCore.Integrate(new TestPlayMotionInput
         {
-            float terminal = Mathf.Max(0f, originalTerminalFallSpeed);
-            if (velocity.y > -terminal)
-                velocity.y = Mathf.Max(velocity.y - Mathf.Max(0f, originalGravityPerTick), -terminal);
-        }
-
-        // FUN_004cd840は空中0.95、接地0.9を水平速度だけへ適用する。
-        float retention = airborneFlag
-            ? Mathf.Clamp01(airborneHorizontalForceRetention)
-            : Mathf.Clamp01(groundedHorizontalForceRetention);
-        velocity.x *= retention;
-        velocity.z *= retention;
-
-        // 同関数内では減衰後の3軸速度へvF_Multiを1回だけ掛ける。
-        velocity *= vFMulti;
+            velocity = velocity,
+            forcePerTick = forceCommand,
+            limitUpwardVelocity = limitUpwardVelocity,
+            upwardVelocityLimit = riseVerticalVelocityLimit,
+            gravityEnabled = gvEnable,
+            gravityPerTick = originalGravityPerTick,
+            terminalFallSpeed = originalTerminalFallSpeed,
+            airborne = airborneFlag,
+            airborneHorizontalRetention = airborneHorizontalForceRetention,
+            groundedHorizontalRetention = groundedHorizontalForceRetention,
+            velocityMultiplier = vFMulti,
+            aniUnitsToUnityScale = aniUnitsToUnityScale
+        });
+        velocity = lastMotionStep.velocityAfterMultiplier;
     }
 
     bool CaptureDrivenHorizontalVelocity(Vector3 scriptedVelocity)
@@ -953,10 +994,15 @@ public class TestPlayController : MonoBehaviour
 
     Vector3 MoveRootWithColliderGrounding(Transform root, Vector3 requestedMove)
     {
+        bool groundRecoveryOwnsContact =
+            (landingSequenceActive && IsGroundRecoveryAction(currentAnimationIndex)) ||
+            groundRecoveryCompletedThisTick;
         if (!useColliderGrounding || !EnsureGroundingController())
         {
             root.position += requestedMove;
-            groundedFlag = false;
+            groundedFlag = groundRecoveryOwnsContact;
+            if (groundRecoveryOwnsContact)
+                SetAirborneFlag(false);
             groundingCollisionFlags = CollisionFlags.None;
             verticalFallSpeed = velocity.y * Mathf.Max(0f, aniUnitsToUnityScale) * Mathf.Max(1f, originalTickRate);
             return requestedMove;
@@ -976,10 +1022,14 @@ public class TestPlayController : MonoBehaviour
 
         verticalFallSpeed = velocity.y * Mathf.Max(0f, aniUnitsToUnityScale) * Mathf.Max(1f, originalTickRate);
 
-        groundedFlag = controllerGrounded;
+        // Actions 5/6 are selected only by the original grounded branch. Keep
+        // that logical contact authoritative through their completion tick;
+        // otherwise switching to idle before this late physics update can turn
+        // the character airborne again for one frame.
+        groundedFlag = controllerGrounded || groundRecoveryOwnsContact;
         if (forceAirborne)
             SetAirborneFlag(true);
-        else if (landingSequenceActive && IsGroundRecoveryAction(currentAnimationIndex))
+        else if (groundRecoveryOwnsContact)
             SetAirborneFlag(false);
         else
             SetAirborneFlag(!controllerGrounded);
@@ -1385,48 +1435,53 @@ public class TestPlayController : MonoBehaviour
 
     int ResolveShotInputAction()
     {
-        if (IsCurrentAction(boostAction))
-            return actionTick > 5 && HasUsableAction(boostShotAction) ? boostShotAction : -1;
-
-        if (IsSwordEquipped())
-            return HasUsableAction(switchToGunAction) ? switchToGunAction : shotAction;
-
-        return shotAction;
+        return TestPlayCombatCore.ResolveShotInputAction(
+            IsCurrentAction(boostAction),
+            actionTick,
+            HasUsableAction(boostShotAction),
+            IsSwordEquipped(),
+            HasUsableAction(switchToGunAction),
+            shotAction,
+            boostShotAction,
+            switchToGunAction);
     }
 
     int ResolveMeleeInputAction(int direction)
     {
-        if (!IsSwordEquipped() && HasUsableAction(switchToSwordAction))
-            return switchToSwordAction;
-
-        if ((direction == 7 || direction == 8 || direction == 9) && HasUsableAction(meleeAction))
-            return meleeAction;
-        if (direction == 4 && HasUsableAction(leftMeleeAction))
-            return leftMeleeAction;
-        if (direction == 6 && HasUsableAction(rightMeleeAction))
-            return rightMeleeAction;
-        if (direction == 2 && HasUsableAction(backMeleeAction))
-            return backMeleeAction;
-        if (HasUsableAction(neutralMeleeAction))
-            return neutralMeleeAction;
-        return meleeAction;
+        return TestPlayCombatCore.ResolveMeleeInputAction(
+            IsSwordEquipped(),
+            HasUsableAction(switchToSwordAction),
+            direction,
+            switchToSwordAction,
+            meleeAction,
+            HasUsableAction(meleeAction),
+            neutralMeleeAction,
+            HasUsableAction(neutralMeleeAction),
+            leftMeleeAction,
+            HasUsableAction(leftMeleeAction),
+            rightMeleeAction,
+            HasUsableAction(rightMeleeAction),
+            backMeleeAction,
+            HasUsableAction(backMeleeAction));
     }
 
     bool CanAcceptNormalAttackInput(int requestedAction)
     {
-        if (currentAnimation == null)
-            return true;
-
         int action = GetLogicalActionId(currentAnimationIndex);
-        if (action == boostAction)
-            return boostMotionActive && (requestedAction != boostShotAction || actionTick > 5);
-
-        return action == idleAction ||
-               action == moveAction ||
-               action == riseAction ||
-               action == airMoveAction ||
-               action == airIdleAction ||
-               IsStepAction(action);
+        return TestPlayCombatCore.CanAcceptNormalAttackInput(
+            currentAnimation == null,
+            action,
+            requestedAction,
+            boostMotionActive,
+            actionTick > 5,
+            boostAction,
+            boostShotAction,
+            idleAction,
+            moveAction,
+            riseAction,
+            airMoveAction,
+            airIdleAction,
+            IsStepAction(action));
     }
 
     bool IsNormalAttackInputAction(int actionId)
@@ -1440,7 +1495,47 @@ public class TestPlayController : MonoBehaviour
 
     bool IsMeleeAttackAction(int actionId)
     {
-        return actionId >= meleeAction && actionId < 200;
+        // The original melee table occupies 130..155 (five entries for each
+        // neutral/forward/left/right/back family).  Later ANI slots are other
+        // actions and must not inherit melee input/cancel handling.
+        return actionId >= 130 && actionId <= 155;
+    }
+
+    void SyncAniScriptExecutionChannel(int actionId)
+    {
+        if (state == null)
+            return;
+
+        // FUN_004b8250 writes its animation channel parameter to the value
+        // exposed as @int[151] before executing each ANI block. Basic actions
+        // are executed on both channels by ExecuteCurrentAnimationScript; this
+        // value is the initial/fallback channel for all other action families.
+        state.SetInt(151, IsMeleeAttackAction(actionId) ? 0 : 1);
+    }
+
+    bool ExecuteCurrentAnimationScript(string text)
+    {
+        if (state == null || !UsesOriginalDualAniChannels(currentAnimationIndex))
+            return ExecuteScript(text);
+
+        // FUN_004d2030 starts the same basic ANI on the main channel first and,
+        // when param_7 is non-zero (the normal locomotion calls), on the
+        // secondary channel afterwards. Script.ani places Move/Force/GvEnable
+        // for actions 0..49 behind channel 0 and upper-body/weapon work behind
+        // channel 1, so executing only channel 1 suppresses jump lift entirely.
+        int actionBeforeMainChannel = currentAnimationIndex;
+        state.SetInt(151, 0);
+        bool interrupted = ExecuteScript(text);
+        if (interrupted || currentAnimationIndex != actionBeforeMainChannel)
+            return true;
+
+        state.SetInt(151, 1);
+        return ExecuteScript(text);
+    }
+
+    static bool UsesOriginalDualAniChannels(int actionId)
+    {
+        return TestPlayActionCore.UsesOriginalDualAniChannels(actionId);
     }
 
     void StartNormalAttackAction(int actionId)
@@ -1452,85 +1547,97 @@ public class TestPlayController : MonoBehaviour
         meleeApproachActive = startsAttack && actionId == meleeAction;
         meleeComboInputPending = false;
         swordCancelAction = -1;
+        if (startsAttack)
+        {
+            RecordCombatEvent(new TestPlayCombatTraceEvent
+            {
+                type = TestPlayCombatTraceEventType.AttackStarted,
+                actionId = actionId,
+                targetActionId = actionId,
+                source = "Input"
+            });
+        }
         ChangeAnimation(actionId);
     }
 
     bool TryUpdateNormalAttackSequence()
     {
-        if (!attackSequenceActive)
+        int heldAction = -1;
+        bool currentMelee = IsMeleeAttackAction(currentAnimationIndex);
+        if (attackSequenceActive && currentMelee && actionTick > 15)
+            heldAction = GetHeldActionFromInput();
+        bool reachedTarget = target != null && robo != null && robo.root != null &&
+                             Vector3.Distance(robo.root.transform.position, target.transform.position) <
+                             Mathf.Max(0f, meleeApproachDistance);
+        TestPlayCombatSequenceDecision decision = TestPlayCombatCore.EvaluateSequence(
+            new TestPlayCombatSequenceInput
+            {
+                sequenceActive = attackSequenceActive,
+                meleePressed = meleeKeyPressedThisTick,
+                meleeApproachActive = meleeApproachActive,
+                comboInputPending = meleeComboInputPending,
+                currentActionIsMelee = currentMelee,
+                currentActionId = currentAnimationIndex,
+                meleeApproachActionId = meleeAction,
+                swordCancelActionId = swordCancelAction,
+                swordCancelActionUsable = HasUsableAction(swordCancelAction),
+                actionTick = actionTick,
+                meleeApproachMinimumTicks = meleeApproachMinimumTicks,
+                targetReached = reachedTarget,
+                hasMovementEnergy = HasMovementEnergy(),
+                meleeApproachFollowupActionId = meleeApproachFollowupAction,
+                meleeApproachFollowupUsable = HasUsableAction(meleeApproachFollowupAction),
+                heldLocomotionActionId = heldAction,
+                heldActionIsLocomotionCancel = heldAction == boostAction || IsStepAction(heldAction)
+            });
+        if (!decision.handled)
             return false;
 
-        if (meleeKeyPressedThisTick && !meleeApproachActive && IsMeleeAttackAction(currentAnimationIndex))
-            meleeComboInputPending = true;
-
-        if (meleeComboInputPending &&
-            IsMeleeAttackAction(currentAnimationIndex) &&
-            swordCancelAction > 0 &&
-            HasUsableAction(swordCancelAction))
+        bool comboWasPending = meleeComboInputPending;
+        meleeComboInputPending = decision.comboInputPending;
+        if (!comboWasPending && meleeComboInputPending)
         {
-            meleeApproachActive = false;
-            meleeComboInputPending = false;
-            int cancelAction = swordCancelAction;
-            swordCancelAction = -1;
-            ChangeAnimation(cancelAction);
-            return true;
-        }
-
-        if (meleeApproachActive && currentAnimationIndex == meleeAction)
-        {
-            bool reachedTarget = target != null && robo != null && robo.root != null &&
-                                 Vector3.Distance(robo.root.transform.position, target.transform.position) <
-                                 Mathf.Max(0f, meleeApproachDistance);
-            if (actionTick >= Mathf.Max(1, meleeApproachMinimumTicks) &&
-                (reachedTarget || !HasMovementEnergy()) &&
-                HasUsableAction(meleeApproachFollowupAction))
+            RecordCombatEvent(new TestPlayCombatTraceEvent
             {
-                meleeApproachActive = false;
-                meleeComboInputPending = false;
-                swordCancelAction = -1;
-                ChangeAnimation(meleeApproachFollowupAction);
-            }
-            return true;
+                type = TestPlayCombatTraceEventType.ComboQueued,
+                actionId = currentAnimationIndex,
+                source = "C",
+                reason = TestPlayCombatDecisionReason.ComboQueued
+            });
         }
-
-        // FUN_004d9030 permits boost or directional-step cancellation after its early melee lock.
-        if (IsMeleeAttackAction(currentAnimationIndex) && actionTick > 15)
+        if (decision.clearSequence) attackSequenceActive = false;
+        if (decision.clearMeleeApproach) meleeApproachActive = false;
+        if (decision.clearSwordCancel) swordCancelAction = -1;
+        if (decision.transitionActionId >= 0)
         {
-            int heldAction = GetHeldActionFromInput();
-            bool locomotionCancel = heldAction == boostAction || IsStepAction(heldAction);
-            if (locomotionCancel)
-            {
-                attackSequenceActive = false;
-                meleeApproachActive = false;
-                meleeComboInputPending = false;
-                swordCancelAction = -1;
-                ChangeAnimation(heldAction);
-                return true;
-            }
+            RecordCombatTransition(decision.transitionActionId, decision.reason);
+            ChangeAnimation(decision.transitionActionId);
         }
-
         return true;
     }
 
     void FinishNormalAttackSequence()
     {
-        if (meleeApproachActive && currentAnimationIndex == meleeAction && HasUsableAction(meleeApproachFollowupAction))
-        {
-            meleeApproachActive = false;
-            meleeComboInputPending = false;
-            swordCancelAction = -1;
-            ChangeAnimation(meleeApproachFollowupAction);
-            return;
-        }
-
-        attackSequenceActive = false;
-        meleeApproachActive = false;
-        meleeComboInputPending = false;
-        swordCancelAction = -1;
-        if (airborneFlag)
-            StartAirborneLocomotionSequence(airIdleAction, false);
+        TestPlayCombatFinishDecision decision = TestPlayCombatCore.ResolveFinish(
+            meleeApproachActive,
+            currentAnimationIndex,
+            meleeAction,
+            meleeApproachFollowupAction,
+            HasUsableAction(meleeApproachFollowupAction),
+            airborneFlag,
+            airIdleAction,
+            stepLandingAction);
+        if (decision.clearSequence) attackSequenceActive = false;
+        if (decision.clearMeleeApproach) meleeApproachActive = false;
+        if (decision.clearComboInput) meleeComboInputPending = false;
+        if (decision.clearSwordCancel) swordCancelAction = -1;
+        RecordCombatTransition(decision.transitionActionId, decision.reason);
+        if (decision.reason == TestPlayCombatDecisionReason.MeleeApproachFollowup)
+            ChangeAnimation(decision.transitionActionId);
+        else if (airborneFlag)
+            StartAirborneLocomotionSequence(decision.transitionActionId, false);
         else
-            StartGroundRecoverySequence(stepLandingAction);
+            StartGroundRecoverySequence(decision.transitionActionId);
     }
 
     int GetHeldActionFromInput()
@@ -1561,6 +1668,10 @@ public class TestPlayController : MonoBehaviour
     public void SetAirborneFlag(bool value)
     {
         airborneFlag = value;
+        // State-table int 150 points to original +0xBA8. The attack update
+        // branches use 0 for grounded and 1 for airborne.
+        if (state != null)
+            state.SetInt(150, value ? 1 : 0);
     }
 
     bool IsBoostInputHeld()
@@ -1577,41 +1688,32 @@ public class TestPlayController : MonoBehaviour
 
     bool ShouldEndOriginalStyleBoost()
     {
-        if (!boostMotionActive || !HasMovementEnergy())
-            return true;
-
-        // FUN_004de120 keeps the dash alive through tick 30. Afterwards it
-        // stops only when both jump/boost and direction input are released.
-        if (actionTick < Mathf.Max(1, boostMinimumReleaseTicks))
-            return false;
-
         int direction = state != null ? state.GetInt(190) : 0;
-        return !riseKeyHeld && !IsDirectionInput(direction);
+        return TestPlayLocomotionCore.ShouldEndBoost(
+            boostMotionActive,
+            HasMovementEnergy(),
+            riseKeyHeld,
+            IsDirectionInput(direction),
+            actionTick,
+            boostMinimumReleaseTicks);
     }
 
     bool ShouldEndOriginalStyleRise()
     {
-        if (!riseSequenceActive || !IsCurrentAction(riseAction))
-            return false;
-
-        int minimumTicks = Mathf.Max(1, riseMinimumReleaseTicks);
-        if (actionTick < minimumTicks)
-            return false;
-
-        // FUN_004d5b60 changes to FUN_004d5ec0 after the first 11 callbacks.
-        // FUN_004d5ec0 performs the twelfth five-unit deduction at c38=11 and
-        // then leaves action 7; it never loops the rise animation indefinitely.
-        int maximumTicks = Mathf.Max(minimumTicks, riseMaximumTicks);
-        if (actionTick >= maximumTicks - 1)
-            return true;
-
-        return !riseKeyHeld || !HasMovementEnergy();
+        return TestPlayLocomotionCore.ShouldEndRise(
+            riseSequenceActive,
+            currentAnimationIndex,
+            riseKeyHeld,
+            HasMovementEnergy(),
+            actionTick,
+            riseMinimumReleaseTicks,
+            GetLocomotionActions());
     }
 
     bool CanStartOriginalAirRise()
     {
         // The original action-8 callback starts at c38=0 and checks c38 > 10.
-        return actionTick >= Mathf.Max(1, airRiseMinimumIdleTicks);
+        return TestPlayLocomotionCore.CanStartAirRise(actionTick, airRiseMinimumIdleTicks);
     }
 
     bool HasMovementEnergy()
@@ -1803,16 +1905,61 @@ public class TestPlayController : MonoBehaviour
 
     int ResolveActionForWeaponMode(int actionId)
     {
-        if (!IsSwordEquipped() || actionId < 0 || actionId >= 50)
-            return actionId;
+        return ResolveActionSelection(actionId).poseActionId;
+    }
 
-        int swordAction = actionId + 50;
-        return HasUsableAction(swordAction) ? swordAction : actionId;
+    TestPlayActionSelection ResolveActionSelection(int actionId)
+    {
+        return TestPlayActionCore.Resolve(
+            actionId,
+            IsSwordEquipped() ? TestPlayWeaponMode.Sword : TestPlayWeaponMode.Gun,
+            HasUsableAction,
+            HasActionScript);
+    }
+
+    bool HasActionScript(int actionId)
+    {
+        if (robo == null || robo.ani == null || robo.ani.animations == null ||
+            actionId < 0 || actionId >= robo.ani.animations.Count)
+            return false;
+
+        animation candidate = robo.ani.animations[actionId];
+        return candidate != null &&
+               (!string.IsNullOrWhiteSpace(candidate.squirrelInit) ||
+                (candidate.scripts != null && candidate.scripts.Count > 0));
+    }
+
+    animation ResolveScriptAnimation(int resolvedActionId, int logicalActionId, animation resolvedAnimation)
+    {
+        if (resolvedAnimation == null || resolvedActionId < 50 || resolvedActionId >= 100)
+            return resolvedAnimation;
+
+        bool resolvedHasScripts =
+            !string.IsNullOrWhiteSpace(resolvedAnimation.squirrelInit) ||
+            (resolvedAnimation.scripts != null && resolvedAnimation.scripts.Count > 0);
+        if (resolvedHasScripts)
+            return resolvedAnimation;
+
+        if (robo == null || robo.ani == null || robo.ani.animations == null ||
+            logicalActionId < 0 || logicalActionId >= robo.ani.animations.Count)
+            return resolvedAnimation;
+
+        animation baseAnimation = robo.ani.animations[logicalActionId];
+        if (baseAnimation == null)
+            return resolvedAnimation;
+
+        // FUN_004d2030 selects +50 for the displayed ANI while retaining the
+        // base 0..49 ANI as the script source when the +50 entry has no script
+        // blocks. This is why sword locomotion poses still advance in-game.
+        bool baseHasScripts =
+            !string.IsNullOrWhiteSpace(baseAnimation.squirrelInit) ||
+            (baseAnimation.scripts != null && baseAnimation.scripts.Count > 0);
+        return baseHasScripts ? baseAnimation : resolvedAnimation;
     }
 
     static int GetLogicalActionId(int actionId)
     {
-        return actionId >= 50 && actionId < 100 ? actionId - 50 : actionId;
+        return TestPlayActionCore.GetLogicalActionId(actionId);
     }
 
     bool IsCurrentAction(int actionId)
@@ -1837,11 +1984,7 @@ public class TestPlayController : MonoBehaviour
 
     void UpdateOriginalAttackCooldowns()
     {
-        for (int i = 0; i < attackCooldownTicks.Length; i++)
-        {
-            if (attackCooldownTicks[i] > 0)
-                attackCooldownTicks[i]--;
-        }
+        TestPlayCombatCore.TickCooldowns(attackCooldownTicks);
     }
 
     void HandleAttackDelay(List<TestPlayScriptValue> args)
@@ -1853,18 +1996,25 @@ public class TestPlayController : MonoBehaviour
         }
 
         int slot = args[0].AsInt(-1);
-        if (slot < 0 || slot >= attackCooldownTicks.Length)
+        int cooldownTicks = args[1].AsInt();
+        if (!TestPlayCombatCore.TrySetCooldown(attackCooldownTicks, slot, cooldownTicks))
         {
             LogUnhandled("AttackDelay slot out of original range 0..4: " + slot);
             return;
         }
-
-        attackCooldownTicks[slot] = Mathf.Max(0, args[1].AsInt());
+        RecordCombatEvent(new TestPlayCombatTraceEvent
+        {
+            type = TestPlayCombatTraceEventType.CooldownSet,
+            actionId = currentAnimationIndex,
+            slot = slot,
+            cooldownTicks = Mathf.Max(0, cooldownTicks),
+            source = "AttackDelay"
+        });
     }
 
     public int GetAttackCooldownTicks(int slot)
     {
-        return slot >= 0 && slot < attackCooldownTicks.Length ? attackCooldownTicks[slot] : 0;
+        return TestPlayCombatCore.GetCooldown(attackCooldownTicks, slot);
     }
 
     void ChangeToAirMoveOrLanding()
@@ -1925,7 +2075,10 @@ public class TestPlayController : MonoBehaviour
 
     int GetOriginalStepExitAction()
     {
-        return airborneFlag && !groundedFlag ? airIdleAction : stepLandingAction;
+        return TestPlayLocomotionCore.ResolveStepExit(
+            airborneFlag,
+            groundedFlag,
+            GetLocomotionActions());
     }
 
     void UpdateStepRecoveryInputGate()
@@ -1983,6 +2136,9 @@ public class TestPlayController : MonoBehaviour
     void StartGroundRecoverySequence(int recoveryAction)
     {
         landingSequenceActive = true;
+        groundRecoveryElapsedTicks = 0;
+        groundRecoveryDurationTicks = 1;
+        groundRecoveryCompletedThisTick = false;
         riseSequenceActive = false;
         stepSequenceActive = false;
         ClearStepRecovery();
@@ -1993,9 +2149,15 @@ public class TestPlayController : MonoBehaviour
         stepMovedDistance = 0f;
         pendingDrivenHorizontalVelocity = Vector3.zero;
         hasPendingDrivenHorizontalVelocity = false;
+        // Sword-side recovery 56 commonly has no script blocks. Clear the
+        // preceding attack block's transient aim/Force/attack state here,
+        // because a scriptless action never enters the regular block reset.
+        ResetOriginalBlockState();
         SetAirborneFlag(false);
+        groundedFlag = true;
         previousAirborneFlag = false;
         ChangeAnimation(recoveryAction, true);
+        groundRecoveryDurationTicks = GetFiniteActionDurationTicks();
     }
 
     bool CanStartActionFromCurrent()
@@ -2096,7 +2258,14 @@ public class TestPlayController : MonoBehaviour
 
     bool TryGetInputReferenceBasis(Transform root, out Vector3 referenceForward, out Vector3 referenceRight)
     {
-        if (TryGetLiveMovementReferenceBasis(root, out Vector3 liveForward, out Vector3 liveRight))
+        // Target-relative movement continues tracking the live target. An unlocked
+        // camera basis is instead captured at the start of one continuous direction
+        // input: re-reading it after the mech has turned makes DOWN alternate between
+        // root.forward and -root.forward every tick, producing shake/forward drift.
+        bool refreshTargetRelativeBasis =
+            useTargetRelativeMovement && GetLockedTargetTransform() != null;
+        if ((!hasInputMoveReference || refreshTargetRelativeBasis) &&
+            TryGetLiveMovementReferenceBasis(root, out Vector3 liveForward, out Vector3 liveRight))
         {
             inputMoveReferenceForward = liveForward;
             hasInputMoveReference = true;
@@ -2510,29 +2679,292 @@ public class TestPlayController : MonoBehaviour
 
     bool IsStepAction(int actionId)
     {
-        actionId = GetLogicalActionId(actionId);
-        return actionId == forwardStepAction ||
-               actionId == backStepAction ||
-               actionId == leftStepAction ||
-               actionId == rightStepAction;
+        return TestPlayLocomotionCore.IsStep(actionId, GetLocomotionActions());
     }
 
     bool IsAirborneLocomotionAction(int actionId)
     {
-        actionId = GetLogicalActionId(actionId);
-        return actionId == airMoveAction || actionId == airIdleAction;
+        TestPlayLocomotionState locomotionState =
+            TestPlayLocomotionCore.Classify(actionId, GetLocomotionActions());
+        return locomotionState == TestPlayLocomotionState.AirMove ||
+               locomotionState == TestPlayLocomotionState.AirIdle;
     }
 
     bool IsGroundRecoveryAction(int actionId)
     {
-        actionId = GetLogicalActionId(actionId);
-        return actionId == landingAction || actionId == stepLandingAction;
+        TestPlayLocomotionState locomotionState =
+            TestPlayLocomotionCore.Classify(actionId, GetLocomotionActions());
+        return locomotionState == TestPlayLocomotionState.Landing ||
+               locomotionState == TestPlayLocomotionState.StepLanding;
     }
 
     int GetAirborneLocomotionAction()
     {
         int direction = state != null ? state.GetInt(190) : 0;
-        return IsDirectionInput(direction) ? airMoveAction : airIdleAction;
+        return TestPlayLocomotionCore.ResolveAirborneAction(
+            IsDirectionInput(direction),
+            GetLocomotionActions());
+    }
+
+    TestPlayLocomotionActions GetLocomotionActions()
+    {
+        return new TestPlayLocomotionActions
+        {
+            idle = idleAction,
+            move = moveAction,
+            jumpStart = riseStartAction,
+            rise = riseAction,
+            airMove = airMoveAction,
+            airIdle = airIdleAction,
+            landing = landingAction,
+            stepLanding = stepLandingAction,
+            forwardStep = forwardStepAction,
+            backStep = backStepAction,
+            leftStep = leftStepAction,
+            rightStep = rightStepAction,
+            boost = boostAction,
+            guard = guardAction
+        };
+    }
+
+    public TestPlayActionSelection CurrentActionSelection => currentActionSelection;
+    public TestPlayMotionStep LastMotionStep => lastMotionStep;
+    public TestPlayLocomotionState CurrentLocomotionState =>
+        TestPlayLocomotionCore.Classify(currentAnimationIndex, GetLocomotionActions());
+
+    public string CapturePhase2TickTrace()
+    {
+        return TestPlayPhase2TickTrace.Serialize(
+            tick,
+            currentActionSelection,
+            CurrentLocomotionState,
+            lastMotionStep);
+    }
+
+    public string CapturePhase3TickTrace()
+    {
+        return TestPlayPhase3TickTrace.Serialize(
+            CapturePhase2TickTrace(),
+            CaptureCombatSnapshot());
+    }
+
+    public string CapturePhase4TickTrace()
+    {
+        return TestPlayPhase4TickTrace.Serialize(
+            CapturePhase3TickTrace(),
+            new TestPlayPresentationSnapshot { events = currentPresentationTraceEvents });
+    }
+
+    public string CapturePhase5TickTrace()
+    {
+        Transform root = robo != null && robo.root != null ? robo.root.transform : null;
+        return TestPlayPhase5TickTrace.Serialize(
+            CapturePhase4TickTrace(),
+            new TestPlayGoldenTickSnapshot
+            {
+                direction = state != null ? state.GetInt(190) : 0,
+                rise = state != null && state.GetInt(199) != 0,
+                boost = state != null && state.GetInt(191) != 0,
+                shot = state != null && state.GetInt(192) != 0,
+                melee = state != null && state.GetInt(193) != 0,
+                guard = state != null && state.GetInt(194) != 0,
+                lockInput = state != null && state.GetInt(195) != 0,
+                hp = currentHP,
+                movementEnergy = currentEnergy,
+                auxiliaryEnergy = currentAuxiliaryEnergy,
+                frameIndex = frameIndex,
+                scriptIndex = scriptIndex,
+                scriptTick = scriptTick,
+                actionTick = actionTick,
+                poseHeldAtEnd = animationPoseHeldAtEnd,
+                airborne = airborneFlag,
+                grounded = groundedFlag,
+                targetLocked = targetLockActive,
+                rootPosition = root != null ? root.position : Vector3.zero,
+                rootRotation = root != null ? root.rotation : Quaternion.identity
+            });
+    }
+
+    /// <summary>
+    /// Starts the same 60 Hz runtime without reading hardware input or creating HUD/camera objects.
+    /// This is used by golden-trace replay and does not replace StartTestPlay().
+    /// </summary>
+    public void BeginDeterministicTraceSession(TestPlayGoldenSetupKind setup)
+    {
+        NormalizeActionIds();
+        if (state == null)
+            state = new TestPlayStateTable();
+        if (vm == null)
+        {
+            vm = new TestPlayScriptVM(state);
+            vm.commandHandler = HandleCommand;
+            vm.assignmentHandler = HandleAssignment;
+            vm.unhandledLineHandler = LogUnhandled;
+            vm.shouldStopExecution = () => abortScriptExecution;
+        }
+
+        state.ResetDefaults();
+        ResetRuntimeFlags();
+        ResetInputSamplingState();
+        InitializeOriginalSptStatus();
+        playModeActive = true;
+        bool sword = setup == TestPlayGoldenSetupKind.GroundedSword;
+        bool airborne = setup == TestPlayGoldenSetupKind.AirborneGun;
+        SetHeldWeapon(sword ? "SWORD" : "GUN");
+        SetAirborneFlag(airborne);
+        groundedFlag = !airborne;
+        ChangeAnimation(airborne ? airIdleAction : idleAction);
+    }
+
+    /// <summary>
+    /// Injects one explicit input state and advances exactly one original 60 Hz tick.
+    /// Unity's Input and render-frame delta time are not read by this path.
+    /// </summary>
+    public string SimulateDeterministicTraceTick(TestPlayGoldenInputFrame input)
+    {
+        sampledDirectionInput = input.direction;
+        sampledRiseKeyHeld = input.rise;
+        sampledShotKeyHeld = input.shot;
+        sampledMeleeKeyHeld = input.melee;
+        sampledGuardKeyHeld = input.guard;
+        sampledLockKeyHeld = input.lockTarget;
+        sampledSpecial1KeyHeld = input.special1;
+        sampledSpecial2KeyHeld = input.special2;
+        sampledSpecial3KeyHeld = input.special3;
+        SimulateOriginalTick();
+        return CapturePhase5TickTrace();
+    }
+
+    public void EndDeterministicTraceSession()
+    {
+        playModeActive = false;
+        StopAllBurnerEffects();
+        DestroyTransientObjects();
+    }
+
+    TestPlayCombatSnapshot CaptureCombatSnapshot()
+    {
+        EnsureAttackProfile();
+        int[] cooldowns = new int[attackCooldownTicks.Length];
+        Array.Copy(attackCooldownTicks, cooldowns, cooldowns.Length);
+        return new TestPlayCombatSnapshot
+        {
+            power = attackProfile.power,
+            down = attackProfile.down,
+            force = attackProfile.force,
+            forceY = attackProfile.forceY,
+            attackFlag = attackFlag,
+            swordCancelActionId = swordCancelAction,
+            cooldownTicks = cooldowns,
+            sequenceActive = attackSequenceActive,
+            meleeApproachActive = meleeApproachActive,
+            comboInputPending = meleeComboInputPending,
+            events = currentCombatTraceEvents
+        };
+    }
+
+    void BeginCombatTraceTick()
+    {
+        currentCombatTraceEvents.Clear();
+        if (pendingCombatTraceEvents.Count > 0)
+        {
+            currentCombatTraceEvents.AddRange(pendingCombatTraceEvents);
+            pendingCombatTraceEvents.Clear();
+        }
+        simulatingCombatTick = true;
+    }
+
+    void RecordCombatEvent(TestPlayCombatTraceEvent combatEvent)
+    {
+        combatEvent.tick = tick;
+        if (simulatingCombatTick)
+            currentCombatTraceEvents.Add(combatEvent);
+        else
+            pendingCombatTraceEvents.Add(combatEvent);
+    }
+
+    void BeginPresentationTraceTick()
+    {
+        currentPresentationTraceEvents.Clear();
+        if (pendingPresentationTraceEvents.Count > 0)
+        {
+            currentPresentationTraceEvents.AddRange(pendingPresentationTraceEvents);
+            pendingPresentationTraceEvents.Clear();
+        }
+        simulatingPresentationTick = true;
+    }
+
+    void RaisePresentationEvent(TestPlayPresentationEvent presentationEvent)
+    {
+        presentationEvent.tick = tick;
+        presentationEvent.actionIndex = currentAnimationIndex;
+        presentationEvent.scriptIndex = scriptIndex;
+        if (simulatingPresentationTick)
+            currentPresentationTraceEvents.Add(presentationEvent);
+        else
+            pendingPresentationTraceEvents.Add(presentationEvent);
+
+        Action<TestPlayPresentationEvent> handler = PresentationEventRaised;
+        if (handler != null)
+            handler(presentationEvent);
+    }
+
+    void RecordCombatTransition(int targetActionId, TestPlayCombatDecisionReason reason)
+    {
+        RecordCombatEvent(new TestPlayCombatTraceEvent
+        {
+            type = reason == TestPlayCombatDecisionReason.AttackFinished
+                ? TestPlayCombatTraceEventType.AttackFinished
+                : TestPlayCombatTraceEventType.ActionTransition,
+            actionId = currentAnimationIndex,
+            targetActionId = targetActionId,
+            source = "CombatSequence",
+            reason = reason
+        });
+    }
+
+    void RecordAttackProfileChanged(string source)
+    {
+        EnsureAttackProfile();
+        RecordCombatEvent(new TestPlayCombatTraceEvent
+        {
+            type = TestPlayCombatTraceEventType.ProfileChanged,
+            actionId = currentAnimationIndex,
+            source = source,
+            damage = attackProfile.power,
+            down = attackProfile.down,
+            force = attackProfile.force,
+            forceY = attackProfile.forceY,
+            attackFlag = attackFlag,
+            valueSource = TestPlayCombatValueSource.OriginalScriptProfile
+        });
+    }
+
+    void RecordCombatHit(TestPlayCombatHitResult hit)
+    {
+        Vector3 horizontalImpact = Vector3.ProjectOnPlane(hit.impactForce, Vector3.up);
+        RecordCombatEvent(new TestPlayCombatTraceEvent
+        {
+            type = TestPlayCombatTraceEventType.Hit,
+            actionId = currentAnimationIndex,
+            source = hit.source,
+            damage = hit.damage,
+            down = hit.down,
+            force = horizontalImpact.magnitude,
+            forceY = hit.impactForce.y,
+            valueSource = hit.valueSource
+        });
+    }
+
+    public void NotifyProjectileHit(TestPlayCombatHitResult hit)
+    {
+        RecordCombatHit(hit);
+        RaiseRuntimeEvent(
+            TestPlayRuntimeEventType.AttackHit,
+            hit.source,
+            null,
+            "",
+            Mathf.RoundToInt(hit.damage));
     }
 
     bool IsHeldAction(int actionId)
@@ -2564,11 +2996,23 @@ public class TestPlayController : MonoBehaviour
 
     void RestartCurrentAnimationLoop()
     {
+        animationPoseHeldAtEnd = false;
         scriptIndex = 0;
         scriptTick = 0;
         frameIndex = 0;
         frameTime = 0f;
         actionTick = 0;
+    }
+
+    void HoldCurrentAnimationAtLastPose()
+    {
+        animationPoseHeldAtEnd = true;
+        int frameCount = currentAnimation != null && currentAnimation.frames != null
+            ? currentAnimation.frames.Count
+            : 0;
+        frameIndex = Mathf.Max(0, frameCount - 1);
+        frameTime = 0f;
+        ApplyPose();
     }
 
     bool TryFinishFiniteActionByTicks()
@@ -2589,18 +3033,79 @@ public class TestPlayController : MonoBehaviour
         if (actionTick < durationTicks)
             return false;
 
+        CompleteGroundRecoverySequence();
+        return true;
+    }
+
+    bool TryFinishGroundRecoveryByWatchdog()
+    {
+        if (!landingSequenceActive)
+        {
+            groundRecoveryElapsedTicks = 0;
+            groundRecoveryDurationTicks = 0;
+            return false;
+        }
+
+        groundRecoveryElapsedTicks++;
+        int durationTicks = Mathf.Max(1, groundRecoveryDurationTicks);
+        if (groundRecoveryElapsedTicks <= durationTicks)
+            return false;
+
+        // Original landing callbacks consume the finite-action completion flag
+        // and explicitly return to action 0. A malformed or self-redirecting
+        // MOD recovery script can interrupt the normal block-end path forever,
+        // so keep an entry-scoped clock that still guarantees that transition.
+        CompleteGroundRecoverySequence();
+        return true;
+    }
+
+    void CompleteGroundRecoverySequence()
+    {
         landingSequenceActive = false;
+        groundRecoveryElapsedTicks = 0;
+        groundRecoveryDurationTicks = 0;
+        groundRecoveryCompletedThisTick = true;
+        ResetOriginalBlockState();
         ChangeAnimation(idleAction);
+        // Apply the standing HOD immediately. This prevents the recovery pose
+        // from remaining visible until another simulation tick when the idle
+        // action itself contains no script blocks.
+        ClearPoseTransition();
+        ApplyPose();
+    }
+
+    bool TryTickScriptlessNormalAttack()
+    {
+        if (!attackSequenceActive)
+            return false;
+
+        int frameCount = currentAnimation != null && currentAnimation.frames != null
+            ? currentAnimation.frames.Count
+            : 0;
+        if (frameCount <= 0)
+        {
+            FinishCurrentAnimation();
+            return true;
+        }
+
+        // Some MOD ANI slots contain poses but no timing script. The original
+        // data then provides no block duration to port, so use one 60 Hz tick
+        // per HOD frame as a finite fallback instead of holding the final pose.
+        frameIndex = Mathf.Clamp(actionTick - 1, 0, frameCount - 1);
+        frameTime = 0f;
+        ApplyPose();
+        if (actionTick >= frameCount)
+            FinishCurrentAnimation();
         return true;
     }
 
     int GetFiniteActionDurationTicks()
     {
-        if (currentAnimation != null && currentAnimation.scripts != null && currentAnimation.scripts.Count > 0)
+        if (currentScriptAnimation != null && currentScriptAnimation.scripts != null && currentScriptAnimation.scripts.Count > 0)
         {
             int ticks = 0;
-            for (int i = 0; i < currentAnimation.scripts.Count; i++)
-                ticks += GetRuntimeScriptLengthTicks(currentAnimation.scripts[i]);
+            for (int i = 0; i < currentScriptAnimation.scripts.Count; i++)
+                ticks += GetRuntimeScriptLengthTicks(currentScriptAnimation.scripts[i]);
             return Mathf.Max(1, ticks);
         }
 
@@ -2704,14 +3209,30 @@ public class TestPlayController : MonoBehaviour
             case "burner": HandleBurner(args); break;
             case "burner2":
                 LogUnhandled("BURNER2 is recognized but disabled by the original runtime.");
+                RaisePresentationEvent(TestPlayPresentationCore.CreateUnsupported(
+                    "BURNER2", args, "OriginalParserRejectsCommandObject"));
                 RaiseRuntimeEvent(TestPlayRuntimeEventType.Warning, "BURNER2", args);
                 break;
             case "snd":
-                RaiseRuntimeEvent(TestPlayRuntimeEventType.Sound, "Snd", args, args.Count > 0 ? args[0].ToString() : "");
+            {
+                string symbol = args.Count > 0 ? args[0].ToString() : "";
+                TestPlayPresentationAdapterKind adapter = presentationRuntime != null
+                    ? presentationRuntime.ResolveAudioAdapter(TestPlayPresentationEventType.Sound, symbol)
+                    : TestPlayPresentationAdapterKind.None;
+                RaisePresentationEvent(TestPlayPresentationCore.CreateSound(args, adapter));
+                RaiseRuntimeEvent(TestPlayRuntimeEventType.Sound, "Snd", args, symbol);
                 break;
+            }
             case "voice":
-                RaiseRuntimeEvent(TestPlayRuntimeEventType.Voice, "Voice", args, args.Count > 0 ? args[0].ToString() : "");
+            {
+                string symbol = args.Count > 0 ? args[0].ToString() : "";
+                TestPlayPresentationAdapterKind adapter = presentationRuntime != null
+                    ? presentationRuntime.ResolveAudioAdapter(TestPlayPresentationEventType.Voice, symbol)
+                    : TestPlayPresentationAdapterKind.None;
+                RaisePresentationEvent(TestPlayPresentationCore.CreateVoice(args, adapter));
+                RaiseRuntimeEvent(TestPlayRuntimeEventType.Voice, "Voice", args, symbol);
                 break;
+            }
             case "cameffect":
                 SetCameraEffect(args.Count > 0 ? args[0].AsFloat() : 0f, args);
                 break;
@@ -2767,7 +3288,10 @@ public class TestPlayController : MonoBehaviour
             case "shotturnang": shotTurnAng = values.Count > 0 ? values[0].AsFloat() : 0f; break;
             case "turnmoveang": turnMoveAng = values.Count > 0 ? values[0].AsFloat() : 0f; break;
             case "shildguard": shieldGuard = values.Count > 0 && values[0].AsBool(); break;
-            case "attackflag": attackFlag = values.Count > 0 ? values[0].AsInt() : 0; break;
+            case "attackflag":
+                attackFlag = values.Count > 0 ? values[0].AsInt() : 0;
+                RecordAttackProfileChanged("AttackFlag");
+                break;
             case "cameffect": SetCameraEffect(values.Count > 0 ? values[0].AsFloat() : 0f, values); break;
             case "vf_multi":
                 vFMulti = values.Count > 0 ? values[0].AsFloat(1f) : 1f;
@@ -2862,10 +3386,23 @@ public class TestPlayController : MonoBehaviour
     void HandleAttack(List<TestPlayScriptValue> args)
     {
         EnsureAttackProfile();
-        SetAttackPower(args.Count > 0 ? args[0].AsInt(Mathf.RoundToInt(defaultProjectileDamage)) : Mathf.RoundToInt(defaultProjectileDamage));
-        SetAttackDown(args.Count > 1 ? args[1].AsInt() : 0);
-        SetAttackForce(args.Count > 2 ? args[2].AsFloat() : 0f);
-        SetAttackForceY(args.Count > 3 ? args[3].AsFloat() : 0f);
+        TestPlayCombatCore.ConfigureAttackProfile(
+            attackProfile,
+            args.Count > 0 ? args[0].AsInt(Mathf.RoundToInt(defaultProjectileDamage)) : Mathf.RoundToInt(defaultProjectileDamage),
+            args.Count > 1 ? args[1].AsInt() : 0,
+            args.Count > 2 ? args[2].AsFloat() : 0f,
+            args.Count > 3 ? args[3].AsFloat() : 0f);
+        RecordCombatEvent(new TestPlayCombatTraceEvent
+        {
+            type = TestPlayCombatTraceEventType.ProfileChanged,
+            actionId = currentAnimationIndex,
+            source = "ATTACK",
+            damage = attackProfile.power,
+            down = attackProfile.down,
+            force = attackProfile.force,
+            forceY = attackProfile.forceY,
+            valueSource = TestPlayCombatValueSource.OriginalScriptProfile
+        });
         RaiseRuntimeEvent(TestPlayRuntimeEventType.AttackProfileChanged, "ATTACK", args, "", attackProfile.power);
     }
 
@@ -2895,24 +3432,28 @@ public class TestPlayController : MonoBehaviour
     {
         EnsureAttackProfile();
         attackProfile.power = value;
+        RecordAttackProfileChanged("AttackPow");
     }
 
     void SetAttackDown(int value)
     {
         EnsureAttackProfile();
         attackProfile.down = value;
+        RecordAttackProfileChanged("AttackDownF");
     }
 
     void SetAttackForce(float value)
     {
         EnsureAttackProfile();
         attackProfile.force = value;
+        RecordAttackProfileChanged("AttackForce");
     }
 
     void SetAttackForceY(float value)
     {
         EnsureAttackProfile();
         attackProfile.forceY = value;
+        RecordAttackProfileChanged("AttackForceY");
     }
 
     void EnsureAttackProfile()
@@ -2923,29 +3464,48 @@ public class TestPlayController : MonoBehaviour
 
     void HandleBurner(List<TestPlayScriptValue> args)
     {
-        if (args == null || args.Count == 0)
+        int requestedId = args != null && args.Count > 0 ? args[0].AsInt(-1) : -1;
+        TestPlayPresentationEvent presentationEvent;
+        if (!TestPlayPresentationCore.TryCreateBurner(
+                args,
+                ResolveBurnerAdapter(requestedId),
+                out presentationEvent))
         {
-            LogUnhandled("BURNER requires an id.");
-            return;
-        }
-
-        int id = args[0].AsInt(-1);
-        if (id < 0 || id >= 20)
-        {
-            LogUnhandled("BURNER id out of original range 0..19: " + id);
+            RaisePresentationEvent(presentationEvent);
+            if (args == null || args.Count == 0)
+                LogUnhandled("BURNER requires an id.");
+            else
+                LogUnhandled("BURNER id out of original range 0..19: " + requestedId);
             return;
         }
 
         // The original executable reads a second float. Keep the historical one-argument
         // Unity form as output=1 so existing MOD data remains previewable.
-        float output = args.Count > 1 ? args[1].AsFloat(1f) : 1f;
-        burnerRequestedOutputs[id] = output;
-        RaiseRuntimeEvent(TestPlayRuntimeEventType.BurnerOutput, "BURNER", args, "", id, output);
+        burnerRequestedOutputs[presentationEvent.originalId] = presentationEvent.output;
+        RaisePresentationEvent(presentationEvent);
+        RaiseRuntimeEvent(TestPlayRuntimeEventType.BurnerOutput, "BURNER", args, "",
+            presentationEvent.originalId, presentationEvent.output);
+    }
+
+    TestPlayPresentationAdapterKind ResolveBurnerAdapter(int id)
+    {
+        if (id < TestPlayPresentationCore.MinimumBurnerId || id > TestPlayPresentationCore.MaximumBurnerId ||
+            sptSource == null || sptSource.LastSptData == null ||
+            !sptSource.LastSptData.BurnerSets.ContainsKey(id))
+            return TestPlayPresentationAdapterKind.None;
+
+        return useConeBurnerEffects
+            ? TestPlayPresentationAdapterKind.BurnerCone
+            : TestPlayPresentationAdapterKind.ParticleSystem;
     }
 
     void SetCameraEffect(float value, List<TestPlayScriptValue> args)
     {
         camEffect = value;
+        TestPlayPresentationAdapterKind adapter = cameraController != null && cameraController.approximateCameraEffects
+            ? TestPlayPresentationAdapterKind.CameraShakeApproximation
+            : TestPlayPresentationAdapterKind.None;
+        RaisePresentationEvent(TestPlayPresentationCore.CreateCameraEffect(args, value, adapter));
         RaiseRuntimeEvent(TestPlayRuntimeEventType.CameraEffect, "CamEffect", args, "", Mathf.RoundToInt(value), value);
     }
 
@@ -2964,6 +3524,12 @@ public class TestPlayController : MonoBehaviour
     void SpawnRunProc(List<TestPlayScriptValue> args, bool extended)
     {
         int procType = args.Count > 1 ? args[1].AsInt() : 0;
+        RaisePresentationEvent(TestPlayPresentationCore.CreateProc(
+            extended,
+            args,
+            procType == 57
+                ? TestPlayPresentationAdapterKind.CombatOnly
+                : TestPlayPresentationAdapterKind.None));
         if (procType == 55)
         {
             if (extended)
@@ -2997,7 +3563,8 @@ public class TestPlayController : MonoBehaviour
     int GetCurrentAttackDamage(float fallback)
     {
         EnsureAttackProfile();
-        return attackProfile.power > 0 ? attackProfile.power : Mathf.RoundToInt(Mathf.Max(0f, fallback));
+        return Mathf.RoundToInt(TestPlayCombatCore.CreateProjectilePayload(
+            attackProfile, fallback, 0f, false, "Damage").damage);
     }
 
     void ApplyCurrentMeleeAttack(List<TestPlayScriptValue> args, string source, float fallbackDamage)
@@ -3010,17 +3577,14 @@ public class TestPlayController : MonoBehaviour
             return;
 
         EnsureAttackProfile();
-        int damage = GetCurrentAttackDamage(fallbackDamage);
         Vector3 direction = target.transform.position - robo.root.transform.position;
-        direction.y = 0f;
-        if (direction.sqrMagnitude > 0.0001f)
-            direction.Normalize();
-        else
+        if (direction.sqrMagnitude <= 0.0001f)
             direction = robo.root.transform.forward;
-
-        Vector3 impact = direction * attackProfile.force + Vector3.up * attackProfile.forceY;
-        target.ApplyImpact(damage, impact, attackProfile.down, source);
-        RaiseRuntimeEvent(TestPlayRuntimeEventType.AttackHit, source, args, "", damage);
+        TestPlayCombatHitResult hit = TestPlayCombatCore.CreateHitResult(
+            attackProfile, fallbackDamage, direction, source);
+        target.ApplyImpact(hit.damage, hit.impactForce, hit.down, hit.source);
+        RecordCombatHit(hit);
+        RaiseRuntimeEvent(TestPlayRuntimeEventType.AttackHit, source, args, "", Mathf.RoundToInt(hit.damage));
     }
 
     void SpawnProjectile(string source, float damage, float speed, bool homing)
@@ -3033,12 +3597,19 @@ public class TestPlayController : MonoBehaviour
         if (robo == null || robo.root == null)
             return;
 
+        EnsureAttackProfile();
+        TestPlayProjectilePayload payload = TestPlayCombatCore.CreateProjectilePayload(
+            attackProfile, damage, speed, homing, source);
+
         Vector3 spawnPosition = robo.root.transform.position + robo.root.transform.forward * 1.5f + Vector3.up * 1.2f;
         Quaternion spawnRotation = robo.root.transform.rotation;
         GameObject go = presentationRuntime != null
             ? presentationRuntime.CreateMappedEffect(source, spawnPosition, spawnRotation)
             : null;
         bool mappedEffect = go != null;
+        TestPlayPresentationAdapterKind visualAdapter = mappedEffect
+            ? TestPlayPresentationAdapterKind.MappedPrefab
+            : TestPlayPresentationAdapterKind.None;
         if (go == null && presentationRuntime != null && textureId >= 0)
         {
             Vector2 size = visualSize.sqrMagnitude > 0.0001f
@@ -3051,10 +3622,15 @@ public class TestPlayController : MonoBehaviour
                 go.transform.SetPositionAndRotation(spawnPosition, spawnRotation);
                 visual.transform.SetParent(go.transform, true);
                 mappedEffect = true;
+                visualAdapter = TestPlayPresentationAdapterKind.OriginalTextureQuad;
             }
         }
         if (go == null)
+        {
             go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            visualAdapter = TestPlayPresentationAdapterKind.PrimitiveFallback;
+        }
+        RaisePresentationEvent(TestPlayPresentationCore.CreateVisual(source, textureId, visualAdapter));
         go.name = "TestPlayProjectile_" + source;
         go.transform.SetPositionAndRotation(spawnPosition, spawnRotation);
         if (!mappedEffect)
@@ -3062,18 +3638,30 @@ public class TestPlayController : MonoBehaviour
         TestPlayProjectile projectile = go.GetComponent<TestPlayProjectile>();
         if (projectile == null)
             projectile = go.AddComponent<TestPlayProjectile>();
+        projectile.owner = this;
         projectile.target = target;
-        projectile.damage = damage;
-        EnsureAttackProfile();
-        projectile.downValue = attackProfile.down;
-        projectile.horizontalImpactForce = attackProfile.force;
-        projectile.verticalImpactForce = attackProfile.forceY;
-        projectile.speed = speed;
+        projectile.damage = payload.damage;
+        projectile.downValue = payload.down;
+        projectile.horizontalImpactForce = payload.horizontalImpactForce;
+        projectile.verticalImpactForce = payload.verticalImpactForce;
+        projectile.speed = payload.speed;
         projectile.hitRadius = projectileRadius;
-        projectile.homingTurnRate = homing ? 180f : 0f;
-        projectile.sourceCommand = source;
+        projectile.homingTurnRate = payload.homing ? 180f : 0f;
+        projectile.sourceCommand = payload.source;
+        projectile.valueSource = payload.valueSource;
         spawnedTransientObjects.Add(go);
-        RaiseRuntimeEvent(TestPlayRuntimeEventType.WeaponSpawned, source, null, source, 0, damage);
+        RecordCombatEvent(new TestPlayCombatTraceEvent
+        {
+            type = TestPlayCombatTraceEventType.ProjectileSpawned,
+            actionId = currentAnimationIndex,
+            source = payload.source,
+            damage = payload.damage,
+            down = payload.down,
+            force = payload.horizontalImpactForce,
+            forceY = payload.verticalImpactForce,
+            valueSource = payload.valueSource
+        });
+        RaiseRuntimeEvent(TestPlayRuntimeEventType.WeaponSpawned, source, null, source, 0, payload.damage);
     }
 
     bool TrySpawnOriginalSpecialEffect(List<TestPlayScriptValue> args, int subtype)
@@ -3136,16 +3724,38 @@ public class TestPlayController : MonoBehaviour
     bool SpawnOriginalTextureEffect(string key, int textureId, Vector3 position, Vector2 size, float life)
     {
         if (presentationRuntime == null || textureId < 0)
+        {
+            RaisePresentationEvent(TestPlayPresentationCore.CreateTexture(
+                key, textureId, "", TestPlayPresentationAdapterKind.None));
             return false;
+        }
         GameObject go = presentationRuntime.CreateOriginalTextureEffect(textureId, position, robo.root.transform.rotation, size, life, Color.white);
+        RaisePresentationEvent(TestPlayPresentationCore.CreateTexture(
+            key,
+            textureId,
+            "",
+            go != null
+                ? TestPlayPresentationAdapterKind.OriginalTextureQuad
+                : TestPlayPresentationAdapterKind.None));
         return TrackOriginalEffect(go, key, life);
     }
 
     bool SpawnOriginalNamedEffect(string key, string textureName, Vector3 position, Vector2 size, float life)
     {
         if (presentationRuntime == null)
+        {
+            RaisePresentationEvent(TestPlayPresentationCore.CreateTexture(
+                key, -1, textureName, TestPlayPresentationAdapterKind.None));
             return false;
+        }
         GameObject go = presentationRuntime.CreateOriginalNamedTextureEffect(textureName, position, robo.root.transform.rotation, size, life, Color.white);
+        RaisePresentationEvent(TestPlayPresentationCore.CreateTexture(
+            key,
+            -1,
+            textureName,
+            go != null
+                ? TestPlayPresentationAdapterKind.OriginalTextureQuad
+                : TestPlayPresentationAdapterKind.None));
         return TrackOriginalEffect(go, key, life);
     }
 
@@ -3216,6 +3826,12 @@ public class TestPlayController : MonoBehaviour
         bool mappedEffect = go != null;
         if (go == null)
             go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        RaisePresentationEvent(TestPlayPresentationCore.CreateVisual(
+            effectKey,
+            -1,
+            mappedEffect
+                ? TestPlayPresentationAdapterKind.MappedPrefab
+                : TestPlayPresentationAdapterKind.PrimitiveFallback));
         go.name = "TestPlayEffect";
         go.transform.position = position;
         if (!mappedEffect)
@@ -3320,6 +3936,12 @@ public class TestPlayController : MonoBehaviour
         if (cone.transform.parent != info.BoneTr)
             cone.transform.SetParent(info.BoneTr, worldPositionStays: false);
 
+        Texture2D originalTexture = useOriginalBurnerTexture && presentationRuntime != null
+            ? presentationRuntime.GetOriginalTexture(originalBurnerTextureId)
+            : null;
+        cone.ConfigureVisual(
+            originalTexture,
+            originalTexture != null && presentationRuntime != null ? presentationRuntime.originalEffectShader : null);
         cone.transform.localPosition = Vector3.zero;
         cone.transform.localRotation = BurnerDirectionToRotation(info.Direction);
         return cone;
@@ -3500,6 +4122,9 @@ public class TestPlayController : MonoBehaviour
     void ResetRuntimeFlags()
     {
         currentAnimation = null;
+        currentScriptAnimation = null;
+        currentActionSelection = new TestPlayActionSelection();
+        lastMotionStep = new TestPlayMotionStep();
         currentAnimationIndex = 0;
         scriptIndex = 0;
         scriptTick = 0;
@@ -3510,6 +4135,7 @@ public class TestPlayController : MonoBehaviour
         ResetScriptRepeatState();
         abortScriptExecution = false;
         animeLoop = false;
+        animationPoseHeldAtEnd = false;
         moveLocked = false;
         shieldGuard = false;
         gvEnable = true;
@@ -3519,6 +4145,12 @@ public class TestPlayController : MonoBehaviour
         attackSequenceActive = false;
         meleeApproachActive = false;
         meleeComboInputPending = false;
+        currentCombatTraceEvents.Clear();
+        pendingCombatTraceEvents.Clear();
+        simulatingCombatTick = false;
+        currentPresentationTraceEvents.Clear();
+        pendingPresentationTraceEvents.Clear();
+        simulatingPresentationTick = false;
         heldWeapon = "GUN";
         shotTurnAng = 0f;
         turnMoveAng = 0f;
@@ -3537,6 +4169,9 @@ public class TestPlayController : MonoBehaviour
         lastRiseTapTick = int.MinValue;
         riseSequenceActive = false;
         landingSequenceActive = false;
+        groundRecoveryElapsedTicks = 0;
+        groundRecoveryDurationTicks = 0;
+        groundRecoveryCompletedThisTick = false;
         stepSequenceActive = false;
         ClearStepRecovery();
         previousAirborneFlag = false;
@@ -3603,7 +4238,12 @@ public class TestPlayController : MonoBehaviour
         {
             GameObject transient = spawnedTransientObjects[i];
             if (transient != null)
-                Destroy(transient);
+            {
+                if (Application.isPlaying)
+                    Destroy(transient);
+                else
+                    DestroyImmediate(transient);
+            }
         }
         spawnedTransientObjects.Clear();
     }
@@ -3703,7 +4343,11 @@ public class TestPlayController : MonoBehaviour
     {
         switch (dir)
         {
-            case SptDirection.UP: return Quaternion.Euler(180f, 0f, 0f);
+            // The plume mesh extends along local Z+. Real SPT/HOD output markers
+            // already encode the outward basis for both UP and DOWN; applying an
+            // extra 180-degree turn to DOWN makes those burners point into/through
+            // the mech. Keep TestPlay consistent with SptParser.BuildBurnerEffects.
+            case SptDirection.UP: return Quaternion.identity;
             case SptDirection.DOWN: return Quaternion.identity;
             case SptDirection.FORWARD: return Quaternion.Euler(-90f, 0f, 0f);
             case SptDirection.BACK: return Quaternion.Euler(90f, 0f, 0f);

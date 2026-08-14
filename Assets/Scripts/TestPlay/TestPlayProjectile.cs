@@ -2,6 +2,7 @@ using UnityEngine;
 
 public class TestPlayProjectile : MonoBehaviour
 {
+    public TestPlayController owner;
     public TestPlayTargetDummy target;
     public float speed = 25f;
     public float damage = 50f;
@@ -12,40 +13,74 @@ public class TestPlayProjectile : MonoBehaviour
     public float horizontalImpactForce;
     public float verticalImpactForce;
     public string sourceCommand = "Projectile";
+    public TestPlayCombatValueSource valueSource = TestPlayCombatValueSource.UnityFallback;
+    [Min(1f)]
+    public float originalTickRate = 60f;
+    [Min(1)]
+    public int maximumCatchUpTicks = 8;
 
     float age;
+    float simulationAccumulator;
 
     void Update()
     {
-        float dt = Time.deltaTime;
-        age += dt;
-        if (age >= lifeSeconds)
+        float tickDeltaTime = 1f / Mathf.Max(1f, originalTickRate);
+        simulationAccumulator += Mathf.Max(0f, Time.deltaTime);
+        int catchUpTicks = 0;
+        int catchUpLimit = Mathf.Max(1, maximumCatchUpTicks);
+        while (simulationAccumulator + 0.0000001f >= tickDeltaTime && catchUpTicks < catchUpLimit)
+        {
+            simulationAccumulator -= tickDeltaTime;
+            catchUpTicks++;
+            if (SimulateOriginalTick(tickDeltaTime))
+                return;
+        }
+    }
+
+    public bool SimulateOriginalTick(float tickDeltaTime)
+    {
+        bool targetAlive = target != null && target.IsAlive;
+        TestPlayProjectileTickResult result = TestPlayCombatCore.TickProjectile(
+            new TestPlayProjectileTickInput
+            {
+                position = transform.position,
+                rotation = transform.rotation,
+                age = age,
+                lifeSeconds = lifeSeconds,
+                speed = speed,
+                homingTurnRate = homingTurnRate,
+                tickDeltaTime = tickDeltaTime,
+                targetAlive = targetAlive,
+                targetPosition = targetAlive ? target.transform.position : Vector3.zero,
+                combinedHitRadius = hitRadius + (targetAlive ? target.hitRadius : 0f)
+            });
+
+        age = result.age;
+        transform.SetPositionAndRotation(result.position, result.rotation);
+        if (result.expired)
         {
             Destroy(gameObject);
-            return;
+            return true;
         }
 
-        if (target != null && target.IsAlive && homingTurnRate > 0f)
+        if (result.hit && targetAlive)
         {
-            Vector3 dir = target.transform.position - transform.position;
-            if (dir.sqrMagnitude > 0.0001f)
+            TestPlayProjectilePayload payload = new TestPlayProjectilePayload
             {
-                Quaternion desired = Quaternion.LookRotation(dir.normalized, Vector3.up);
-                transform.rotation = Quaternion.RotateTowards(transform.rotation, desired, homingTurnRate * dt);
-            }
+                source = sourceCommand,
+                damage = damage,
+                down = downValue,
+                horizontalImpactForce = horizontalImpactForce,
+                verticalImpactForce = verticalImpactForce,
+                valueSource = valueSource
+            };
+            TestPlayCombatHitResult hit = TestPlayCombatCore.CreateHitResult(payload, transform.forward);
+            target.ApplyImpact(hit.damage, hit.impactForce, hit.down, hit.source);
+            owner?.NotifyProjectileHit(hit);
+            Destroy(gameObject);
+            return true;
         }
 
-        transform.position += transform.forward * speed * dt;
-
-        if (target != null && target.IsAlive)
-        {
-            float radius = hitRadius + target.hitRadius;
-            if ((target.transform.position - transform.position).sqrMagnitude <= radius * radius)
-            {
-                Vector3 impact = transform.forward * horizontalImpactForce + Vector3.up * verticalImpactForce;
-                target.ApplyImpact(damage, impact, downValue, sourceCommand);
-                Destroy(gameObject);
-            }
-        }
+        return false;
     }
 }

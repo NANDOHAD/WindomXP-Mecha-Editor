@@ -6,14 +6,33 @@ public class TestPlayBurnerCone : MonoBehaviour
 {
     const int SegmentCount = 18;
 
-    static Mesh sharedMesh;
+    static Mesh sharedConeMesh;
+    static Mesh sharedPlumeMesh;
 
+    MeshFilter meshFilter;
     MeshRenderer meshRenderer;
     Material material;
+    Texture2D sourceTexture;
+    Shader sourceShader;
     float currentLength;
     float targetLength;
     float radius = 0.2f;
     float fadeSpeed = 18f;
+
+    public bool UsesOriginalTexture => sourceTexture != null;
+
+    public void ConfigureVisual(Texture2D texture, Shader shader)
+    {
+        EnsureInitialized();
+        if (sourceTexture == texture && sourceShader == shader)
+            return;
+
+        sourceTexture = texture;
+        sourceShader = shader;
+        meshFilter.sharedMesh = sourceTexture != null ? GetSharedPlumeMesh() : GetSharedConeMesh();
+        ReplaceMaterial();
+        ApplyScale();
+    }
 
     public void SetTarget(bool requested, float length, float coneRadius, Color color, float transitionSpeed)
     {
@@ -23,7 +42,10 @@ public class TestPlayBurnerCone : MonoBehaviour
         fadeSpeed = Mathf.Max(0f, transitionSpeed);
         targetLength = requested ? Mathf.Max(0f, length) : 0f;
 
-        SetMaterialColor(color);
+        // The original burner texture already contains its blue-white colour and
+        // alpha profile. Preserve those pixels and use only output alpha as tint.
+        Color displayColor = UsesOriginalTexture ? new Color(1f, 1f, 1f, color.a) : color;
+        SetMaterialColor(displayColor);
 
         if (requested && !gameObject.activeSelf)
             gameObject.SetActive(true);
@@ -72,27 +94,33 @@ public class TestPlayBurnerCone : MonoBehaviour
         if (meshRenderer != null)
             return;
 
-        MeshFilter filter = GetComponent<MeshFilter>();
-        filter.sharedMesh = GetSharedMesh();
+        meshFilter = GetComponent<MeshFilter>();
+        meshFilter.sharedMesh = GetSharedConeMesh();
 
         meshRenderer = GetComponent<MeshRenderer>();
         meshRenderer.shadowCastingMode = ShadowCastingMode.Off;
         meshRenderer.receiveShadows = false;
-        material = CreateMaterial();
-        meshRenderer.sharedMaterial = material;
-
+        ReplaceMaterial();
         ApplyScale();
+    }
+
+    void ReplaceMaterial()
+    {
+        DestroyMaterial();
+        material = CreateMaterial(sourceShader, sourceTexture);
+        meshRenderer.sharedMaterial = material;
     }
 
     void ApplyScale()
     {
-        transform.localScale = new Vector3(radius, radius, Mathf.Max(0f, currentLength));
+        float widthScale = UsesOriginalTexture ? radius * 2f : radius;
+        transform.localScale = new Vector3(widthScale, widthScale, Mathf.Max(0f, currentLength));
     }
 
-    static Mesh GetSharedMesh()
+    static Mesh GetSharedConeMesh()
     {
-        if (sharedMesh != null)
-            return sharedMesh;
+        if (sharedConeMesh != null)
+            return sharedConeMesh;
 
         Vector3[] vertices = new Vector3[SegmentCount + 1];
         int[] triangles = new int[SegmentCount * 3];
@@ -113,18 +141,55 @@ public class TestPlayBurnerCone : MonoBehaviour
             triangles[tri + 2] = i + 1;
         }
 
-        sharedMesh = new Mesh();
-        sharedMesh.name = "TestPlayBurnerCone";
-        sharedMesh.vertices = vertices;
-        sharedMesh.triangles = triangles;
-        sharedMesh.RecalculateNormals();
-        sharedMesh.RecalculateBounds();
-        return sharedMesh;
+        sharedConeMesh = new Mesh { name = "TestPlayBurnerCone" };
+        sharedConeMesh.vertices = vertices;
+        sharedConeMesh.triangles = triangles;
+        sharedConeMesh.RecalculateNormals();
+        sharedConeMesh.RecalculateBounds();
+        return sharedConeMesh;
     }
 
-    static Material CreateMaterial()
+    static Mesh GetSharedPlumeMesh()
     {
-        Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+        if (sharedPlumeMesh != null)
+            return sharedPlumeMesh;
+
+        // Two crossed, double-sided planes keep the original 2D burner readable
+        // from gameplay camera angles. Both are rooted at Z=0 and extend toward Z+.
+        Vector3[] vertices =
+        {
+            new Vector3(-0.5f, 0f, 0f), new Vector3(0.5f, 0f, 0f),
+            new Vector3(-0.5f, 0f, 1f), new Vector3(0.5f, 0f, 1f),
+            new Vector3(0f, -0.5f, 0f), new Vector3(0f, 0.5f, 0f),
+            new Vector3(0f, -0.5f, 1f), new Vector3(0f, 0.5f, 1f)
+        };
+        Vector2[] uv =
+        {
+            new Vector2(0f, 0f), new Vector2(1f, 0f),
+            new Vector2(0f, 1f), new Vector2(1f, 1f),
+            new Vector2(0f, 0f), new Vector2(1f, 0f),
+            new Vector2(0f, 1f), new Vector2(1f, 1f)
+        };
+        int[] triangles =
+        {
+            0, 2, 1, 1, 2, 3,
+            4, 5, 6, 5, 7, 6
+        };
+
+        sharedPlumeMesh = new Mesh { name = "TestPlayBurnerOriginalTexturePlume" };
+        sharedPlumeMesh.vertices = vertices;
+        sharedPlumeMesh.uv = uv;
+        sharedPlumeMesh.triangles = triangles;
+        sharedPlumeMesh.RecalculateNormals();
+        sharedPlumeMesh.RecalculateBounds();
+        return sharedPlumeMesh;
+    }
+
+    static Material CreateMaterial(Shader preferredShader, Texture2D texture)
+    {
+        Shader shader = preferredShader;
+        if (shader == null)
+            shader = Shader.Find("Universal Render Pipeline/Unlit");
         if (shader == null)
             shader = Shader.Find("Sprites/Default");
         if (shader == null)
@@ -132,8 +197,18 @@ public class TestPlayBurnerCone : MonoBehaviour
         if (shader == null)
             shader = Shader.Find("Standard");
 
-        Material mat = new Material(shader);
-        mat.name = "TestPlayBurnerConeMaterial";
+        Material mat = new Material(shader)
+        {
+            name = texture != null ? "TestPlayBurnerOriginalTextureMaterial" : "TestPlayBurnerConeMaterial",
+            hideFlags = HideFlags.DontSave
+        };
+        if (texture != null)
+        {
+            if (mat.HasProperty("_MainTex"))
+                mat.SetTexture("_MainTex", texture);
+            if (mat.HasProperty("_BaseMap"))
+                mat.SetTexture("_BaseMap", texture);
+        }
         SetMaterialColor(mat, new Color(0.35f, 0.85f, 1f, 0.65f));
         mat.renderQueue = (int)RenderQueue.Transparent;
 
@@ -161,9 +236,29 @@ public class TestPlayBurnerCone : MonoBehaviour
 
     static void SetMaterialColor(Material mat, Color color)
     {
+        if (mat.HasProperty("_TintColor"))
+            mat.SetColor("_TintColor", color);
         if (mat.HasProperty("_BaseColor"))
             mat.SetColor("_BaseColor", color);
         if (mat.HasProperty("_Color"))
             mat.SetColor("_Color", color);
+    }
+
+    void OnDestroy()
+    {
+        DestroyMaterial();
+    }
+
+    void DestroyMaterial()
+    {
+        if (material == null)
+            return;
+
+        Material oldMaterial = material;
+        material = null;
+        if (Application.isPlaying)
+            Destroy(oldMaterial);
+        else
+            DestroyImmediate(oldMaterial);
     }
 }
