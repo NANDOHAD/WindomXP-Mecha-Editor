@@ -115,6 +115,19 @@ HODはパーツ階層とトランスフォームを持つ姿勢データです�
 
 ## 実行フロー
 
+### ツール設定と言語の復元
+
+実行ディレクトリの`Settings.txt`は、1行目に機体フォルダ、2行目にUI言語を保持します。
+
+```text
+Windom_Data\Robo
+Language=ja
+```
+
+- UI言語は`ja`または`en`。設定画面で言語を変更した時点で保存され、次回起動時はシステム言語や`PlayerPrefs`より先にこの値を使います。
+- `Language=`行がない旧1行形式も読み込めます。言語変更時は1行目の機体フォルダを、フォルダ保存時は2行目の言語を保持します。
+- 旧バージョンからの移行用として、`Settings.txt`に言語がない場合だけ既存の`PlayerPrefs`値、その次にシステム言語へフォールバックします。
+
 ### 機体読み込み
 
 1. `UI_SelectMech` が `Windom_Data\Robo` 以下の機体フォルダを列挙する。
@@ -152,7 +165,7 @@ HODはパーツ階層とトランスフォームを持つ姿勢データです�
 
 この層は移植途中です。`AniScriptRuntime` 内のTODO命令は受け皿として登録されているものが多く、ゲーム本体挙動の完全再現ではありません。実装時は、未知命令を無視して落ちないこと、既存シンボル収集を壊さないことを優先してください。
 
-原作比較用の`TestPlayController` / `TestPlayScriptVM`には、6比較演算子、0～199のint/float内部変数と複合代入、`ATTACK`の4値、2引数`BURNER(id, output)`、`ExecScriptEveryTime(n)`、`CatchLastChara`互換名を反映済みです。通常攻撃もX/Cの押下エッジ、銃／サーベル形態18/68、基本アクション+50、方向別格闘130/131/141/146/151、`SwordCancel`、`AttackDelay`、攻撃後6/8復帰まで原作擬似コードに合わせています。一方、通常編集プレビュー側の`AniScriptRuntime`は移植途中であり、type 57格闘判定のボーン形状・持続・多段条件も未確定です。追加実装では、推定コメントではなく解析資料の関数アドレスと実データを根拠にしてください。
+原作比較用の`TestPlayController` / `TestPlayScriptVM`には、6比較演算子、0～199のint/float内部変数と複合代入、`ATTACK`の4値、2引数`BURNER(id, output)`、`ExecScriptEveryTime(n)`、`CatchLastChara`互換名を反映済みです。通常攻撃もX/Cの押下エッジ、銃／サーベル形態18/68、基本アクション+50、方向別格闘130/131/141/146/151、`SwordCancel`、`AttackDelay`、攻撃後6/8復帰まで原作擬似コードに合わせています。Phase 6Aでは`Logs/WindomXP`の原作EXEからGT-001を3回観測し、`observedFields`単位で同一ANI/SPTのUnity基準traceと比較済みです。待機directionとfloat32非正規化残留値をrawのまま保持して比較値だけ正規化した結果、意味のある最初の不一致は入力解放index tick 14の`scriptedVelocity`（原作は0.08を保持後0.8倍減衰、Unityは即時0）です。一方、通常編集プレビュー側の`AniScriptRuntime`は移植途中であり、type 57格闘判定のボーン形状・持続・多段条件も未確定です。追加実装では、推定コメントではなく解析資料の関数アドレスと実データを根拠にしてください。
 
 ## 主要スクリプト一覧
 

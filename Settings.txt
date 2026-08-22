@@ -1,1 +1,2 @@
 Windom_Data\Robo
+Language=ja

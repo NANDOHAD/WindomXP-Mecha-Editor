@@ -1,6 +1,6 @@
 # WindomXP Mecha Editor Agent Rules
 
-このリポジトリは、DirectX9 時代のゲーム「Ultimate Knight ウィンダムXP」の機体MOD編集をUnity上で行うためのツールです。作業前に必ず [docs/PROJECT_REFERENCE.md](docs/PROJECT_REFERENCE.md) を確認してください。
+このリポジトリは、DirectX9 時代のゲーム「Ultimate Knight ウィンダムXP」の機体MOD編集をUnity上で行うためのツールです。作業開始時は最初に [DEV_STATE.md](DEV_STATE.md) を確認し進捗を把握し、その後[docs/PROJECT_REFERENCE.md](docs/PROJECT_REFERENCE.md) を確認して必要な情報を参照してください。作業完了時や進捗が発生した場合は、都度 [DEV_STATE.md](DEV_STATE.md) の内容を更新してください。
 
 ## 基本方針
 

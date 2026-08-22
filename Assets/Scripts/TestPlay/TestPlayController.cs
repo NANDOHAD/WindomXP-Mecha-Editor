@@ -281,6 +281,7 @@ public class TestPlayController : MonoBehaviour
     int groundRecoveryElapsedTicks;
     int groundRecoveryDurationTicks;
     bool groundRecoveryCompletedThisTick;
+    bool deterministicGroundPlaneEnabled;
     bool stepSequenceActive;
     bool previousAirborneFlag;
     bool boostFromRiseActive;
@@ -999,13 +1000,25 @@ public class TestPlayController : MonoBehaviour
             groundRecoveryCompletedThisTick;
         if (!useColliderGrounding || !EnsureGroundingController())
         {
-            root.position += requestedMove;
-            groundedFlag = groundRecoveryOwnsContact;
-            if (groundRecoveryOwnsContact)
+            bool fallbackForceAirborne = ShouldForceAirborneByAction();
+            if (fallbackForceAirborne)
+                SetAirborneFlag(true);
+            else if (groundRecoveryOwnsContact)
                 SetAirborneFlag(false);
+
+            Vector3 appliedMove = requestedMove;
+            bool logicalGroundContact =
+                deterministicGroundPlaneEnabled && !airborneFlag && !fallbackForceAirborne;
+            if (logicalGroundContact)
+            {
+                appliedMove.y = 0f;
+                velocity.y = 0f;
+            }
+            root.position += appliedMove;
+            groundedFlag = logicalGroundContact || groundRecoveryOwnsContact;
             groundingCollisionFlags = CollisionFlags.None;
             verticalFallSpeed = velocity.y * Mathf.Max(0f, aniUnitsToUnityScale) * Mathf.Max(1f, originalTickRate);
-            return requestedMove;
+            return appliedMove;
         }
 
         bool forceAirborne = ShouldForceAirborneByAction();
@@ -2810,6 +2823,7 @@ public class TestPlayController : MonoBehaviour
         playModeActive = true;
         bool sword = setup == TestPlayGoldenSetupKind.GroundedSword;
         bool airborne = setup == TestPlayGoldenSetupKind.AirborneGun;
+        deterministicGroundPlaneEnabled = !airborne;
         SetHeldWeapon(sword ? "SWORD" : "GUN");
         SetAirborneFlag(airborne);
         groundedFlag = !airborne;
@@ -2838,6 +2852,7 @@ public class TestPlayController : MonoBehaviour
     public void EndDeterministicTraceSession()
     {
         playModeActive = false;
+        deterministicGroundPlaneEnabled = false;
         StopAllBurnerEffects();
         DestroyTransientObjects();
     }
@@ -4172,6 +4187,7 @@ public class TestPlayController : MonoBehaviour
         groundRecoveryElapsedTicks = 0;
         groundRecoveryDurationTicks = 0;
         groundRecoveryCompletedThisTick = false;
+        deterministicGroundPlaneEnabled = false;
         stepSequenceActive = false;
         ClearStepRecovery();
         previousAirborneFlag = false;

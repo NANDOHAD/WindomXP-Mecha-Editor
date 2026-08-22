@@ -12,6 +12,7 @@ using UnityEngine;
 public static class TestPlayGoldenTraceVerification
 {
     const string MechId = "ガンダムTR-1ヘイズル改";
+    const string SelectedMechFolderEditorPref = "WindomXP.TestPlay.SelectedOriginalMechFolder";
     static bool running;
 
     sealed class RunCapture
@@ -37,6 +38,65 @@ public static class TestPlayGoldenTraceVerification
         catch (Exception ex)
         {
             Debug.LogError("[TestPlayGolden] Failed: " + ex);
+        }
+        finally
+        {
+            running = false;
+        }
+    }
+
+    [MenuItem("Tools/WindomXP/Test Play/Run Selected-Mech GT-001 Reference Trace")]
+    public static async void RunSelectedMechGt001FromMenu()
+    {
+        if (running)
+        {
+            Debug.LogWarning("[TestPlayGolden] A real-mech golden trace run is already active.");
+            return;
+        }
+
+        string projectRoot = Directory.GetParent(Application.dataPath).FullName;
+        string selectedFolder = EditorUtility.OpenFolderPanel(
+            "原作EXEで使用する機体フォルダーを選択",
+            Path.Combine(projectRoot, "Windom_Data", "Robo"),
+            "");
+        if (string.IsNullOrEmpty(selectedFolder))
+            return;
+
+        EditorPrefs.SetString(SelectedMechFolderEditorPref, selectedFolder);
+
+        await RunSelectedMechGt001FromFolderAsync(selectedFolder);
+    }
+
+    [MenuItem("Tools/WindomXP/Test Play/Run Last Selected-Mech GT-001 Reference Trace")]
+    public static async void RunLastSelectedMechGt001FromMenu()
+    {
+        string selectedFolder = EditorPrefs.GetString(SelectedMechFolderEditorPref, "");
+        if (string.IsNullOrWhiteSpace(selectedFolder))
+        {
+            Debug.LogError("[TestPlayGolden] No selected-mech folder is remembered. " +
+                           "Run Selected-Mech GT-001 Reference Trace first.");
+            return;
+        }
+
+        await RunSelectedMechGt001FromFolderAsync(selectedFolder);
+    }
+
+    static async Task RunSelectedMechGt001FromFolderAsync(string selectedFolder)
+    {
+        if (running)
+        {
+            Debug.LogWarning("[TestPlayGolden] A real-mech golden trace run is already active.");
+            return;
+        }
+
+        running = true;
+        try
+        {
+            await RunSelectedMechGt001Async(selectedFolder);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError("[TestPlayGolden] Selected-mech GT-001 failed: " + ex);
         }
         finally
         {
@@ -75,8 +135,8 @@ public static class TestPlayGoldenTraceVerification
         {
             TestPlayGoldenScenarioDefinition definition = definitions[i];
             ValidateRealDataRequirements(data, definition);
-            RunCapture first = RunScenario(data, sptData, definition, aniHash, sptHash);
-            RunCapture second = RunScenario(data, sptData, definition, aniHash, sptHash);
+            RunCapture first = RunScenario(data, sptData, definition, aniHash, sptHash, MechId, mechFolder);
+            RunCapture second = RunScenario(data, sptData, definition, aniHash, sptHash, MechId, mechFolder);
             int mismatch = TestPlayGoldenTraceSession.FindFirstMismatch(first.session, second.session);
             if (mismatch >= 0)
                 throw new InvalidOperationException(definition.id + " diverged at tick index " + mismatch);
@@ -101,12 +161,61 @@ public static class TestPlayGoldenTraceVerification
                   " real-mech scenarios twice with exact tick-trace equality. Output=" + outputFolder);
     }
 
+    public static async Task RunSelectedMechGt001Async(string mechFolder)
+    {
+        string aniPath = Path.Combine(mechFolder, "Script.ani");
+        string sptPath = Path.Combine(mechFolder, "Script.spt");
+        if (!File.Exists(aniPath) || !File.Exists(sptPath))
+            throw new FileNotFoundException("Selected folder requires Script.ani and Script.spt: " + mechFolder);
+
+        string mechId = new DirectoryInfo(mechFolder).Name;
+        string aniHash = ComputeFileSha256(aniPath);
+        string sptHash = ComputeFileSha256(sptPath);
+        ani2 data = new ani2();
+        if (!await data.load(aniPath))
+            throw new InvalidDataException("ani2.load returned false for " + aniPath);
+        if (data.animations == null || data.animations.Count < 200)
+            throw new InvalidDataException("Expected the original 200-slot ANI table.");
+
+        CypherTranscoder transcoder = new CypherTranscoder();
+        string sptText = USEncoder.ToEncoding.ToUnicode(transcoder.Transcode(sptPath));
+        SptRuntimeData sptData = SptParser.Parse(sptText);
+        TestPlayGoldenScenarioDefinition definition = TestPlayGoldenScenarioCatalog.Find("GT-001");
+        ValidateRealDataRequirements(data, definition);
+
+        RunCapture first = RunScenario(data, sptData, definition, aniHash, sptHash, mechId, mechFolder);
+        RunCapture second = RunScenario(data, sptData, definition, aniHash, sptHash, mechId, mechFolder);
+        int mismatch = TestPlayGoldenTraceSession.FindFirstMismatch(first.session, second.session);
+        if (mismatch >= 0)
+            throw new InvalidOperationException("GT-001 diverged at tick index " + mismatch);
+        ValidateObservedActions(definition, first.observedActions);
+        if (!string.Equals(first.session.ComputeTraceHash(), second.session.ComputeTraceHash(),
+                StringComparison.Ordinal))
+            throw new InvalidOperationException("GT-001 session hashes differ.");
+
+        string outputFolder = GetHashSpecificOutputFolder(aniHash, sptHash);
+        Directory.CreateDirectory(outputFolder);
+        string outputPath = Path.Combine(outputFolder, "GT-001.unity-reference.jsonl");
+        File.WriteAllText(outputPath, first.session.SerializeJsonLines(), new UTF8Encoding(false));
+        Debug.Log("[TestPlayGolden] Selected-mech GT-001 passed twice with exact tick-trace equality. " +
+                  "mech=" + mechId + " ani=" + aniHash + " spt=" + sptHash + " Output=" + outputPath);
+    }
+
+    public static string GetHashSpecificOutputFolder(string aniHash, string sptHash)
+    {
+        string projectRoot = Directory.GetParent(Application.dataPath).FullName;
+        return Path.Combine(projectRoot, "Logs", "TestPlayGolden", "ByDataHash",
+            NormalizeHash(aniHash).Substring(0, 16) + "_" + NormalizeHash(sptHash).Substring(0, 16));
+    }
+
     static RunCapture RunScenario(
         ani2 data,
         SptRuntimeData sptData,
         TestPlayGoldenScenarioDefinition definition,
         string aniHash,
-        string sptHash)
+        string sptHash,
+        string mechId,
+        string mechFolder)
     {
         GameObject host = new GameObject("TestPlayGolden_" + definition.id);
         GameObject root = new GameObject("TestPlayGoldenRoot");
@@ -117,8 +226,7 @@ public static class TestPlayGoldenTraceVerification
             robo.root = root;
             robo.parts = new List<GameObject> { root };
             robo.ani = data;
-            robo.folder = Path.Combine(Directory.GetParent(Application.dataPath).FullName,
-                "Windom_Data", "Robo", MechId);
+            robo.folder = mechFolder;
             robo.transcoder = new CypherTranscoder();
 
             UI_SPT spt = host.AddComponent<UI_SPT>();
@@ -148,7 +256,7 @@ public static class TestPlayGoldenTraceVerification
                     schemaVersion = 1,
                     source = "unity-core",
                     scenarioId = definition.id,
-                    mechId = MechId,
+                    mechId = mechId,
                     aniHash = aniHash,
                     sptHash = sptHash,
                     tickRate = Mathf.RoundToInt(controller.originalTickRate),
@@ -249,5 +357,19 @@ public static class TestPlayGoldenTraceVerification
                 builder.Append(hash[i].ToString("x2", CultureInfo.InvariantCulture));
             return builder.ToString();
         }
+    }
+
+    static string NormalizeHash(string value)
+    {
+        string normalized = (value ?? "").Trim().ToLowerInvariant();
+        if (normalized.Length != 64)
+            throw new ArgumentException("SHA-256 must contain exactly 64 hexadecimal characters.", nameof(value));
+        for (int i = 0; i < normalized.Length; i++)
+        {
+            char c = normalized[i];
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')))
+                throw new ArgumentException("SHA-256 contains a non-hexadecimal character.", nameof(value));
+        }
+        return normalized;
     }
 }

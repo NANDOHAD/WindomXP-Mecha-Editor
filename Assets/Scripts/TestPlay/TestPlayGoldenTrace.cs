@@ -276,10 +276,82 @@ public sealed class TestPlayGoldenTraceSession
 
     public int TickCount => ticks.Count;
     public IReadOnlyList<string> Ticks => ticks;
+    public TestPlayGoldenSessionHeader Header => header;
 
     public void AddTick(string json)
     {
         ticks.Add(string.IsNullOrEmpty(json) ? "{}" : json);
+    }
+
+    public static bool TryParseJsonLines(
+        string jsonLines,
+        out TestPlayGoldenTraceSession session,
+        out string error)
+    {
+        session = null;
+        error = null;
+        if (string.IsNullOrWhiteSpace(jsonLines))
+        {
+            error = "Unity golden trace JSONL is empty.";
+            return false;
+        }
+
+        string[] sourceLines = jsonLines.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        List<string> lines = new List<string>();
+        for (int i = 0; i < sourceLines.Length; i++)
+        {
+            if (!string.IsNullOrWhiteSpace(sourceLines[i]))
+                lines.Add(sourceLines[i].Trim());
+        }
+        if (lines.Count < 2 || !TestPlayTraceJson.TryReadObject(lines[0], "session", out string headerJson))
+        {
+            error = "Unity golden trace requires a session header and at least one tick.";
+            return false;
+        }
+
+        if (!TestPlayTraceJson.TryReadInteger(headerJson, "schemaVersion", out long schemaVersion) ||
+            !TestPlayTraceJson.TryReadString(headerJson, "source", out string source) ||
+            !TestPlayTraceJson.TryReadString(headerJson, "scenario", out string scenario) ||
+            !TestPlayTraceJson.TryReadString(headerJson, "mechId", out string mechId) ||
+            !TestPlayTraceJson.TryReadString(headerJson, "aniHash", out string aniHash) ||
+            !TestPlayTraceJson.TryReadString(headerJson, "sptHash", out string sptHash) ||
+            !TestPlayTraceJson.TryReadInteger(headerJson, "tickRate", out long tickRate) ||
+            !TestPlayTraceJson.TryReadString(headerJson, "baseline", out string baselineText) ||
+            !Enum.TryParse(baselineText, out TestPlayGoldenBaselineKind baseline))
+        {
+            error = "Unity golden trace session header is incomplete or invalid.";
+            return false;
+        }
+
+        TestPlayGoldenTraceSession parsed = new TestPlayGoldenTraceSession(new TestPlayGoldenSessionHeader
+        {
+            schemaVersion = (int)schemaVersion,
+            source = source,
+            scenarioId = scenario,
+            mechId = mechId,
+            aniHash = aniHash,
+            sptHash = sptHash,
+            tickRate = (int)tickRate,
+            baseline = baseline
+        });
+        if (!TestPlayTraceJson.TryReadInteger(lines[1], "tick", out long firstTick))
+        {
+            error = "Unity golden trace first tick is missing.";
+            return false;
+        }
+        for (int i = 1; i < lines.Count; i++)
+        {
+            long expectedTick = firstTick + i - 1;
+            if (!TestPlayTraceJson.TryReadInteger(lines[i], "tick", out long tick) || tick != expectedTick)
+            {
+                error = "Unity golden trace ticks must be contiguous; line " +
+                        (i + 1) + " is invalid.";
+                return false;
+            }
+            parsed.AddTick(lines[i]);
+        }
+        session = parsed;
+        return true;
     }
 
     public string SerializeJsonLines()

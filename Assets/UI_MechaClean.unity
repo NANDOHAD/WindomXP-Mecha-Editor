@@ -2155,7 +2155,6 @@ GameObject:
   m_Component:
   - component: {fileID: 76045472}
   - component: {fileID: 76045471}
-  - component: {fileID: 76045473}
   m_Layer: 0
   m_Name: Directional Light
   m_TagString: Untagged
@@ -2243,18 +2242,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 50, y: -180, z: 0}
---- !u!114 &76045473
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 76045470}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 474bcb49853aa07438625e644c072ee6, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
 --- !u!1 &77804414
 GameObject:
   m_ObjectHideFlags: 0
@@ -30796,7 +30783,6 @@ GameObject:
   m_Component:
   - component: {fileID: 1164648873}
   - component: {fileID: 1164648876}
-  - component: {fileID: 1164648874}
   m_Layer: 0
   m_Name: Preview
   m_TagString: Untagged
@@ -30819,18 +30805,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 1641867157}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1164648874
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1164648872}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: a79441f348de89743a2939f4d699eac1, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
 --- !u!20 &1164648876
 Camera:
   m_ObjectHideFlags: 0
@@ -42954,7 +42928,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1632162870}
   m_Layer: 5
-  m_Name: ModeSelect
+  m_Name: "\u30E2\u30FC\u30C9\u30BB\u30EC\u30AF\u30BF\u30FC"
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -43308,7 +43282,6 @@ GameObject:
   - component: {fileID: 1641867156}
   - component: {fileID: 1641867155}
   - component: {fileID: 1641867158}
-  - component: {fileID: 1641867159}
   - component: {fileID: 1641867160}
   m_Layer: 0
   m_Name: Main Camera
@@ -43417,18 +43390,6 @@ MonoBehaviour:
   target: {fileID: 0}
   initialPosition: {x: 0, y: 0, z: 0}
   initialRotation: {x: 0, y: 0, z: 0, w: 0}
---- !u!114 &1641867159
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1641867154}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: a79441f348de89743a2939f4d699eac1, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
 --- !u!114 &1641867160
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -45332,8 +45293,16 @@ MonoBehaviour:
   airIdleAction: 8
   landingAction: 5
   stepLandingAction: 6
+  switchToSwordAction: 18
+  switchToGunAction: 68
   shotAction: 100
+  boostShotAction: 106
   meleeAction: 130
+  neutralMeleeAction: 131
+  meleeApproachFollowupAction: 136
+  leftMeleeAction: 141
+  rightMeleeAction: 146
+  backMeleeAction: 151
   boostAction: 22
   guardAction: 19
   special1Action: 104
@@ -45398,7 +45367,12 @@ MonoBehaviour:
   defaultProjectileDamage: 50
   meleeRange: 3
   projectileRadius: 0.25
+  meleeApproachMinimumTicks: 6
+  meleeApproachDistance: 3.5
+  meleeApproachEnergyPerTick: 5
   useConeBurnerEffects: 1
+  useOriginalBurnerTexture: 1
+  originalBurnerTextureId: 8
   burnerLengthMultiplier: 1
   burnerRadiusRatio: 0.25
   burnerFadeSpeed: 18
@@ -52198,8 +52172,6 @@ MonoBehaviour:
     - m_Text: "\u7DE8\u96C6\u30E2\u30FC\u30C9"
       m_Image: {fileID: 0}
     - m_Text: "\u30D7\u30EC\u30D3\u30E5\u30FC\u30E2\u30FC\u30C9"
-      m_Image: {fileID: 0}
-    - m_Text: "\u30C6\u30B9\u30C8\u30E2\u30FC\u30C9"
       m_Image: {fileID: 0}
   m_OnValueChanged:
     m_PersistentCalls:

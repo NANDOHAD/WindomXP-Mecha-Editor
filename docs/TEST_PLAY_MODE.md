@@ -4,7 +4,7 @@
 
 実装は、擬似コードと実データから確認できた「原作確定」、動作から補う「原作推定」、DirectX9固有処理を置き換える「Unity代替」を区別します。
 
-再設計Phase 0で確定した原作との差分、未解決事項、tickトレース契約、後続Phaseの実装境界は [TEST_PLAY_PHASE0_REDESIGN_SPEC.md](TEST_PLAY_PHASE0_REDESIGN_SPEC.md)、Phase 1の共通ANI中間表現とtrack schedulerは [TEST_PLAY_PHASE1_IMPLEMENTATION.md](TEST_PLAY_PHASE1_IMPLEMENTATION.md)、Phase 2のAction／Motion／Locomotion Coreは [TEST_PLAY_PHASE2_IMPLEMENTATION.md](TEST_PLAY_PHASE2_IMPLEMENTATION.md)、Phase 3のCombat Coreと60Hz発射体は [TEST_PLAY_PHASE3_IMPLEMENTATION.md](TEST_PLAY_PHASE3_IMPLEMENTATION.md)、Phase 4のPresentation EventとUnity表示Adapterは [TEST_PLAY_PHASE4_IMPLEMENTATION.md](TEST_PLAY_PHASE4_IMPLEMENTATION.md)、Phase 5の実機体golden traceと反復決定性検証は [TEST_PLAY_PHASE5_IMPLEMENTATION.md](TEST_PLAY_PHASE5_IMPLEMENTATION.md) を参照してください。
+再設計Phase 0で確定した原作との差分、未解決事項、tickトレース契約、後続Phaseの実装境界は [TEST_PLAY_PHASE0_REDESIGN_SPEC.md](TEST_PLAY_PHASE0_REDESIGN_SPEC.md)、Phase 1の共通ANI中間表現とtrack schedulerは [TEST_PLAY_PHASE1_IMPLEMENTATION.md](TEST_PLAY_PHASE1_IMPLEMENTATION.md)、Phase 2のAction／Motion／Locomotion Coreは [TEST_PLAY_PHASE2_IMPLEMENTATION.md](TEST_PLAY_PHASE2_IMPLEMENTATION.md)、Phase 3のCombat Coreと60Hz発射体は [TEST_PLAY_PHASE3_IMPLEMENTATION.md](TEST_PLAY_PHASE3_IMPLEMENTATION.md)、Phase 4のPresentation EventとUnity表示Adapterは [TEST_PLAY_PHASE4_IMPLEMENTATION.md](TEST_PLAY_PHASE4_IMPLEMENTATION.md)、Phase 5の実機体golden traceと反復決定性検証は [TEST_PLAY_PHASE5_IMPLEMENTATION.md](TEST_PLAY_PHASE5_IMPLEMENTATION.md)、Phase 6Aの原作EXE部分観測trace契約と比較器は [TEST_PLAY_PHASE6_IMPLEMENTATION.md](TEST_PLAY_PHASE6_IMPLEMENTATION.md) を参照してください。
 
 ## 追加したコンポーネント
 
@@ -24,6 +24,7 @@
 | `TestPlayPresentationCore.cs` | Snd、Voice、BURNER、Proc、texture、CamEffectの原作識別情報・根拠・Unity Adapterを分離する。 |
 | `TestPlayPresentationTrace.cs` | 型付き演出イベントと全引数をPhase 3 traceへ決定的に追加する。 |
 | `TestPlayGoldenTrace.cs` | GT-001～GT-010の入力列、Phase 5 tick snapshot、JSONL session、SHA-256比較を定義する。 |
+| `TestPlayOriginalTrace.cs` | 原作観測traceの部分フィールド契約、欠落診断、最初の不一致比較を定義する。 |
 | `TestPlayStateTable.cs` | ゲーム本体の `@int[]` / `@float[]` 風の状態テーブル。 |
 | `TestPlayScriptValue.cs` | Script引数の数値、シンボル、`STOP` 表現。 |
 | `TestPlayTargetDummy.cs` | ロック対象/被弾対象のダミー。 |
@@ -42,6 +43,8 @@
 | `Assets/Editor/TestPlayPhase4Verification.cs` | 演出ID、根拠区分、Unity Adapter、診断、Phase 4 traceの回帰検証。 |
 | `Assets/Editor/TestPlayPhase5Verification.cs` | golden scenario、決定的replay、JSONL／hash、実機体manifestの回帰検証。 |
 | `Assets/Editor/TestPlayGoldenTraceVerification.cs` | 実ANI／SPT上で全GTを2回実行し、全tickの完全一致とaction／command anchorを検証する。 |
+| `Assets/Editor/TestPlayOriginalTraceComparison.cs` | 原作観測JSONLをUnity基準traceと比較し、最初の不一致レポートを保存する。 |
+| `Assets/Editor/TestPlayPhase6Verification.cs` | 部分観測、欠落値、比較許容誤差、原作EXE hashの回帰検証。 |
 
 ## 手動セットアップ
 
@@ -177,6 +180,12 @@ Unityメニューの `Tools > WindomXP > Test Play > Run Runtime Verification` �
 2026-08-15のUnity `6000.5.0f1`実測では465項目が全件通過しました。
 
 `Tools > WindomXP > Test Play > Run Real-Mech Golden Traces`では、`ガンダムTR-1ヘイズル改`の実`Script.ani` / `Script.spt`を読み込み、GT-001～GT-010をそれぞれ2回実行します。全tickがbyte単位で一致した場合だけ`Logs/TestPlayGolden`へUnity基準traceを出力します。これは`RealAniObserved`、つまり実データをUnity Coreで実行した基準値であり、原作EXEから採取した観測値ではありません。
+
+`Tools > WindomXP > Test Play > Compare Original Observation Trace`は、原作EXE観測JSONLの`observedFields`に宣言された項目だけを現在のUnity基準traceと比較します。取得不能な値は0で補わず、宣言済み値の欠落、未対応パス、hash／シナリオ不一致を診断します。最初の不一致と前後tickは`Logs/TestPlayOriginalCompare`へ保存します。GT-001取得契約と現状の制限は`Tools/OriginalTrace/README.md`を参照してください。
+
+GT-001の比較用正規化では、原作の待機direction `5`をUnity規約の`0`へ変換し、float32最小正規値未満のMove残留値だけを停止値`0`として扱います。原作値は`input.rawDirection`、`rawScriptedVelocity`、raw CSVへ保持されます。また、Colliderを使わない決定性traceだけは開始setupに対応する論理接地面を持ち、実シーンのCollider接地経路には影響しません。
+
+原作実行環境の機体データがプロジェクト内基準と異なる場合は、`Run Selected-Mech GT-001 Reference Trace`で原作側と同じ機体フォルダーから基準を作ります。結果はANI/SPT hash別に保存され、比較メニューが完全hashの一致する基準だけを選択します。最後に選択したフォルダーはEditor設定へ記憶され、再取得時は`Run Last Selected-Mech GT-001 Reference Trace`を使用できます。
 
 同日の実測では10/10シナリオが成功し、各2回の全tickが完全一致しました。
 

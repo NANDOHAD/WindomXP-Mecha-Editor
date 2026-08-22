@@ -1,6 +1,5 @@
 using System.Collections;
 using System.Collections.Generic;
-using System.IO;
 using UnityEngine;
 using UnityEngine.UI;
 public class UI_ViewControl : MonoBehaviour
@@ -115,19 +114,15 @@ public class UI_ViewControl : MonoBehaviour
     public void saveSettings()
     {
         string folder = SelectPanel.GetComponent<UI_SelectMech>().folder;
-        StreamWriter sw = new StreamWriter("Settings.txt");
-        sw.WriteLine(folder);
-        sw.Close();
+        WindomToolSettings.SaveFolder(folder);
     }
 
     public void loadSettings()
     {
-        if (File.Exists("Settings.txt"))
+        if (WindomToolSettings.Exists)
         {
-            StreamReader sr = new StreamReader("Settings.txt");
-            string folder = sr.ReadLine();
-            folderLoc.text = folder;
-            sr.Close();
+            WindomToolSettings.Data settings = WindomToolSettings.Load();
+            folderLoc.text = settings.folder;
         }
     }
 }

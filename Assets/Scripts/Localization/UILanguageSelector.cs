@@ -24,7 +24,9 @@ public sealed class UILanguageSelector : MonoBehaviour
         languageDropdown.ClearOptions();
         languageDropdown.AddOptions(new List<string>(LocaleNames));
 
-        string code = PlayerPrefs.GetString(LocalePreferenceKey, string.Empty);
+        string code = WindomToolSettings.Load().languageCode;
+        if (string.IsNullOrEmpty(code))
+            code = PlayerPrefs.GetString(LocalePreferenceKey, string.Empty);
         if (string.IsNullOrEmpty(code))
             code = Application.systemLanguage == SystemLanguage.English ? "en" : "ja";
 
@@ -60,6 +62,7 @@ public sealed class UILanguageSelector : MonoBehaviour
         LocalizationSettings.SelectedLocale = locale;
         if (savePreference)
         {
+            WindomToolSettings.SaveLanguage(LocaleCodes[index]);
             PlayerPrefs.SetString(LocalePreferenceKey, LocaleCodes[index]);
             PlayerPrefs.Save();
         }

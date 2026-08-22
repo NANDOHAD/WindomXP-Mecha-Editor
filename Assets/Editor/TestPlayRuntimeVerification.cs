@@ -40,6 +40,7 @@ public static class TestPlayRuntimeVerification
         assertions += TestPlayPhase3Verification.RunAll();
         assertions += TestPlayPhase4Verification.RunAll();
         assertions += TestPlayPhase5Verification.RunAll();
+        assertions += TestPlayPhase6Verification.RunAll();
         return assertions;
     }
 

@@ -150,6 +150,9 @@ public static class TestPlayPhase5Verification
             "hardware-independent controller replay is byte-for-byte deterministic", ref assertions);
         Require(first.Contains("\"logicalAction\":1") && first.Contains("\"direction\":8"),
             "deterministic replay reaches movement action with explicit input", ref assertions);
+        Require(first.Contains("\"grounded\":true") &&
+                !first.Contains("\"velocityBefore\":[0,-"),
+            "grounded deterministic replay preserves logical contact without collider drift", ref assertions);
         Require(first.Contains("\"movementEnergy\":") && first.Contains("\"presentation\":{") &&
                 first.Contains("\"combat\":{") && first.Contains("\"runtime\":{") ,
             "Phase 5 replay combines prior Core traces", ref assertions);

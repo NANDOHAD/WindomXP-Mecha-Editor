@@ -27,7 +27,7 @@
 # By default unity supports Blender asset imports, *.blend1 blender files do not need to be commited to version control.
 *.blend1
 *.blend1.meta
-
+*.meta
 # MemoryCaptures can get excessive in size.
 # They also could contain extremely sensitive data
 /[Mm]emoryCaptures/
@@ -1206,3 +1206,20 @@ Windom_Data/assimp64.dll
 debug.txt
 assimp32.dll
 .vsconfig
+
+解析資料/
+UserSettings/
+docs/
+Library/
+Windom_Data/
+obj/
+Temp/
+DEV_STATE.md
+AGENTS.md
+Settings.txt
+AnimationList.txt
+.gitignore
+debug.txt
+WindomMechaEditor.sln
+.vsconfig
+Logs/

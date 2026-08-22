@@ -11,9 +11,9 @@ public class TestPlayHudRuntime : MonoBehaviour
 
     [Header("Layout")]
     public Vector2 referenceResolution = new Vector2(1920f, 1080f);
-    public Vector2 statusPanelSize = new Vector2(340f, 90f);
+    public Vector2 statusPanelSize = new Vector2(330f, 450f);
     public Vector2 gaugePanelSize = new Vector2(620f, 100f);
-    public Vector2 screenMargin = new Vector2(24f, 24f);
+    public Vector2 screenMargin = new Vector2(24f, 45f);
 
     [Header("Colors")]
     public Color panelColor = new Color(0.015f, 0.025f, 0.045f, 0.84f);
@@ -66,7 +66,7 @@ public class TestPlayHudRuntime : MonoBehaviour
         if (!Mathf.Approximately(displayedHP, controller.currentHP))
         {
             displayedHP = controller.currentHP;
-            hpText.text = "HP  " + Mathf.CeilToInt(Mathf.Max(0f, controller.currentHP));
+            hpText.text = " " + Mathf.CeilToInt(Mathf.Max(0f, controller.currentHP));
         }
         UpdateGauge(
             generatorFill,
@@ -241,24 +241,24 @@ public class TestPlayHudRuntime : MonoBehaviour
             TextAnchor.MiddleLeft);
         SetStretchRect(
             mechaNameText.rectTransform,
-            new Vector2(0f, 0.48f),
+            new Vector2(0f, 0.32f),
             Vector2.one,
             new Vector2(14f, 2f),
-            new Vector2(-14f, -4f));
+            new Vector2(-14f, -230f));
 
         hpText = CreateText(
             "RemainingHP",
             panel,
             resolvedFont,
-            28,
+            95,
             hpColor,
-            TextAnchor.MiddleLeft);
+            TextAnchor.MiddleCenter);
         SetStretchRect(
             hpText.rectTransform,
             Vector2.zero,
-            new Vector2(1f, 0.48f),
-            new Vector2(14f, 4f),
-            new Vector2(-14f, -2f));
+            new Vector2(1f, 0.3f),
+            new Vector2(14f, 10f),
+            new Vector2(-14f, -14f));
     }
 
     void BuildGaugePanel(RectTransform canvasRect, Font resolvedFont)
@@ -273,7 +273,7 @@ public class TestPlayHudRuntime : MonoBehaviour
 
         CreateGaugeRow(
             panel,
-            "Generator",
+            "Booster",
             new Vector2(0f, 0.5f),
             Vector2.one,
             generatorColor,
