@@ -75,13 +75,28 @@ public sealed class HodHierarchyPrunePlan
                 ? parts[range.start].name
                 : "<名称なし>";
             int descendantCount = range.count - 1;
-            string descendants = descendantCount > 0 ? $"（配下{descendantCount}個を含む）" : "";
-            lines.Add($"パーツ[{range.start}]「{name}」{descendants}");
+            lines.Add(UILocalization.Get(
+                "hod.prune.preview_range",
+                "パーツ[{0}]「{1}」{2}",
+                range.start,
+                name,
+                descendantCount > 0
+                    ? UILocalization.Get(
+                        "hod.prune.preview_descendants",
+                        "（配下{0}個を含む）",
+                        descendantCount)
+                    : ""));
         }
 
         if (ranges.Length > lines.Count)
-            lines.Add($"ほか{ranges.Length - lines.Count}範囲");
-        lines.Add($"合計{RemovedPartCount}パーツを除外します。");
+            lines.Add(UILocalization.Get(
+                "hod.prune.preview_more_ranges",
+                "ほか{0}範囲",
+                ranges.Length - lines.Count));
+        lines.Add(UILocalization.Get(
+            "hod.prune.preview_total",
+            "合計{0}パーツを除外します。",
+            RemovedPartCount));
         return string.Join("\n", lines);
     }
 
@@ -89,7 +104,9 @@ public sealed class HodHierarchyPrunePlan
     {
         if (!CanApply)
         {
-            error = "安全に除外できる孤立パーツを一意に特定できません。";
+            error = UILocalization.Get(
+                "hod.prune.no_unique_orphan",
+                "安全に除外できる孤立パーツを一意に特定できません。");
             return false;
         }
 
@@ -116,13 +133,18 @@ public sealed class HodHierarchyPrunePlan
 
         if (newStructureParts.Count != repairedTreeDepths.Length)
         {
-            error = "除外後の構造HODパーツ数が修復計画と一致しません。";
+            error = UILocalization.Get(
+                "hod.prune.structure_part_count",
+                "除外後の構造HODパーツ数が修復計画と一致しません。");
             return false;
         }
 
         if (!HodHierarchyValidator.TryValidate(newStructureParts, out error))
         {
-            error = "除外後の階層検証に失敗しました。\n" + error;
+            error = UILocalization.Get(
+                "hod.prune.validation_failed",
+                "除外後の階層検証に失敗しました。\n{0}",
+                error);
             return false;
         }
 
@@ -193,14 +215,18 @@ public sealed class HodHierarchyPrunePlan
     {
         if (ani == null || ani.structure == null || ani.structure.parts == null)
         {
-            error = "構造HODがありません。";
+            error = UILocalization.Get("hod.repair.no_structure", "構造HODがありません。");
             return false;
         }
 
         int originalPartCount = originalTreeDepths == null ? 0 : originalTreeDepths.Length;
         if (ani.structure.parts.Count != originalPartCount)
         {
-            error = $"構造HODのパーツ数が除外計画と一致しません（{ani.structure.parts.Count}/{originalPartCount}）。";
+            error = UILocalization.Get(
+                "hod.prune.structure_plan_count",
+                "構造HODのパーツ数が除外計画と一致しません（{0}/{1}）。",
+                ani.structure.parts.Count,
+                originalPartCount);
             return false;
         }
 
@@ -211,14 +237,17 @@ public sealed class HodHierarchyPrunePlan
                 || part.childCount != originalChildCounts[i]
                 || !string.Equals(part.name, originalNames[i], System.StringComparison.Ordinal))
             {
-                error = $"構造HODのパーツ[{i}]が除外計画の作成後に変更されています。";
+                error = UILocalization.Get(
+                    "hod.prune.structure_changed",
+                    "構造HODのパーツ[{0}]が除外計画の作成後に変更されています。",
+                    i);
                 return false;
             }
         }
 
         if (ani.animations == null)
         {
-            error = "アニメーション情報がありません。";
+            error = UILocalization.Get("hod.repair.no_animations", "アニメーション情報がありません。");
             return false;
         }
 
@@ -227,7 +256,10 @@ public sealed class HodHierarchyPrunePlan
             animation animationData = ani.animations[animationIndex];
             if (animationData == null || animationData.frames == null)
             {
-                error = $"アニメーション[{animationIndex}]のフレーム情報がありません。";
+                error = UILocalization.Get(
+                    "hod.repair.animation_frames_missing",
+                    "アニメーション[{0}]のフレーム情報がありません。",
+                    animationIndex);
                 return false;
             }
 
@@ -236,14 +268,23 @@ public sealed class HodHierarchyPrunePlan
                 hod2v1 frame = animationData.frames[frameIndex];
                 if (frame == null || frame.parts == null)
                 {
-                    error = $"アニメーション[{animationIndex}] フレーム[{frameIndex}]のパーツ情報がありません。";
+                    error = UILocalization.Get(
+                        "hod.repair.frame_parts_missing",
+                        "アニメーション[{0}] フレーム[{1}]のパーツ情報がありません。",
+                        animationIndex,
+                        frameIndex);
                     return false;
                 }
 
                 if (frame.parts.Count != originalPartCount)
                 {
-                    error = $"アニメーション[{animationIndex}] フレーム[{frameIndex}]のパーツ数が"
-                        + $"構造HODと一致しません（{frame.parts.Count}/{originalPartCount}）。";
+                    error = UILocalization.Get(
+                        "hod.repair.frame_part_count",
+                        "アニメーション[{0}] フレーム[{1}]のパーツ数が構造HODと一致しません（{2}/{3}）。",
+                        animationIndex,
+                        frameIndex,
+                        frame.parts.Count,
+                        originalPartCount);
                     return false;
                 }
 
@@ -253,8 +294,12 @@ public sealed class HodHierarchyPrunePlan
                     if (framePart.treeDepth != originalTreeDepths[partIndex]
                         || framePart.childCount != originalChildCounts[partIndex])
                     {
-                        error = $"アニメーション[{animationIndex}] フレーム[{frameIndex}]の階層情報が"
-                            + $"構造HODと一致しません（位置{partIndex}）。";
+                        error = UILocalization.Get(
+                            "hod.prune.frame_hierarchy_mismatch",
+                            "アニメーション[{0}] フレーム[{1}]の階層情報が構造HODと一致しません（位置{2}）。",
+                            animationIndex,
+                            frameIndex,
+                            partIndex);
                         return false;
                     }
 
@@ -263,8 +308,14 @@ public sealed class HodHierarchyPrunePlan
                         && !string.IsNullOrEmpty(framePart.name)
                         && !string.Equals(structureName, framePart.name, System.StringComparison.Ordinal))
                     {
-                        error = $"アニメーション[{animationIndex}] フレーム[{frameIndex}]のパーツ順が"
-                            + $"構造HODと一致しません（位置{partIndex}: 「{framePart.name}」/「{structureName}」）。";
+                        error = UILocalization.Get(
+                            "hod.repair.frame_order_mismatch",
+                            "アニメーション[{0}] フレーム[{1}]のパーツ順が構造HODと一致しません（位置{2}: 「{3}」/「{4}」）。",
+                            animationIndex,
+                            frameIndex,
+                            partIndex,
+                            framePart.name,
+                            structureName);
                         return false;
                     }
                 }
@@ -289,7 +340,9 @@ public static class HodHierarchyPrune
         if (parts == null || parts.Count == 0)
         {
             return Unavailable(
-                "パーツ情報がないため除外できません。",
+                UILocalization.Get(
+                    "hod.prune.no_parts",
+                    "パーツ情報がないため除外できません。"),
                 originalDepths, originalCounts, originalNames);
         }
 
@@ -299,14 +352,18 @@ public static class HodHierarchyPrune
         if (repairPlan.Kind != HodHierarchyRepairKind.Unrepairable)
         {
             return Unavailable(
-                "値の修復が可能、または削除対象が曖昧なため、自動除外は行いません。",
+                UILocalization.Get(
+                    "hod.prune.repair_or_ambiguous",
+                    "値の修復が可能、または削除対象が曖昧なため、自動除外は行いません。"),
                 originalDepths, originalCounts, originalNames);
         }
 
         if (parts[0].treeDepth != 0)
         {
             return Unavailable(
-                "先頭ルートのtreeDepthが不正なため、安全な除外範囲を決められません。",
+                UILocalization.Get(
+                    "hod.prune.invalid_root_depth",
+                    "先頭ルートのtreeDepthが不正なため、安全な除外範囲を決められません。"),
                 originalDepths, originalCounts, originalNames);
         }
 
@@ -319,7 +376,10 @@ public static class HodHierarchyPrune
             if (depth < 0)
             {
                 return Unavailable(
-                    $"パーツ[{index}]のtreeDepthが負のため、子階層の範囲を決められません。",
+                    UILocalization.Get(
+                        "hod.prune.negative_depth_range",
+                        "パーツ[{0}]のtreeDepthが負のため、子階層の範囲を決められません。",
+                        index),
                     originalDepths, originalCounts, originalNames);
             }
 
@@ -342,7 +402,9 @@ public static class HodHierarchyPrune
         if (ranges.Count == 0)
         {
             return Unavailable(
-                "親へ接続不能な孤立パーツを一意に特定できません。",
+                UILocalization.Get(
+                    "hod.prune.no_unique_orphan",
+                    "親へ接続不能な孤立パーツを一意に特定できません。"),
                 originalDepths, originalCounts, originalNames);
         }
 
@@ -350,7 +412,9 @@ public static class HodHierarchyPrune
         if (retainedParts.Count == 0 || retainedParts[0].treeDepth != 0)
         {
             return Unavailable(
-                "除外後に有効なルートパーツが残りません。",
+                UILocalization.Get(
+                    "hod.prune.no_root_after_prune",
+                    "除外後に有効なルートパーツが残りません。"),
                 originalDepths, originalCounts, originalNames);
         }
 
@@ -360,7 +424,10 @@ public static class HodHierarchyPrune
         if (!TryBuildChildCountsFromDepths(retainedParts, out repairedCounts, out depthError))
         {
             return Unavailable(
-                "除外後のtreeDepthを有効な階層として構築できません。\n" + depthError,
+                UILocalization.Get(
+                    "hod.prune.depth_rebuild_failed",
+                    "除外後のtreeDepthを有効な階層として構築できません。\n{0}",
+                    depthError),
                 originalDepths, originalCounts, originalNames);
         }
 
@@ -375,7 +442,10 @@ public static class HodHierarchyPrune
         if (!HodHierarchyValidator.TryValidate(retainedParts, out validationError))
         {
             return Unavailable(
-                "除外後の階層検証に失敗しました。\n" + validationError,
+                UILocalization.Get(
+                    "hod.prune.validation_failed",
+                    "除外後の階層検証に失敗しました。\n{0}",
+                    validationError),
                 originalDepths, originalCounts, originalNames);
         }
 
@@ -385,8 +455,13 @@ public static class HodHierarchyPrune
 
         return new HodHierarchyPrunePlan(
             HodHierarchyPruneKind.DeterministicOrphanRanges,
-            $"親へ接続できない孤立パーツを{removedCount}個除外できます。",
-            "除外後は残ったtreeDepthを正としてchildCountを再構築します。",
+            UILocalization.Get(
+                "hod.prune.summary",
+                "親へ接続できない孤立パーツを{0}個除外できます。",
+                removedCount),
+            UILocalization.Get(
+                "hod.prune.details",
+                "除外後は残ったtreeDepthを正としてchildCountを再構築します。"),
             removedCount,
             originalDepths,
             originalCounts,
@@ -426,7 +501,9 @@ public static class HodHierarchyPrune
         childCounts = new int[parts.Count];
         if (parts.Count == 0 || parts[0].treeDepth != 0)
         {
-            error = "先頭パーツがルートではありません。";
+            error = UILocalization.Get(
+                "hod.prune.rebuild_no_root",
+                "先頭パーツがルートではありません。");
             return false;
         }
 
@@ -436,7 +513,11 @@ public static class HodHierarchyPrune
             int depth = parts[i].treeDepth;
             if (depth <= 0 || depth > previousDepth + 1)
             {
-                error = $"パーツ[{i}]を親階層へ接続できません（treeDepth={depth}）。";
+                error = UILocalization.Get(
+                    "hod.prune.rebuild_unconnectable",
+                    "パーツ[{0}]を親階層へ接続できません（treeDepth={1}）。",
+                    i,
+                    depth);
                 return false;
             }
 
@@ -453,7 +534,10 @@ public static class HodHierarchyPrune
 
             if (!parentFound)
             {
-                error = $"パーツ[{i}]の親候補がありません。";
+                error = UILocalization.Get(
+                    "hod.prune.rebuild_no_parent",
+                    "パーツ[{0}]の親候補がありません。",
+                    i);
                 return false;
             }
 
@@ -502,7 +586,9 @@ public static class HodHierarchyPrune
     {
         return new HodHierarchyPrunePlan(
             HodHierarchyPruneKind.Unavailable,
-            "安全に除外できる不整合パーツはありません。",
+            UILocalization.Get(
+                "hod.prune.unavailable_summary",
+                "安全に除外できる不整合パーツはありません。"),
             details,
             0,
             originalDepths,

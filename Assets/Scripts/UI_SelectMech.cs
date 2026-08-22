@@ -253,7 +253,10 @@ public class UI_SelectMech : MonoBehaviour
                 if (!selectedRepairPlan.TryApply(ani, out repairError))
                 {
                     Debug.LogWarning($"[UI_SelectMech] HOD階層の修復を中止しました: {repairError}");
-                    msgBox?.Show("HOD階層を安全に修復できなかったため、読み込みを中止しました。\n" + repairError);
+                    msgBox?.Show(UILocalization.Get(
+                        "hod.ui.repair_apply_failed",
+                        "HOD階層を安全に修復できなかったため、読み込みを中止しました。\n{0}",
+                        repairError));
                     return;
                 }
 
@@ -265,7 +268,10 @@ public class UI_SelectMech : MonoBehaviour
                 if (!prunePlan.TryApply(ani, out pruneError))
                 {
                     Debug.LogWarning($"[UI_SelectMech] 不整合パーツの除外を中止しました: {pruneError}");
-                    msgBox?.Show("不整合パーツを安全に除外できなかったため、読み込みを中止しました。\n" + pruneError);
+                    msgBox?.Show(UILocalization.Get(
+                        "hod.ui.prune_apply_failed",
+                        "不整合パーツを安全に除外できなかったため、読み込みを中止しました。\n{0}",
+                        pruneError));
                     return;
                 }
 
@@ -357,31 +363,44 @@ public class UI_SelectMech : MonoBehaviour
             return HierarchyRepairDecision.ReadOnly;
         }
 
-        string message = "HODのパーツ階層に不整合があります。\n\n"
+        string message = UILocalization.Get(
+            "hod.ui.inconsistent_header",
+            "HODのパーツ階層に不整合があります。\n\n")
             + repairPlan.Summary;
         if (!string.IsNullOrEmpty(repairPlan.Details))
             message += "\n" + repairPlan.Details;
 
         string repairPreview = repairPlan.BuildPreview(parts);
         if (!string.IsNullOrEmpty(repairPreview))
-            message += "\n\n修復予定:\n" + repairPreview;
+            message += UILocalization.Get(
+                "hod.ui.repair_preview",
+                "\n\n修復予定:\n{0}",
+                repairPreview);
 
         if (repairPlan.CanApply && !canRepairLoadedData && !string.IsNullOrEmpty(repairUnavailableReason))
-            message += "\n\n自動修復を適用できません:\n" + repairUnavailableReason;
+            message += UILocalization.Get(
+                "hod.ui.repair_unavailable",
+                "\n\n自動修復を適用できません:\n{0}",
+                repairUnavailableReason);
 
         if (treeDepthPlan != null)
         {
             if (canUseTreeDepth)
             {
-                message += "\n\ntreeDepthを正とする場合:\n" + treeDepthPlan.Summary;
+                message += UILocalization.Get(
+                    "hod.ui.tree_depth_case",
+                    "\n\ntreeDepthを正とする場合:\n{0}",
+                    treeDepthPlan.Summary);
                 string preview = treeDepthPlan.BuildPreview(parts);
                 if (!string.IsNullOrEmpty(preview))
                     message += "\n" + preview;
             }
             else if (!string.IsNullOrEmpty(treeDepthUnavailableReason))
             {
-                message += "\n\ntreeDepthを正とする修復を適用できません:\n"
-                    + treeDepthUnavailableReason;
+                message += UILocalization.Get(
+                    "hod.ui.tree_depth_unavailable",
+                    "\n\ntreeDepthを正とする修復を適用できません:\n{0}",
+                    treeDepthUnavailableReason);
             }
         }
 
@@ -389,32 +408,44 @@ public class UI_SelectMech : MonoBehaviour
         {
             if (canUseChildCount)
             {
-                message += "\n\nchildCountを正とする場合:\n" + childCountPlan.Summary;
+                message += UILocalization.Get(
+                    "hod.ui.child_count_case",
+                    "\n\nchildCountを正とする場合:\n{0}",
+                    childCountPlan.Summary);
                 string preview = childCountPlan.BuildPreview(parts);
                 if (!string.IsNullOrEmpty(preview))
                     message += "\n" + preview;
             }
             else if (!string.IsNullOrEmpty(childCountUnavailableReason))
             {
-                message += "\n\nchildCountを正とする修復を適用できません:\n"
-                    + childCountUnavailableReason;
+                message += UILocalization.Get(
+                    "hod.ui.child_count_unavailable",
+                    "\n\nchildCountを正とする修復を適用できません:\n{0}",
+                    childCountUnavailableReason);
             }
         }
 
         if (canRepairManually)
         {
-            message += "\n\n手動修復では各パーツの親を指定し、"
-                + "構造HODと全アニメーションフレームを同じ順序へ再構築します。";
+            message += UILocalization.Get(
+                "hod.ui.manual_available",
+                "\n\n手動修復では各パーツの親を指定し、構造HODと全アニメーションフレームを同じ順序へ再構築します。");
         }
         else if (repairPlan.Kind == HodHierarchyRepairKind.Unrepairable
             && !string.IsNullOrEmpty(manualUnavailableReason))
         {
-            message += "\n\n手動修復を開始できません:\n" + manualUnavailableReason;
+            message += UILocalization.Get(
+                "hod.ui.manual_unavailable",
+                "\n\n手動修復を開始できません:\n{0}",
+                manualUnavailableReason);
         }
 
         if (canPruneLoadedData)
         {
-            message += "\n\n除外候補:\n" + prunePlan.Summary;
+            message += UILocalization.Get(
+                "hod.ui.prune_candidate",
+                "\n\n除外候補:\n{0}",
+                prunePlan.Summary);
             if (!string.IsNullOrEmpty(prunePlan.Details))
                 message += "\n" + prunePlan.Details;
 
@@ -424,17 +455,24 @@ public class UI_SelectMech : MonoBehaviour
         }
         else if (prunePlan.CanApply && !string.IsNullOrEmpty(pruneUnavailableReason))
         {
-            message += "\n\n不整合パーツを除外できません:\n" + pruneUnavailableReason;
+            message += UILocalization.Get(
+                "hod.ui.prune_unavailable",
+                "\n\n不整合パーツを除外できません:\n{0}",
+                pruneUnavailableReason);
         }
 
         if (canRepairLoadedData || canUseTreeDepth || canUseChildCount
             || canRepairManually || canPruneLoadedData)
         {
-            message += "\n\n変更はメモリ上だけで行い、元ファイルを自動上書きしません。";
+            message += UILocalization.Get(
+                "hod.ui.memory_only",
+                "\n\n変更はメモリ上だけで行い、元ファイルを自動上書きしません。");
         }
         else
         {
-            message += "\n\n読取専用なら表示を継続できます。";
+            message += UILocalization.Get(
+                "hod.ui.read_only_continue",
+                "\n\n読取専用なら表示を継続できます。");
         }
 
         List<string> options = new List<string>();
@@ -472,11 +510,23 @@ public class UI_SelectMech : MonoBehaviour
     {
         while (true)
         {
-            string message = "HODパーツ階層の手動修復\n\n"
-                + "修正するパーツを選び、その親パーツを指定してください。"
-                + "ルートはパーツ[0]に固定されます。\n"
-                + $"未接続: {session.UnassignedCount} / {session.PartCount - 1}\n\n"
-                + "現在の接続:";
+            string message = UILocalization.Get(
+                "hod.ui.manual_header",
+                "HODパーツ階層の手動修復\n\n")
+                + UILocalization.Get(
+                    "hod.ui.manual_instructions",
+                    "修正するパーツを選び、その親パーツを指定してください。")
+                + UILocalization.Get(
+                    "hod.ui.manual_root",
+                    "ルートはパーツ[0]に固定されます。\n")
+                + UILocalization.Get(
+                    "hod.ui.manual_unassigned",
+                    "未接続: {0} / {1}\n\n",
+                    session.UnassignedCount,
+                    session.PartCount - 1)
+                + UILocalization.Get(
+                    "hod.ui.current_connections",
+                    "現在の接続:");
 
             List<string> options = new List<string>();
             options.Add(ApplyManualRepairLabel);
@@ -498,7 +548,10 @@ public class UI_SelectMech : MonoBehaviour
                     return true;
 
                 string ignored = await AskSelectionAsync(
-                    "手動修復を適用できません。\n\n" + applyError,
+                    UILocalization.Get(
+                        "hod.ui.manual_apply_failed",
+                        "手動修復を適用できません。\n\n{0}",
+                        applyError),
                     new List<string> { "設定へ戻る" });
                 if (ignored == null)
                     return false;
@@ -516,9 +569,10 @@ public class UI_SelectMech : MonoBehaviour
                 parentOptions.Add(session.GetPartLabel(parentIndex));
 
             string parentSelection = await AskSelectionAsync(
-                session.GetPartLabel(selectedPartIndex)
-                    + " の親パーツを選択してください。\n"
-                    + "循環を防ぐため、現在より前に並ぶパーツだけを選択できます。",
+                UILocalization.Get(
+                    "hod.ui.parent_selection",
+                    "{0} の親パーツを選択してください。\n循環を防ぐため、現在より前に並ぶパーツだけを選択できます。",
+                    session.GetPartLabel(selectedPartIndex)),
                 parentOptions);
             if (parentSelection == null)
                 continue;
@@ -530,7 +584,10 @@ public class UI_SelectMech : MonoBehaviour
             if (!session.TrySetParent(selectedPartIndex, selectedParentIndex, out setError))
             {
                 string ignored = await AskSelectionAsync(
-                    "親パーツを設定できません。\n\n" + setError,
+                    UILocalization.Get(
+                        "hod.ui.parent_set_failed",
+                        "親パーツを設定できません。\n\n{0}",
+                        setError),
                     new List<string> { "設定へ戻る" });
                 if (ignored == null)
                     return false;
@@ -548,9 +605,14 @@ public class UI_SelectMech : MonoBehaviour
         if (loadingUI != null)
             loadingUI.SetActive(false);
 
+        List<string> displayOptions = new List<string>(options.Count);
+        for (int i = 0; i < options.Count; i++)
+            displayOptions.Add(UILocalization.GetFixed(options[i]));
+
         robo.inputBox.openSelectDialog(
             message,
             options,
+            displayOptions,
             selected => completion.TrySetResult(selected),
             ignored => completion.TrySetResult(null));
 

@@ -596,6 +596,614 @@ MonoBehaviour:
     m_Localized: New HOD File
     m_Metadata:
       m_Items: []
+  - m_Id: 6881912269299712
+    m_Localized: Configuration
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912374157312
+    m_Localized: Viewing Mode
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912374157313
+    m_Localized: Test Mode
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912378351616
+    m_Localized: World
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912378351617
+    m_Localized: Unknown Mecha
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912378351618
+    m_Localized: Repair and Load
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912378351619
+    m_Localized: Repair Using treeDepth
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912378351620
+    m_Localized: Repair Using childCount
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912378351621
+    m_Localized: Exclude Inconsistent Parts and Load
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912378351622
+    m_Localized: Repair Hierarchy Manually
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912378351623
+    m_Localized: Validate and Apply
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912378351624
+    m_Localized: Leave Unconnected
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912378351625
+    m_Localized: Continue Read-Only
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912378351626
+    m_Localized: Return to Settings
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912378351627
+    m_Localized: <Out of range>
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912378351628
+    m_Localized: Part[{0}] "{1}"
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912378351629
+    m_Localized: No part information is available.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912378351630
+    m_Localized: '{0}: treeDepth is negative ({1}).'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912378351631
+    m_Localized: '{0}: the first part''s treeDepth must be 0 ({1}).'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912378351632
+    m_Localized: '{0}: treeDepth increases by more than one from the previous part
+      ({1}->{2}).'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912378351633
+    m_Localized: '{0}: this is a root part after the first part.'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912378351634
+    m_Localized: '{0}: no preceding parent candidate exists for treeDepth={1}.'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912378351635
+    m_Localized: '{0}: childCount does not match (recorded={1}, calculated from depths={2}).'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912378351636
+    m_Localized: '
+
+      There are {0} more inconsistencies.'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545920
+    m_Localized: 'Part[{0}] "{1}": treeDepth {2}->{3}, childCount {4}->{5}'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545921
+    m_Localized: '
+
+      {0} more changes will be repaired.'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545922
+    m_Localized: There is no unique automatic repair method for this inconsistency.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545923
+    m_Localized: No structure HOD is available.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545924
+    m_Localized: The structure HOD part count does not match the repair plan ({0}/{1}).
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545925
+    m_Localized: Structure HOD part[{0}] changed after the repair plan was created.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545926
+    m_Localized: No animation information is available.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545927
+    m_Localized: Animation[{0}] has no frame information.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545928
+    m_Localized: Animation[{0}] frame[{1}] has no part information.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545929
+    m_Localized: Animation[{0}] frame[{1}] part count does not match the structure
+      HOD ({2}/{3}).
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545930
+    m_Localized: 'Animation[{0}] frame[{1}] part order does not match the structure
+      HOD (position {2}: "{3}"/"{4}").'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545931
+    m_Localized: Cannot repair using treeDepth because no part information is available.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545932
+    m_Localized: The hierarchy cannot be reconstructed from treeDepth.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545933
+    m_Localized: Cannot repair using treeDepth.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545934
+    m_Localized: Repair childCount using treeDepth.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545935
+    m_Localized: Keep the hierarchy represented by treeDepth and recalculate childCount
+      for all parts.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545936
+    m_Localized: Cannot repair using childCount because no part information is available.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545937
+    m_Localized: The hierarchy cannot be reconstructed from childCount.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545938
+    m_Localized: Cannot repair using childCount.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545939
+    m_Localized: Repair treeDepth using childCount.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545940
+    m_Localized: Keep the hierarchy represented by childCount and recalculate treeDepth
+      for all parts.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545941
+    m_Localized: Cannot repair because no part information is available.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545942
+    m_Localized: The hierarchy cannot be reconstructed from either treeDepth or childCount.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545943
+    m_Localized: The part hierarchy has no inconsistencies.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545944
+    m_Localized: treeDepth and childCount each describe a different valid hierarchy.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545945
+    m_Localized: Automatic repair is not performed because the correct representation
+      cannot be determined uniquely.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545946
+    m_Localized: childCount can be repaired using treeDepth.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545947
+    m_Localized: The treeDepth sequence is valid, but a valid hierarchy cannot be
+      reconstructed from childCount.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545948
+    m_Localized: treeDepth can be repaired using childCount.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545949
+    m_Localized: The childCount sequence is valid, but a valid hierarchy cannot be
+      reconstructed from treeDepth.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545950
+    m_Localized: Cannot repair because both treeDepth and childCount are inconsistent.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545951
+    m_Localized: 'treeDepth: {0}
+
+      childCount: {1}'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545952
+    m_Localized: The first part's treeDepth is not 0 ({0}).
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545953
+    m_Localized: Part[{0}] has a negative treeDepth ({1}).
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545954
+    m_Localized: Part[{0}] is a root after the first part.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545955
+    m_Localized: Part[{0}]'s treeDepth increases by more than one ({1}->{2}).
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545956
+    m_Localized: Part[{0}] has a negative childCount ({1}).
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545957
+    m_Localized: There is no parent childCount slot available for Part[{0}].
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545958
+    m_Localized: childCount requires {0} more child parts than are available.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545959
+    m_Localized: Part[{0}] "{1}"{2}
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545960
+    m_Localized: ' (including {0} descendants)'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545961
+    m_Localized: '{0} more ranges'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545962
+    m_Localized: A total of {0} parts will be excluded.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545963
+    m_Localized: The orphan parts that can be safely excluded cannot be identified
+      uniquely.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545964
+    m_Localized: The structure HOD part count after exclusion does not match the
+      repair plan.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545965
+    m_Localized: 'Hierarchy validation failed after exclusion.
+
+      {0}'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545966
+    m_Localized: The structure HOD part count does not match the exclusion plan ({0}/{1}).
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545967
+    m_Localized: Structure HOD part[{0}] changed after the exclusion plan was created.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545968
+    m_Localized: Animation[{0}] frame[{1}] hierarchy data does not match the structure
+      HOD (position {2}).
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545969
+    m_Localized: Cannot exclude parts because no part information is available.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545970
+    m_Localized: Automatic exclusion is not performed because the values can be repaired
+      or the exclusion target is ambiguous.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545971
+    m_Localized: The safe exclusion range cannot be determined because the first
+      root treeDepth is invalid.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545972
+    m_Localized: The child hierarchy range cannot be determined because Part[{0}]
+      has a negative treeDepth.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545973
+    m_Localized: No valid root part would remain after exclusion.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545974
+    m_Localized: 'The remaining treeDepth values cannot form a valid hierarchy after
+      exclusion.
+
+      {0}'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545975
+    m_Localized: '{0} orphan parts that cannot connect to a parent can be excluded.'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545976
+    m_Localized: After exclusion, childCount will be rebuilt using the remaining
+      treeDepth values.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545977
+    m_Localized: The first part is not a root.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545978
+    m_Localized: Part[{0}] cannot be connected to the parent hierarchy (treeDepth={1}).
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545979
+    m_Localized: Part[{0}] has no parent candidate.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545980
+    m_Localized: There are no inconsistent parts that can be safely excluded.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545981
+    m_Localized: The structure HOD has no part information.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545982
+    m_Localized: '[{0}] {1}'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545983
+    m_Localized: '{0} (root fixed)'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545984
+    m_Localized: '{0} -> Unconnected'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545985
+    m_Localized: '{0} -> {1}'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545986
+    m_Localized: The root part is fixed and its parent cannot be changed.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545987
+    m_Localized: Only a part that appears before this part can be selected as its
+      parent.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545988
+    m_Localized: '{0} parts have no parent assigned.'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545989
+    m_Localized: Part[{0}] has an invalid parent assignment.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545990
+    m_Localized: Not all parts can be connected to the root.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545991
+    m_Localized: 'A valid part hierarchy could not be built from the manual assignments.
+
+      {0}'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545992
+    m_Localized: The structure HOD changed after manual repair began.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545993
+    m_Localized: Structure HOD part[{0}] changed after manual repair began.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545994
+    m_Localized: The frame count changed after manual repair began.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545995
+    m_Localized: Animation[{0}] frame[{1}] changed after manual repair began.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545996
+    m_Localized: Animation[{0}] frame[{1}] part[{2}] changed after manual repair
+      began.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545997
+    m_Localized: 'Loading was canceled because the HOD hierarchy could not be repaired
+      safely.
+
+      {0}'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545998
+    m_Localized: 'Loading was canceled because the inconsistent parts could not be
+      excluded safely.
+
+      {0}'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382545999
+    m_Localized: 'The HOD part hierarchy contains inconsistencies.
+
+
+'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382546000
+    m_Localized: '
+
+
+      Planned repair:
+
+      {0}'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382546001
+    m_Localized: '
+
+
+      Automatic repair cannot be applied:
+
+      {0}'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382546002
+    m_Localized: '
+
+
+      If treeDepth is treated as authoritative:
+
+      {0}'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382546003
+    m_Localized: '
+
+
+      Repair using treeDepth cannot be applied:
+
+      {0}'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382546004
+    m_Localized: '
+
+
+      If childCount is treated as authoritative:
+
+      {0}'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382546005
+    m_Localized: '
+
+
+      Repair using childCount cannot be applied:
+
+      {0}'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382546006
+    m_Localized: '
+
+
+      Manual repair lets you assign each part''s parent and
+      rebuild the structure HOD and all animation frames in the same order.'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382546007
+    m_Localized: '
+
+
+      Manual repair cannot be started:
+
+      {0}'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382546008
+    m_Localized: '
+
+
+      Exclusion candidate:
+
+      {0}'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382546009
+    m_Localized: '
+
+
+      Inconsistent parts cannot be excluded:
+
+      {0}'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382546010
+    m_Localized: '
+
+
+      Changes are made in memory only; the original files will
+      not be overwritten automatically.'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382546011
+    m_Localized: '
+
+
+      You can continue in read-only mode to view the data.'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382546012
+    m_Localized: 'Manual HOD Part Hierarchy Repair
+
+
+'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382546013
+    m_Localized: Select a part to repair and specify its parent.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382546014
+    m_Localized: 'The root is fixed to Part[0].
+
+'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382546015
+    m_Localized: 'Unconnected: {0} / {1}
+
+
+'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382546016
+    m_Localized: 'Current connections:'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382546017
+    m_Localized: 'Manual repair cannot be applied.
+
+
+      {0}'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382546018
+    m_Localized: 'Select the parent part for {0}.
+
+      Only parts listed before
+      it can be selected to prevent cycles.'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 6881912382546019
+    m_Localized: 'The parent part cannot be set.
+
+
+      {0}'
+    m_Metadata:
+      m_Items: []
   references:
     version: 2
     RefIds: []

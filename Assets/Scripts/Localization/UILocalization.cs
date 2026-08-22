@@ -2,12 +2,41 @@ using System;
 using System.Globalization;
 using UnityEngine;
 using UnityEngine.Localization;
+using UnityEngine.Localization.Settings;
 
 
     // UI文字列テーブルへの共通アクセス口。
 public static class UILocalization
 {
     public const string TableName = "UI";
+
+    public static bool IsEnglish
+    {
+        get
+        {
+            try
+            {
+                Locale locale = LocalizationSettings.SelectedLocale;
+                return locale != null
+                    && locale.Identifier.Code.StartsWith("en", System.StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
+
+    public static string FixedKey(string japaneseFallback)
+    {
+        string value = japaneseFallback ?? string.Empty;
+        return "fixed." + Hash128.Compute(value).ToString().Substring(0, 16);
+    }
+
+    public static string GetFixed(string japaneseFallback, params object[] arguments)
+    {
+        return Get(FixedKey(japaneseFallback), japaneseFallback, arguments);
+    }
 
     public static string Get(string entryKey, string japaneseFallback, params object[] arguments)
     {

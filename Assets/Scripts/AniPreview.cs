@@ -1,6 +1,8 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Localization;
+using UnityEngine.Localization.Settings;
 using UnityEngine.UI;
 public class AniPreview : MonoBehaviour
 {
@@ -24,8 +26,32 @@ public class AniPreview : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
-        
-     
+        RefreshPlayText();
+    }
+
+    void OnEnable()
+    {
+        LocalizationSettings.SelectedLocaleChanged += OnLocaleChanged;
+        RefreshPlayText();
+    }
+
+    void OnDisable()
+    {
+        LocalizationSettings.SelectedLocaleChanged -= OnLocaleChanged;
+    }
+
+    void OnLocaleChanged(Locale locale)
+    {
+        RefreshPlayText();
+    }
+
+    void RefreshPlayText()
+    {
+        if (txtPlay == null)
+            return;
+
+        string japaneseText = animator != null && animator.play ? pauseTxt : playTxt;
+        txtPlay.text = UILocalization.GetFixed(japaneseText);
     }
 
     // Update is called once per frame
@@ -118,12 +144,12 @@ public class AniPreview : MonoBehaviour
         if (animator.play)
         {
             animator.play = false;
-            txtPlay.text = playTxt;
+            RefreshPlayText();
         }
         else
         {
             animator.play = true;
-            txtPlay.text = pauseTxt;
+            RefreshPlayText();
         }
     }
 

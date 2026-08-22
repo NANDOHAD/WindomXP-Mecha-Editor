@@ -129,7 +129,7 @@ public class TestPlayHudRuntime : MonoBehaviour
     public static string ResolveMechaName(TestPlayController source)
     {
         if (source == null)
-            return "機体名不明";
+            return UILocalization.GetFixed("機体名不明");
 
         SptRuntimeData data = source.sptSource != null ? source.sptSource.LastSptData : null;
         string displayName = data != null ? CleanDisplayName(data.Name) : "";
@@ -151,7 +151,7 @@ public class TestPlayHudRuntime : MonoBehaviour
         if (source.robo != null && source.robo.root != null)
             return source.robo.root.name;
 
-        return "機体名不明";
+        return UILocalization.GetFixed("機体名不明");
     }
 
     static string CleanDisplayName(string value)

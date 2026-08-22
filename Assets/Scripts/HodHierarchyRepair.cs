@@ -70,14 +70,23 @@ public sealed class HodHierarchyRepairPlan
             string name = i < parts.Count && !string.IsNullOrEmpty(parts[i].name)
                 ? parts[i].name
                 : "<名称なし>";
-            changes.Add($"パーツ[{i}]「{name}」: "
-                + $"treeDepth {originalTreeDepths[i]}→{repairedTreeDepths[i]}, "
-                + $"childCount {originalChildCounts[i]}→{repairedChildCounts[i]}");
+            changes.Add(UILocalization.Get(
+                "hod.repair.preview_change",
+                "パーツ[{0}]「{1}」: treeDepth {2}→{3}, childCount {4}→{5}",
+                i,
+                name,
+                originalTreeDepths[i],
+                repairedTreeDepths[i],
+                originalChildCounts[i],
+                repairedChildCounts[i]));
         }
 
         string preview = string.Join("\n", changes);
         if (changeCount > changes.Count)
-            preview += $"\nほか{changeCount - changes.Count}件を修復します。";
+            preview += UILocalization.Get(
+                "hod.repair.preview_more",
+                "\nほか{0}件を修復します。",
+                changeCount - changes.Count);
         return preview;
     }
 
@@ -85,7 +94,9 @@ public sealed class HodHierarchyRepairPlan
     {
         if (!CanApply)
         {
-            error = "この不整合には一意な自動修復方法がありません。";
+            error = UILocalization.Get(
+                "hod.repair.no_unique_method",
+                "この不整合には一意な自動修復方法がありません。");
             return false;
         }
 
@@ -97,7 +108,9 @@ public sealed class HodHierarchyRepairPlan
     {
         if (!CanApply)
         {
-            error = "この不整合には一意な自動修復方法がありません。";
+            error = UILocalization.Get(
+                "hod.repair.no_unique_method",
+                "この不整合には一意な自動修復方法がありません。");
             return false;
         }
 
@@ -134,14 +147,18 @@ public sealed class HodHierarchyRepairPlan
     {
         if (ani == null || ani.structure == null || ani.structure.parts == null)
         {
-            error = "構造HODがありません。";
+            error = UILocalization.Get("hod.repair.no_structure", "構造HODがありません。");
             return false;
         }
 
         int partCount = repairedTreeDepths == null ? 0 : repairedTreeDepths.Length;
         if (ani.structure.parts.Count != partCount)
         {
-            error = $"構造HODのパーツ数が修復計画と一致しません（{ani.structure.parts.Count}/{partCount}）。";
+            error = UILocalization.Get(
+                "hod.repair.structure_part_count",
+                "構造HODのパーツ数が修復計画と一致しません（{0}/{1}）。",
+                ani.structure.parts.Count,
+                partCount);
             return false;
         }
 
@@ -151,14 +168,17 @@ public sealed class HodHierarchyRepairPlan
             if (structurePart.treeDepth != originalTreeDepths[i]
                 || structurePart.childCount != originalChildCounts[i])
             {
-                error = $"構造HODのパーツ[{i}]が修復計画の作成後に変更されています。";
+                error = UILocalization.Get(
+                    "hod.repair.structure_changed",
+                    "構造HODのパーツ[{0}]が修復計画の作成後に変更されています。",
+                    i);
                 return false;
             }
         }
 
         if (ani.animations == null)
         {
-            error = "アニメーション情報がありません。";
+            error = UILocalization.Get("hod.repair.no_animations", "アニメーション情報がありません。");
             return false;
         }
 
@@ -167,7 +187,10 @@ public sealed class HodHierarchyRepairPlan
             animation animationData = ani.animations[animationIndex];
             if (animationData == null || animationData.frames == null)
             {
-                error = $"アニメーション[{animationIndex}]のフレーム情報がありません。";
+                error = UILocalization.Get(
+                    "hod.repair.animation_frames_missing",
+                    "アニメーション[{0}]のフレーム情報がありません。",
+                    animationIndex);
                 return false;
             }
 
@@ -176,14 +199,23 @@ public sealed class HodHierarchyRepairPlan
                 hod2v1 frame = animationData.frames[frameIndex];
                 if (frame == null || frame.parts == null)
                 {
-                    error = $"アニメーション[{animationIndex}] フレーム[{frameIndex}]のパーツ情報がありません。";
+                    error = UILocalization.Get(
+                        "hod.repair.frame_parts_missing",
+                        "アニメーション[{0}] フレーム[{1}]のパーツ情報がありません。",
+                        animationIndex,
+                        frameIndex);
                     return false;
                 }
 
                 if (frame.parts.Count != partCount)
                 {
-                    error = $"アニメーション[{animationIndex}] フレーム[{frameIndex}]のパーツ数が"
-                        + $"構造HODと一致しません（{frame.parts.Count}/{partCount}）。";
+                    error = UILocalization.Get(
+                        "hod.repair.frame_part_count",
+                        "アニメーション[{0}] フレーム[{1}]のパーツ数が構造HODと一致しません（{2}/{3}）。",
+                        animationIndex,
+                        frameIndex,
+                        frame.parts.Count,
+                        partCount);
                     return false;
                 }
 
@@ -195,8 +227,14 @@ public sealed class HodHierarchyRepairPlan
                         && !string.IsNullOrEmpty(frameName)
                         && !string.Equals(structureName, frameName, System.StringComparison.Ordinal))
                     {
-                        error = $"アニメーション[{animationIndex}] フレーム[{frameIndex}]のパーツ順が"
-                            + $"構造HODと一致しません（位置{partIndex}: 「{frameName}」/「{structureName}」）。";
+                        error = UILocalization.Get(
+                            "hod.repair.frame_order_mismatch",
+                            "アニメーション[{0}] フレーム[{1}]のパーツ順が構造HODと一致しません（位置{2}: 「{3}」/「{4}」）。",
+                            animationIndex,
+                            frameIndex,
+                            partIndex,
+                            frameName,
+                            structureName);
                         return false;
                     }
                 }
@@ -215,8 +253,13 @@ public static class HodHierarchyRepair
         if (parts == null || parts.Count == 0)
         {
             return NewPlan(HodHierarchyRepairKind.Unrepairable,
-                "パーツ情報がないためtreeDepthを正として修復できません。",
-                "treeDepthから階層を復元できません。", null, null, null, null);
+                UILocalization.Get(
+                    "hod.repair.tree_depth.no_parts_summary",
+                    "パーツ情報がないためtreeDepthを正として修復できません。"),
+                UILocalization.Get(
+                    "hod.repair.tree_depth.no_parts_details",
+                    "treeDepthから階層を復元できません。"),
+                null, null, null, null);
         }
 
         int[] originalDepths = CopyDepths(parts);
@@ -226,13 +269,19 @@ public static class HodHierarchyRepair
         if (!TryBuildChildCountsFromDepths(parts, out childCountsFromDepth, out reason))
         {
             return NewPlan(HodHierarchyRepairKind.Unrepairable,
-                "treeDepthを正として修復できません。", reason,
+                UILocalization.Get(
+                    "hod.repair.tree_depth.unrepairable",
+                    "treeDepthを正として修復できません。"), reason,
                 originalDepths, originalCounts, originalDepths, originalCounts);
         }
 
         return NewPlan(HodHierarchyRepairKind.RebuildChildCountsFromTreeDepth,
-            "treeDepthを正としてchildCountを修復します。",
-            "treeDepthが表す階層を維持し、全パーツのchildCountを再計算します。",
+            UILocalization.Get(
+                "hod.repair.tree_depth.summary",
+                "treeDepthを正としてchildCountを修復します。"),
+            UILocalization.Get(
+                "hod.repair.tree_depth.details",
+                "treeDepthが表す階層を維持し、全パーツのchildCountを再計算します。"),
             originalDepths, originalCounts, originalDepths, childCountsFromDepth);
     }
 
@@ -241,8 +290,13 @@ public static class HodHierarchyRepair
         if (parts == null || parts.Count == 0)
         {
             return NewPlan(HodHierarchyRepairKind.Unrepairable,
-                "パーツ情報がないためchildCountを正として修復できません。",
-                "childCountから階層を復元できません。", null, null, null, null);
+                UILocalization.Get(
+                    "hod.repair.child_count.no_parts_summary",
+                    "パーツ情報がないためchildCountを正として修復できません。"),
+                UILocalization.Get(
+                    "hod.repair.child_count.no_parts_details",
+                    "childCountから階層を復元できません。"),
+                null, null, null, null);
         }
 
         int[] originalDepths = CopyDepths(parts);
@@ -252,13 +306,19 @@ public static class HodHierarchyRepair
         if (!TryBuildDepthsFromChildCounts(parts, out treeDepthsFromCounts, out reason))
         {
             return NewPlan(HodHierarchyRepairKind.Unrepairable,
-                "childCountを正として修復できません。", reason,
+                UILocalization.Get(
+                    "hod.repair.child_count.unrepairable",
+                    "childCountを正として修復できません。"), reason,
                 originalDepths, originalCounts, originalDepths, originalCounts);
         }
 
         return NewPlan(HodHierarchyRepairKind.RebuildTreeDepthFromChildCounts,
-            "childCountを正としてtreeDepthを修復します。",
-            "childCountが表す階層を維持し、全パーツのtreeDepthを再計算します。",
+            UILocalization.Get(
+                "hod.repair.child_count.summary",
+                "childCountを正としてtreeDepthを修復します。"),
+            UILocalization.Get(
+                "hod.repair.child_count.details",
+                "childCountが表す階層を維持し、全パーツのtreeDepthを再計算します。"),
             originalDepths, originalCounts, treeDepthsFromCounts, originalCounts);
     }
 
@@ -268,8 +328,12 @@ public static class HodHierarchyRepair
         {
             return NewPlan(
                 HodHierarchyRepairKind.Unrepairable,
-                "パーツ情報がないため修復できません。",
-                "treeDepthとchildCountのどちらからも階層を復元できません。",
+                UILocalization.Get(
+                    "hod.repair.no_parts_summary",
+                    "パーツ情報がないため修復できません。"),
+                UILocalization.Get(
+                    "hod.repair.no_parts_details",
+                    "treeDepthとchildCountのどちらからも階層を復元できません。"),
                 null, null, null, null);
         }
 
@@ -292,15 +356,21 @@ public static class HodHierarchyRepair
             {
                 return NewPlan(
                     HodHierarchyRepairKind.None,
-                    "パーツ階層に不整合はありません。",
+                    UILocalization.Get(
+                        "hod.repair.no_inconsistency",
+                        "パーツ階層に不整合はありません。"),
                     "",
                     originalDepths, originalCounts, originalDepths, originalCounts);
             }
 
             return NewPlan(
                 HodHierarchyRepairKind.Ambiguous,
-                "treeDepthとchildCountが、それぞれ別の有効な階層を表しています。",
-                "どちらを正しい値とみなすか一意に決められないため、自動修復は行いません。",
+                UILocalization.Get(
+                    "hod.repair.ambiguous.summary",
+                    "treeDepthとchildCountが、それぞれ別の有効な階層を表しています。"),
+                UILocalization.Get(
+                    "hod.repair.ambiguous.details",
+                    "どちらを正しい値とみなすか一意に決められないため、自動修復は行いません。"),
                 originalDepths, originalCounts, originalDepths, originalCounts);
         }
 
@@ -308,8 +378,12 @@ public static class HodHierarchyRepair
         {
             return NewPlan(
                 HodHierarchyRepairKind.RebuildChildCountsFromTreeDepth,
-                "treeDepthを正としてchildCountを修復できます。",
-                "treeDepthの並びは有効ですが、childCountからは有効な階層を復元できません。",
+                UILocalization.Get(
+                    "hod.repair.tree_depth.can_repair_summary",
+                    "treeDepthを正としてchildCountを修復できます。"),
+                UILocalization.Get(
+                    "hod.repair.tree_depth.can_repair_details",
+                    "treeDepthの並びは有効ですが、childCountからは有効な階層を復元できません。"),
                 originalDepths, originalCounts, originalDepths, childCountsFromDepth);
         }
 
@@ -317,15 +391,25 @@ public static class HodHierarchyRepair
         {
             return NewPlan(
                 HodHierarchyRepairKind.RebuildTreeDepthFromChildCounts,
-                "childCountを正としてtreeDepthを修復できます。",
-                "childCountの並びは有効ですが、treeDepthからは有効な階層を復元できません。",
+                UILocalization.Get(
+                    "hod.repair.child_count.can_repair_summary",
+                    "childCountを正としてtreeDepthを修復できます。"),
+                UILocalization.Get(
+                    "hod.repair.child_count.can_repair_details",
+                    "childCountの並びは有効ですが、treeDepthからは有効な階層を復元できません。"),
                 originalDepths, originalCounts, treeDepthsFromCounts, originalCounts);
         }
 
         return NewPlan(
             HodHierarchyRepairKind.Unrepairable,
-            "treeDepthとchildCountの両方に不整合があるため修復できません。",
-            $"treeDepth: {depthReason}\nchildCount: {childCountReason}",
+            UILocalization.Get(
+                "hod.repair.both_invalid.summary",
+                "treeDepthとchildCountの両方に不整合があるため修復できません。"),
+            UILocalization.Get(
+                "hod.repair.both_invalid.details",
+                "treeDepth: {0}\nchildCount: {1}",
+                depthReason,
+                childCountReason),
             originalDepths, originalCounts, originalDepths, originalCounts);
     }
 
@@ -337,7 +421,10 @@ public static class HodHierarchyRepair
         childCounts = new int[parts.Count];
         if (parts[0].treeDepth != 0)
         {
-            reason = $"先頭パーツのtreeDepthが0ではありません（{parts[0].treeDepth}）。";
+            reason = UILocalization.Get(
+                "hod.repair.reason.first_tree_depth",
+                "先頭パーツのtreeDepthが0ではありません（{0}）。",
+                parts[0].treeDepth);
             return false;
         }
 
@@ -346,7 +433,11 @@ public static class HodHierarchyRepair
             int depth = parts[i].treeDepth;
             if (depth < 0)
             {
-                reason = $"パーツ[{i}]のtreeDepthが負の値です（{depth}）。";
+                reason = UILocalization.Get(
+                    "hod.repair.reason.tree_depth_negative",
+                    "パーツ[{0}]のtreeDepthが負の値です（{1}）。",
+                    i,
+                    depth);
                 return false;
             }
 
@@ -355,13 +446,21 @@ public static class HodHierarchyRepair
                 int previousDepth = parts[i - 1].treeDepth;
                 if (depth == 0)
                 {
-                    reason = $"パーツ[{i}]が2個目以降のルートになっています。";
+                    reason = UILocalization.Get(
+                        "hod.repair.reason.additional_root",
+                        "パーツ[{0}]が2個目以降のルートになっています。",
+                        i);
                     return false;
                 }
 
                 if (depth > previousDepth + 1)
                 {
-                    reason = $"パーツ[{i}]のtreeDepthが2段以上増加しています（{previousDepth}→{depth}）。";
+                    reason = UILocalization.Get(
+                        "hod.repair.reason.tree_depth_jump",
+                        "パーツ[{0}]のtreeDepthが2段以上増加しています（{1}→{2}）。",
+                        i,
+                        previousDepth,
+                        depth);
                     return false;
                 }
             }
@@ -394,7 +493,11 @@ public static class HodHierarchyRepair
 
         if (parts[0].childCount < 0)
         {
-            reason = $"パーツ[0]のchildCountが負の値です（{parts[0].childCount}）。";
+            reason = UILocalization.Get(
+                "hod.repair.reason.child_count_negative",
+                "パーツ[{0}]のchildCountが負の値です（{1}）。",
+                0,
+                parts[0].childCount);
             return false;
         }
 
@@ -405,7 +508,11 @@ public static class HodHierarchyRepair
         {
             if (parts[i].childCount < 0)
             {
-                reason = $"パーツ[{i}]のchildCountが負の値です（{parts[i].childCount}）。";
+                reason = UILocalization.Get(
+                    "hod.repair.reason.child_count_negative",
+                    "パーツ[{0}]のchildCountが負の値です（{1}）。",
+                    i,
+                    parts[i].childCount);
                 return false;
             }
 
@@ -417,7 +524,10 @@ public static class HodHierarchyRepair
 
             if (remainingChildren.Count == 0)
             {
-                reason = $"パーツ[{i}]を接続できる親のchildCount枠がありません。";
+                reason = UILocalization.Get(
+                    "hod.repair.reason.no_parent_slot",
+                    "パーツ[{0}]を接続できる親のchildCount枠がありません。",
+                    i);
                 return false;
             }
 
@@ -438,7 +548,10 @@ public static class HodHierarchyRepair
             int missingCount = 0;
             for (int i = 0; i < remainingChildren.Count; i++)
                 missingCount += remainingChildren[i];
-            reason = $"childCountが要求する子パーツが{missingCount}個不足しています。";
+            reason = UILocalization.Get(
+                "hod.repair.reason.missing_children",
+                "childCountが要求する子パーツが{0}個不足しています。",
+                missingCount);
             return false;
         }
 

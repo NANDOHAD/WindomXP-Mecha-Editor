@@ -70,13 +70,15 @@ public sealed class HodHierarchyManualRepairSession
         if (ani == null || ani.structure == null || ani.structure.parts == null
             || ani.structure.parts.Count == 0)
         {
-            error = "構造HODのパーツ情報がありません。";
+            error = UILocalization.Get(
+                "hod.manual.no_structure_parts",
+                "構造HODのパーツ情報がありません。");
             return false;
         }
 
         if (ani.animations == null)
         {
-            error = "アニメーション情報がありません。";
+            error = UILocalization.Get("hod.repair.no_animations", "アニメーション情報がありません。");
             return false;
         }
 
@@ -97,7 +99,10 @@ public sealed class HodHierarchyManualRepairSession
             animation animationData = ani.animations[animationIndex];
             if (animationData == null || animationData.frames == null)
             {
-                error = $"アニメーション[{animationIndex}]のフレーム情報がありません。";
+                error = UILocalization.Get(
+                    "hod.repair.animation_frames_missing",
+                    "アニメーション[{0}]のフレーム情報がありません。",
+                    animationIndex);
                 return false;
             }
 
@@ -106,14 +111,23 @@ public sealed class HodHierarchyManualRepairSession
                 hod2v1 frame = animationData.frames[frameIndex];
                 if (frame == null || frame.parts == null)
                 {
-                    error = $"アニメーション[{animationIndex}] フレーム[{frameIndex}]のパーツ情報がありません。";
+                    error = UILocalization.Get(
+                        "hod.repair.frame_parts_missing",
+                        "アニメーション[{0}] フレーム[{1}]のパーツ情報がありません。",
+                        animationIndex,
+                        frameIndex);
                     return false;
                 }
 
                 if (frame.parts.Count != partCount)
                 {
-                    error = $"アニメーション[{animationIndex}] フレーム[{frameIndex}]のパーツ数が"
-                        + $"構造HODと一致しません（{frame.parts.Count}/{partCount}）。";
+                    error = UILocalization.Get(
+                        "hod.repair.frame_part_count",
+                        "アニメーション[{0}] フレーム[{1}]のパーツ数が構造HODと一致しません（{2}/{3}）。",
+                        animationIndex,
+                        frameIndex,
+                        frame.parts.Count,
+                        partCount);
                     return false;
                 }
 
@@ -131,8 +145,14 @@ public sealed class HodHierarchyManualRepairSession
                         && !string.IsNullOrEmpty(framePart.name)
                         && !string.Equals(structureName, framePart.name, StringComparison.Ordinal))
                     {
-                        error = $"アニメーション[{animationIndex}] フレーム[{frameIndex}]のパーツ順が"
-                            + $"構造HODと一致しません（位置{partIndex}: 「{framePart.name}」/「{structureName}」）。";
+                        error = UILocalization.Get(
+                            "hod.repair.frame_order_mismatch",
+                            "アニメーション[{0}] フレーム[{1}]のパーツ順が構造HODと一致しません（位置{2}: 「{3}」/「{4}」）。",
+                            animationIndex,
+                            frameIndex,
+                            partIndex,
+                            framePart.name,
+                            structureName);
                         return false;
                     }
 
@@ -161,37 +181,55 @@ public sealed class HodHierarchyManualRepairSession
     public string GetPartLabel(int partIndex)
     {
         if (partIndex < 0 || partIndex >= originalNames.Length)
-            return "<範囲外>";
+            return UILocalization.GetFixed("<範囲外>");
 
         string name = string.IsNullOrEmpty(originalNames[partIndex])
             ? "<名称なし>"
             : originalNames[partIndex];
-        return $"[{partIndex}] {name}";
+        return UILocalization.Get(
+            "hod.manual.part_label",
+            "[{0}] {1}",
+            partIndex,
+            name);
     }
 
     public string GetAssignmentLabel(int partIndex)
     {
         string child = GetPartLabel(partIndex);
         if (partIndex == 0)
-            return child + "（ルート固定）";
+            return UILocalization.Get(
+                "hod.manual.root_assignment",
+                "{0}（ルート固定）",
+                child);
 
         int parentIndex = GetParentIndex(partIndex);
         return parentIndex < 0
-            ? child + " → 未接続"
-            : child + " → " + GetPartLabel(parentIndex);
+            ? UILocalization.Get(
+                "hod.manual.unconnected_assignment",
+                "{0} → 未接続",
+                child)
+            : UILocalization.Get(
+                "hod.manual.parent_assignment",
+                "{0} → {1}",
+                child,
+                GetPartLabel(parentIndex));
     }
 
     public bool TrySetParent(int partIndex, int parentIndex, out string error)
     {
         if (partIndex <= 0 || partIndex >= parentIndices.Length)
         {
-            error = "ルートパーツは固定されているため、親を変更できません。";
+            error = UILocalization.Get(
+                "hod.manual.root_immutable",
+                "ルートパーツは固定されているため、親を変更できません。");
             return false;
         }
 
         if (parentIndex < -1 || parentIndex >= partIndex)
         {
-            error = "親には、このパーツより前に並んでいるパーツだけを指定できます。";
+            error = UILocalization.Get(
+                "hod.manual.parent_must_precede",
+                "親には、このパーツより前に並んでいるパーツだけを指定できます。");
             return false;
         }
 
@@ -207,7 +245,10 @@ public sealed class HodHierarchyManualRepairSession
 
         if (UnassignedCount > 0)
         {
-            error = $"親が未設定のパーツが{UnassignedCount}個あります。";
+            error = UILocalization.Get(
+                "hod.manual.unassigned_parts",
+                "親が未設定のパーツが{0}個あります。",
+                UnassignedCount);
             return false;
         }
 
@@ -221,7 +262,10 @@ public sealed class HodHierarchyManualRepairSession
             int parentIndex = parentIndices[i];
             if (parentIndex < 0 || parentIndex >= i)
             {
-                error = $"パーツ[{i}]の親指定が不正です。";
+                error = UILocalization.Get(
+                    "hod.manual.invalid_parent",
+                    "パーツ[{0}]の親指定が不正です。",
+                    i);
                 return false;
             }
             children[parentIndex].Add(i);
@@ -232,7 +276,9 @@ public sealed class HodHierarchyManualRepairSession
         AppendSubtree(0, 0, children, order, repairedDepths);
         if (order.Count != partCount)
         {
-            error = "すべてのパーツをルートへ接続できません。";
+            error = UILocalization.Get(
+                "hod.manual.not_all_connected",
+                "すべてのパーツをルートへ接続できません。");
             return false;
         }
 
@@ -249,7 +295,10 @@ public sealed class HodHierarchyManualRepairSession
         string validationError;
         if (!HodHierarchyValidator.TryValidate(repairedStructureParts, out validationError))
         {
-            error = "手動指定から有効なパーツ階層を構築できませんでした。\n" + validationError;
+            error = UILocalization.Get(
+                "hod.manual.validation_failed",
+                "手動指定から有効なパーツ階層を構築できませんでした。\n{0}",
+                validationError);
             return false;
         }
 
@@ -336,7 +385,9 @@ public sealed class HodHierarchyManualRepairSession
             || ani.structure.parts == null
             || ani.structure.parts.Count != parentIndices.Length)
         {
-            error = "構造HODが手動修復の開始後に変更されています。";
+            error = UILocalization.Get(
+                "hod.manual.structure_changed",
+                "構造HODが手動修復の開始後に変更されています。");
             return false;
         }
 
@@ -347,14 +398,17 @@ public sealed class HodHierarchyManualRepairSession
                 || part.treeDepth != originalTreeDepths[i]
                 || part.childCount != originalChildCounts[i])
             {
-                error = $"構造HODのパーツ[{i}]が手動修復の開始後に変更されています。";
+                error = UILocalization.Get(
+                    "hod.manual.structure_part_changed",
+                    "構造HODのパーツ[{0}]が手動修復の開始後に変更されています。",
+                    i);
                 return false;
             }
         }
 
         if (ani.animations == null)
         {
-            error = "アニメーション情報がありません。";
+            error = UILocalization.Get("hod.repair.no_animations", "アニメーション情報がありません。");
             return false;
         }
 
@@ -364,7 +418,10 @@ public sealed class HodHierarchyManualRepairSession
             animation animationData = ani.animations[animationIndex];
             if (animationData == null || animationData.frames == null)
             {
-                error = $"アニメーション[{animationIndex}]のフレーム情報がありません。";
+                error = UILocalization.Get(
+                    "hod.repair.animation_frames_missing",
+                    "アニメーション[{0}]のフレーム情報がありません。",
+                    animationIndex);
                 return false;
             }
 
@@ -372,7 +429,9 @@ public sealed class HodHierarchyManualRepairSession
             {
                 if (snapshotIndex >= frameSnapshots.Count)
                 {
-                    error = "フレーム数が手動修復の開始後に変更されています。";
+                    error = UILocalization.Get(
+                        "hod.manual.frame_count_changed",
+                        "フレーム数が手動修復の開始後に変更されています。");
                     return false;
                 }
 
@@ -382,8 +441,11 @@ public sealed class HodHierarchyManualRepairSession
                     || frame.parts == null
                     || frame.parts.Count != parentIndices.Length)
                 {
-                    error = $"アニメーション[{animationIndex}] フレーム[{frameIndex}]が"
-                        + "手動修復の開始後に変更されています。";
+                    error = UILocalization.Get(
+                        "hod.manual.frame_changed",
+                        "アニメーション[{0}] フレーム[{1}]が手動修復の開始後に変更されています。",
+                        animationIndex,
+                        frameIndex);
                     return false;
                 }
 
@@ -394,8 +456,12 @@ public sealed class HodHierarchyManualRepairSession
                         || part.treeDepth != snapshot.treeDepths[partIndex]
                         || part.childCount != snapshot.childCounts[partIndex])
                     {
-                        error = $"アニメーション[{animationIndex}] フレーム[{frameIndex}]の"
-                            + $"パーツ[{partIndex}]が手動修復の開始後に変更されています。";
+                        error = UILocalization.Get(
+                            "hod.manual.frame_part_changed",
+                            "アニメーション[{0}] フレーム[{1}]のパーツ[{2}]が手動修復の開始後に変更されています。",
+                            animationIndex,
+                            frameIndex,
+                            partIndex);
                         return false;
                     }
                 }
@@ -404,7 +470,9 @@ public sealed class HodHierarchyManualRepairSession
 
         if (snapshotIndex != frameSnapshots.Count)
         {
-            error = "フレーム数が手動修復の開始後に変更されています。";
+            error = UILocalization.Get(
+                "hod.manual.frame_count_changed",
+                "フレーム数が手動修復の開始後に変更されています。");
             return false;
         }
 

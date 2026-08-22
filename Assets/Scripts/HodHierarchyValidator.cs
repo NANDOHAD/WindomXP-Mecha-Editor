@@ -11,7 +11,7 @@ public static class HodHierarchyValidator
 
         if (parts == null || parts.Count == 0)
         {
-            details = "パーツ情報がありません。";
+            details = UILocalization.Get("hod.validator.no_parts", "パーツ情報がありません。");
             return false;
         }
 
@@ -21,10 +21,16 @@ public static class HodHierarchyValidator
             string partLabel = GetPartLabel(part, i);
 
             if (part.treeDepth < 0)
-                AddIssue(issues, ref issueCount, $"{partLabel}: treeDepthが負の値です（{part.treeDepth}）。");
+                AddIssue(issues, ref issueCount, UILocalization.Get(
+                    "hod.validator.tree_depth_negative",
+                    "{0}: treeDepthが負の値です（{1}）。",
+                    partLabel, part.treeDepth));
 
             if (i == 0 && part.treeDepth != 0)
-                AddIssue(issues, ref issueCount, $"{partLabel}: 先頭パーツのtreeDepthは0である必要があります（{part.treeDepth}）。");
+                AddIssue(issues, ref issueCount, UILocalization.Get(
+                    "hod.validator.first_tree_depth",
+                    "{0}: 先頭パーツのtreeDepthは0である必要があります（{1}）。",
+                    partLabel, part.treeDepth));
 
             if (i > 0)
             {
@@ -32,21 +38,33 @@ public static class HodHierarchyValidator
                 if (part.treeDepth > previousDepth + 1)
                 {
                     AddIssue(issues, ref issueCount,
-                        $"{partLabel}: treeDepthが直前のパーツから2段以上深くなっています（{previousDepth}→{part.treeDepth}）。");
+                        UILocalization.Get(
+                            "hod.validator.tree_depth_jump",
+                            "{0}: treeDepthが直前のパーツから2段以上深くなっています（{1}→{2}）。",
+                            partLabel, previousDepth, part.treeDepth));
                 }
 
                 if (part.treeDepth == 0)
-                    AddIssue(issues, ref issueCount, $"{partLabel}: 2個目以降のルートパーツです。");
+                    AddIssue(issues, ref issueCount, UILocalization.Get(
+                        "hod.validator.additional_root",
+                        "{0}: 2個目以降のルートパーツです。",
+                        partLabel));
             }
 
             if (part.treeDepth > 0 && !HasPreviousParent(parts, i, part.treeDepth - 1))
-                AddIssue(issues, ref issueCount, $"{partLabel}: treeDepth={part.treeDepth - 1}の親候補が前方にありません。");
+                AddIssue(issues, ref issueCount, UILocalization.Get(
+                    "hod.validator.missing_parent",
+                    "{0}: treeDepth={1}の親候補が前方にありません。",
+                    partLabel, part.treeDepth - 1));
 
             int actualChildCount = CountDirectChildren(parts, i);
             if (part.childCount != actualChildCount)
             {
                 AddIssue(issues, ref issueCount,
-                    $"{partLabel}: childCountが一致しません（記録={part.childCount}、深度列から算出={actualChildCount}）。");
+                    UILocalization.Get(
+                        "hod.validator.child_count_mismatch",
+                        "{0}: childCountが一致しません（記録={1}、深度列から算出={2}）。",
+                        partLabel, part.childCount, actualChildCount));
             }
         }
 
@@ -58,7 +76,10 @@ public static class HodHierarchyValidator
 
         details = string.Join("\n", issues);
         if (issueCount > issues.Count)
-            details += $"\nほか{issueCount - issues.Count}件の不整合があります。";
+            details += UILocalization.Get(
+                "hod.validator.more_issues",
+                "\nほか{0}件の不整合があります。",
+                issueCount - issues.Count);
         return false;
     }
 
@@ -92,7 +113,11 @@ public static class HodHierarchyValidator
     static string GetPartLabel(hod2v0_Part part, int index)
     {
         string name = string.IsNullOrEmpty(part.name) ? "<名称なし>" : part.name;
-        return $"パーツ[{index}]「{name}」";
+        return UILocalization.Get(
+            "hod.part.label",
+            "パーツ[{0}]「{1}」",
+            index,
+            name);
     }
 
     static void AddIssue(List<string> issues, ref int issueCount, string issue)
