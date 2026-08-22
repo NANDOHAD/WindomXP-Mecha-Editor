@@ -15,12 +15,6 @@ This repository aims to localize "WindomXP-Mecha-Editor"（<https://github.com/M
 
 ### Installation
 
-1. Clone the repository.
-   ```bash
-   git clone https://github.com/NANDOHAD/WindomXP-Mecha-Editor
-   ```
-2. Open Unity and import the project.
+- Please check here.
+- <https://github.com/NANDOHAD/WindomXP-Mecha-Editor/releases>
 
-### Usage
-
-- Once the project is open, you can select a scene and start editing.
