@@ -77,7 +77,10 @@ public static class TestPlayRuntimeVerification
             "RestBody=2;\n" +
             "LockDist=125;\n" +
             "SubLockDist(0,90);\n" +
-            "SubLockDist=3,45;\n");
+            "SubLockDist=3,45;\n" +
+            "WEAPONPOINT(1,Weapon_point2.x,UP);\n" +
+            "WEAPONPOINT(49,Foot.x,DOWN);\n" +
+            "WEAPONPOINT(50,Invalid.x,UP);\n");
 
         Require(data.HasHP && data.HP == 5200, "SPT HP is parsed with presence", ref assertions);
         Require(data.HasGenerator && data.Generator == 3600, "SPT Generator is parsed", ref assertions);
@@ -87,11 +90,22 @@ public static class TestPlayRuntimeVerification
         Require(data.HasLockDist && Mathf.Approximately(data.LockDist, 125f), "SPT LockDist is parsed", ref assertions);
         Require(data.SubLockDistances.Count == 2 && data.SubLockDistances[0] == 90 && data.SubLockDistances[3] == 45,
             "SPT SubLockDist command and compatibility forms are parsed", ref assertions);
+        Require(data.WeaponPoints.Count == 2 && data.WeaponPoints[1].FrameName == "Weapon_point2" &&
+                data.WeaponPoints[1].Direction == SptDirection.UP &&
+                data.WeaponPoints[49].Direction == SptDirection.DOWN,
+            "SPT WEAPONPOINT accepts original indices 0..49 and normalizes .x names", ref assertions);
 
         GameObject sptObject = new GameObject("TestPlayVerification_SPT");
         GameObject controllerObject = new GameObject("TestPlayVerification_SPTController");
         try
         {
+            GameObject weaponPointObject = new GameObject("Weapon_point2.x");
+            weaponPointObject.transform.SetParent(sptObject.transform, false);
+            SptParser.BindTransforms(sptObject.transform, data);
+            Require(data.WeaponPoints[1].BoneTr == weaponPointObject.transform &&
+                    data.WeaponPoints[1].WorldForward == Vector3.forward,
+                "SPT WEAPONPOINT binds the real frame name and UP direction", ref assertions);
+
             UI_SPT spt = sptObject.AddComponent<UI_SPT>();
             SetField(spt, "<LastSptData>k__BackingField", data);
             TestPlayController controller = controllerObject.AddComponent<TestPlayController>();
@@ -267,6 +281,7 @@ public static class TestPlayRuntimeVerification
         GameObject controllerObject = new GameObject("TestPlayVerification_NormalAttackController");
         GameObject rootObject = new GameObject("TestPlayVerification_NormalAttackRoot");
         GameObject targetObject = new GameObject("TestPlayVerification_NormalAttackTarget");
+        GameObject weaponPointObject = new GameObject("Weapon_point2.x");
         GameObject spawnedProjectile = null;
         try
         {
@@ -275,6 +290,7 @@ public static class TestPlayRuntimeVerification
             TestPlayTargetDummy target = targetObject.AddComponent<TestPlayTargetDummy>();
             target.logHits = false;
             rootObject.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            weaponPointObject.transform.SetParent(rootObject.transform, false);
             targetObject.transform.position = Vector3.forward * 2f;
             robo.root = rootObject;
             robo.ani = new ani2 { animations = new List<animation>() };
@@ -356,6 +372,11 @@ public static class TestPlayRuntimeVerification
 
             controller.robo = robo;
             controller.target = target;
+            UI_SPT spt = controllerObject.AddComponent<UI_SPT>();
+            SptRuntimeData meleeSptData = SptParser.Parse("WEAPONPOINT(1,Weapon_point2.x,UP);");
+            SptParser.BindTransforms(rootObject.transform, meleeSptData);
+            SetField(spt, "<LastSptData>k__BackingField", meleeSptData);
+            controller.sptSource = spt;
             controller.maximumEnergy = 100f;
             controller.currentEnergy = 100f;
             controller.state.ResetDefaults();
@@ -369,6 +390,7 @@ public static class TestPlayRuntimeVerification
             MethodInfo resolveWeaponAction = typeof(TestPlayController).GetMethod("ResolveActionForWeaponMode", InstancePrivate);
             MethodInfo handle = typeof(TestPlayController).GetMethod("HandleCommand", InstancePrivate);
             MethodInfo spawnRunProc = typeof(TestPlayController).GetMethod("SpawnRunProc", InstancePrivate);
+            MethodInfo tickMeleeAttacks = typeof(TestPlayController).GetMethod("TickActiveMeleeAttacks", InstancePrivate);
             MethodInfo updateCooldowns = typeof(TestPlayController).GetMethod("UpdateOriginalAttackCooldowns", InstancePrivate);
             MethodInfo updateAttack = typeof(TestPlayController).GetMethod("TryUpdateNormalAttackSequence", InstancePrivate);
             MethodInfo updateInput = typeof(TestPlayController).GetMethod("UpdateInputState", InstancePrivate);
@@ -387,7 +409,8 @@ public static class TestPlayRuntimeVerification
                 null);
             Require(setWeapon != null && resolveShot != null && resolveShotSelection != null &&
                     resolveMelee != null && resolveWeaponAction != null &&
-                    handle != null && spawnRunProc != null && updateCooldowns != null && updateAttack != null &&
+                    handle != null && spawnRunProc != null && tickMeleeAttacks != null &&
+                    updateCooldowns != null && updateAttack != null &&
                     updateInput != null && awake != null && tickAnimation != null && startGroundRecovery != null &&
                     applyRootMotion != null && getOneShot != null && applyShotSteering != null &&
                     energyTick != null && spawnProjectile != null,
@@ -550,10 +573,37 @@ public static class TestPlayRuntimeVerification
             spawnRunProc.Invoke(controller, new object[] { Values(1f, 55f), true });
             Require(Mathf.Approximately(target.hp, 1000f),
                 "RunProc2 type 55 is a sword visual and does not damage", ref assertions);
-            spawnRunProc.Invoke(controller, new object[] { Values(1f, 57f), true });
+            spawnRunProc.Invoke(controller, new object[]
+            {
+                Values(1f, 57f, 1f, 200f, 0f, 5f, 5f, 0f, 0f, 0f, 0f, 9f), true
+            });
+            Require(Mathf.Approximately(target.hp, 1000f),
+                "RunProc2 type 57 creates a persistent WEAPONPOINT judgment without an immediate root-distance hit",
+                ref assertions);
+            handle.Invoke(controller, new object[] { "ATTACK", Values(99f, 88f, 7f, 6f), "ATTACK(99,88,7,6);" });
+            tickMeleeAttacks.Invoke(controller, null);
             Require(Mathf.Approximately(target.hp, 963f) && target.lastDownValue == 44 &&
                     target.lastImpactForce == new Vector3(0f, 3f, 2f),
-                "RunProc2 type 57 applies the active ATTACK power/down/force profile", ref assertions);
+                "RunProc2 type 57 sweeps from WEAPONPOINT and uses its spawn-time ATTACK snapshot", ref assertions);
+            tickMeleeAttacks.Invoke(controller, null);
+            Require(Mathf.Approximately(target.hp, 963f),
+                "one type 57 judgment hits the same target only once during its lifetime", ref assertions);
+            for (int i = 0; i < 7; i++)
+                tickMeleeAttacks.Invoke(controller, null);
+            Require(((List<TestPlayMeleeAttackState>)GetField(controller, "activeMeleeAttacks")).Count == 0,
+                "RunProc2 type 57 expires after its p8 tick lifetime", ref assertions);
+
+            Require(TestPlayCombatCore.IntersectsSweptSegmentSphere(
+                        Vector3.zero, Vector3.forward * 2f,
+                        Vector3.zero, Vector3.right * 2f,
+                        new Vector3(0.8f, 0f, 0.8f), 0.1f) &&
+                    !TestPlayCombatCore.IntersectsSweptSegmentSphere(
+                        Vector3.zero, Vector3.forward * 2f,
+                        Vector3.zero, Vector3.right * 2f,
+                        new Vector3(-2f, 0f, -2f), 0.1f),
+                "type 57 Core tests the swept segment surface rather than root distance", ref assertions);
+
+            handle.Invoke(controller, new object[] { "ATTACK", Values(37f, 44f, 2f, 3f), "ATTACK(37,44,2,3);" });
 
             spawnProjectile.Invoke(controller, new object[] { "VerificationShot", 37f, 20f, false });
             List<GameObject> transients = (List<GameObject>)GetField(controller, "spawnedTransientObjects");

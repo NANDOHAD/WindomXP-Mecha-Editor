@@ -104,6 +104,54 @@ public struct TestPlayProjectileTickResult
     public bool hit;
 }
 
+/// <summary>
+/// 原作RunProc2 type 57が生成する1個の格闘判定。
+/// FUN_004fa150 / FUN_00502e60でATTACK値を生成時に複製し、p8 tick存続する。
+/// </summary>
+public sealed class TestPlayMeleeAttackState
+{
+    public int weaponPointId;
+    public float length;
+    public int remainingTicks;
+    public int originalP2;
+    public int originalP3;
+    public string source;
+    public TestPlayProjectilePayload payload;
+    public Vector3 previousOrigin;
+    public Vector3 previousTip;
+
+    readonly System.Collections.Generic.HashSet<int> hitTargetIds =
+        new System.Collections.Generic.HashSet<int>();
+
+    public bool HasHitTarget(int targetId)
+    {
+        return hitTargetIds.Contains(targetId);
+    }
+
+    internal bool TryMarkTargetHit(int targetId)
+    {
+        return hitTargetIds.Add(targetId);
+    }
+}
+
+public struct TestPlayMeleeTickInput
+{
+    public Vector3 origin;
+    public Vector3 forward;
+    public bool targetAlive;
+    public int targetId;
+    public Vector3 targetPosition;
+    public float targetRadius;
+}
+
+public struct TestPlayMeleeTickResult
+{
+    public bool hit;
+    public bool expired;
+    public Vector3 currentOrigin;
+    public Vector3 currentTip;
+}
+
 public struct TestPlayShotActionDecision
 {
     public int baseActionId;
@@ -468,6 +516,171 @@ public static class TestPlayCombatCore
                           Vector3.up * payload.verticalImpactForce,
             valueSource = payload.valueSource
         };
+    }
+
+    public static TestPlayMeleeAttackState CreateMeleeAttackState(
+        TestPlayAttackProfile profile,
+        float fallbackDamage,
+        int weaponPointId,
+        float length,
+        int lifetimeTicks,
+        int originalP2,
+        int originalP3,
+        Vector3 origin,
+        Vector3 forward,
+        string source)
+    {
+        Vector3 direction = forward.sqrMagnitude > 0.000001f
+            ? forward.normalized
+            : Vector3.forward;
+        float clampedLength = Mathf.Max(0f, length);
+        return new TestPlayMeleeAttackState
+        {
+            weaponPointId = weaponPointId,
+            length = clampedLength,
+            remainingTicks = Mathf.Max(0, lifetimeTicks),
+            originalP2 = originalP2,
+            originalP3 = originalP3,
+            source = source ?? "",
+            payload = CreateProjectilePayload(profile, fallbackDamage, 0f, false, source),
+            previousOrigin = origin,
+            previousTip = origin + direction * clampedLength
+        };
+    }
+
+    /// <summary>
+    /// 原作BB_SwordBeamAtkの現在線分と前tick線分から作る掃引四辺形を、
+    /// Unity TestPlayの球形targetへ照合する。1生成物につき同じtargetは一度だけ命中する。
+    /// </summary>
+    public static TestPlayMeleeTickResult TickMeleeAttack(
+        TestPlayMeleeAttackState state,
+        TestPlayMeleeTickInput input)
+    {
+        if (state == null)
+            return new TestPlayMeleeTickResult { expired = true };
+
+        Vector3 direction = input.forward.sqrMagnitude > 0.000001f
+            ? input.forward.normalized
+            : Vector3.forward;
+        Vector3 currentOrigin = input.origin;
+        Vector3 currentTip = currentOrigin + direction * Mathf.Max(0f, state.length);
+        bool active = state.remainingTicks > 0;
+        bool hit = active && input.targetAlive && !state.HasHitTarget(input.targetId) &&
+                   IntersectsSweptSegmentSphere(
+                       state.previousOrigin,
+                       state.previousTip,
+                       currentOrigin,
+                       currentTip,
+                       input.targetPosition,
+                       input.targetRadius);
+        if (hit)
+            state.TryMarkTargetHit(input.targetId);
+
+        state.previousOrigin = currentOrigin;
+        state.previousTip = currentTip;
+        if (active)
+            state.remainingTicks--;
+
+        return new TestPlayMeleeTickResult
+        {
+            hit = hit,
+            expired = state.remainingTicks <= 0,
+            currentOrigin = currentOrigin,
+            currentTip = currentTip
+        };
+    }
+
+    public static bool IntersectsSweptSegmentSphere(
+        Vector3 previousOrigin,
+        Vector3 previousTip,
+        Vector3 currentOrigin,
+        Vector3 currentTip,
+        Vector3 sphereCenter,
+        float sphereRadius)
+    {
+        float radiusSquared = Mathf.Max(0f, sphereRadius);
+        radiusSquared *= radiusSquared;
+
+        float distanceSquared = Mathf.Min(
+            PointSegmentDistanceSquared(sphereCenter, previousOrigin, previousTip),
+            PointSegmentDistanceSquared(sphereCenter, currentOrigin, currentTip));
+        distanceSquared = Mathf.Min(distanceSquared,
+            PointSegmentDistanceSquared(sphereCenter, previousOrigin, currentOrigin));
+        distanceSquared = Mathf.Min(distanceSquared,
+            PointSegmentDistanceSquared(sphereCenter, previousTip, currentTip));
+        distanceSquared = Mathf.Min(distanceSquared,
+            PointTriangleDistanceSquared(sphereCenter, previousOrigin, previousTip, currentTip));
+        distanceSquared = Mathf.Min(distanceSquared,
+            PointTriangleDistanceSquared(sphereCenter, previousOrigin, currentTip, currentOrigin));
+        return distanceSquared <= radiusSquared;
+    }
+
+    static float PointSegmentDistanceSquared(Vector3 point, Vector3 start, Vector3 end)
+    {
+        Vector3 segment = end - start;
+        float denominator = segment.sqrMagnitude;
+        if (denominator <= 0.000001f)
+            return (point - start).sqrMagnitude;
+        float t = Mathf.Clamp01(Vector3.Dot(point - start, segment) / denominator);
+        return (point - (start + segment * t)).sqrMagnitude;
+    }
+
+    // Real-Time Collision Detection (Christer Ericson)の最近点領域判定。
+    static float PointTriangleDistanceSquared(Vector3 point, Vector3 a, Vector3 b, Vector3 c)
+    {
+        Vector3 ab = b - a;
+        Vector3 ac = c - a;
+        if (Vector3.Cross(ab, ac).sqrMagnitude <= 0.000001f)
+        {
+            return Mathf.Min(
+                PointSegmentDistanceSquared(point, a, b),
+                Mathf.Min(
+                    PointSegmentDistanceSquared(point, b, c),
+                    PointSegmentDistanceSquared(point, c, a)));
+        }
+
+        Vector3 ap = point - a;
+        float d1 = Vector3.Dot(ab, ap);
+        float d2 = Vector3.Dot(ac, ap);
+        if (d1 <= 0f && d2 <= 0f) return ap.sqrMagnitude;
+
+        Vector3 bp = point - b;
+        float d3 = Vector3.Dot(ab, bp);
+        float d4 = Vector3.Dot(ac, bp);
+        if (d3 >= 0f && d4 <= d3) return bp.sqrMagnitude;
+
+        float vc = d1 * d4 - d3 * d2;
+        if (vc <= 0f && d1 >= 0f && d3 <= 0f)
+        {
+            float v = d1 / (d1 - d3);
+            return (point - (a + v * ab)).sqrMagnitude;
+        }
+
+        Vector3 cp = point - c;
+        float d5 = Vector3.Dot(ab, cp);
+        float d6 = Vector3.Dot(ac, cp);
+        if (d6 >= 0f && d5 <= d6) return cp.sqrMagnitude;
+
+        float vb = d5 * d2 - d1 * d6;
+        if (vb <= 0f && d2 >= 0f && d6 <= 0f)
+        {
+            float w = d2 / (d2 - d6);
+            return (point - (a + w * ac)).sqrMagnitude;
+        }
+
+        float va = d3 * d6 - d5 * d4;
+        if (va <= 0f && (d4 - d3) >= 0f && (d5 - d6) >= 0f)
+        {
+            Vector3 edge = c - b;
+            float w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+            return (point - (b + w * edge)).sqrMagnitude;
+        }
+
+        float denominatorFace = 1f / (va + vb + vc);
+        float faceV = vb * denominatorFace;
+        float faceW = vc * denominatorFace;
+        Vector3 closest = a + ab * faceV + ac * faceW;
+        return (point - closest).sqrMagnitude;
     }
 
     public static TestPlayProjectileTickResult TickProjectile(TestPlayProjectileTickInput input)

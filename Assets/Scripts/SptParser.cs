@@ -42,6 +42,27 @@ public class BurnerSetInfo
     [HideInInspector] public bool RequestedThisFrame;
 }
 
+/// <summary>WEAPONPOINT 1エントリ分のデータ。</summary>
+public class WeaponPointInfo
+{
+    /// <summary>RunProc2 / WeaponAttack の第3引数で参照されるID。原作範囲は0..49。</summary>
+    public int Id;
+
+    /// <summary>Script.spt に記述されたフレーム名（拡張子除く）。</summary>
+    public string FrameName;
+
+    /// <summary>原作SPTが受け付けるUP/DOWN方向。</summary>
+    public SptDirection Direction;
+
+    /// <summary>機体ロード後に紐づけたUnity上のボーン。</summary>
+    public Transform BoneTr;
+
+    /// <summary>原作の発射・判定方向。UPはローカルZ+、DOWNはローカルZ-。</summary>
+    public Vector3 WorldForward => BoneTr == null
+        ? Vector3.forward
+        : (Direction == SptDirection.DOWN ? -BoneTr.forward : BoneTr.forward);
+}
+
 /// <summary>
 /// Script.spt 全体のランタイムデータを保持するコンテナ。
 /// パース後は BindTransforms / BuildBurnerEffects を呼び出して初期化を完了させること。
@@ -49,12 +70,16 @@ public class BurnerSetInfo
 public class SptRuntimeData
 {
     public const int OriginalSubLockDistanceCount = 20;
+    public const int OriginalWeaponPointCount = 50;
 
     // ---- BURNERSET ----
     public readonly Dictionary<int, BurnerSetInfo> BurnerSets = new Dictionary<int, BurnerSetInfo>();
 
+    // ---- WEAPONPOINT ----
+    public readonly Dictionary<int, WeaponPointInfo> WeaponPoints = new Dictionary<int, WeaponPointInfo>();
+
     // ---- 今後追加予定 ----
-    // WEAPONPOINT, ATTACKARMSET, GUNFILENAME, SWORDFILENAME ... など
+    // ATTACKARMSET, GUNFILENAME, SWORDFILENAME ... など
 
     // ---- 基本パラメータ ----
     public string Name;
@@ -91,6 +116,11 @@ public static class SptParser
     // BURNERSET(id, frameName, scale, direction)
     static readonly Regex RxBurnerSet = new Regex(
         @"BURNERSET\s*\(\s*(\d+)\s*,\s*([^,]+?)\s*,\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*,\s*(UP|DOWN|FORWARD|BACK|LEFT|RIGHT)\s*\)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    // WEAPONPOINT(id, frameName, UP|DOWN)
+    static readonly Regex RxWeaponPoint = new Regex(
+        @"WEAPONPOINT\s*\(\s*([+-]?\d+)\s*,\s*([^,]+?)\s*,\s*(UP|DOWN)\s*\)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     static readonly Regex RxSimpleKV = new Regex(
@@ -134,6 +164,21 @@ public static class SptParser
                 continue;
             }
 
+            // --- WEAPONPOINT ---
+            var mWeaponPoint = RxWeaponPoint.Match(line);
+            if (mWeaponPoint.Success &&
+                int.TryParse(mWeaponPoint.Groups[1].Value, out int weaponPointId) &&
+                weaponPointId >= 0 && weaponPointId < SptRuntimeData.OriginalWeaponPointCount)
+            {
+                data.WeaponPoints[weaponPointId] = new WeaponPointInfo
+                {
+                    Id = weaponPointId,
+                    FrameName = NormalizeFrameName(mWeaponPoint.Groups[2].Value),
+                    Direction = ParseDirection(mWeaponPoint.Groups[3].Value)
+                };
+                continue;
+            }
+
             // --- SubLockDist(index, distance) ---
             var mSubLock = RxSubLockDist.Match(line);
             if (mSubLock.Success &&
@@ -167,7 +212,7 @@ public static class SptParser
                         break;
                 }
             }
-            // 他の命令 (WEAPONPOINT, ATTACKARMSET ...) は今後ここへ追加
+            // 他の命令 (ATTACKARMSET ...) は今後ここへ追加
         }
 
         return data;
@@ -183,20 +228,11 @@ public static class SptParser
         var all = root.GetComponentsInChildren<Transform>(includeInactive: true);
         foreach (var info in data.BurnerSets.Values)
         {
-            info.BoneTr = null;
-            // Unity の GameObject 名は ".x" 付き（例: "B3.x"）の場合があるため、
-            // FrameName そのものと FrameName+".x" の両方でマッチを試みる
-            string nameWithExt = info.FrameName + ".x";
-            foreach (var t in all)
-            {
-                if (string.Equals(t.name, info.FrameName,  StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(t.name, nameWithExt,     StringComparison.OrdinalIgnoreCase))
-                {
-                    info.BoneTr = t;
-                    break;
-                }
-            }
-
+            info.BoneTr = FindFrame(all, info.FrameName);
+        }
+        foreach (var info in data.WeaponPoints.Values)
+        {
+            info.BoneTr = FindFrame(all, info.FrameName);
         }
     }
 
@@ -330,6 +366,30 @@ public static class SptParser
 
     static SptDirection ParseDirection(string s) =>
         Enum.TryParse<SptDirection>(s.Trim(), ignoreCase: true, out var d) ? d : SptDirection.UP;
+
+    static string NormalizeFrameName(string value)
+    {
+        string frameName = value == null ? "" : value.Trim();
+        return frameName.EndsWith(".x", StringComparison.OrdinalIgnoreCase)
+            ? frameName.Substring(0, frameName.Length - 2)
+            : frameName;
+    }
+
+    static Transform FindFrame(Transform[] all, string frameName)
+    {
+        if (all == null || string.IsNullOrEmpty(frameName))
+            return null;
+
+        // Unity の GameObject 名は ".x" 付きの場合があるため両方を受け付ける。
+        string nameWithExt = frameName + ".x";
+        foreach (var t in all)
+        {
+            if (string.Equals(t.name, frameName, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(t.name, nameWithExt, StringComparison.OrdinalIgnoreCase))
+                return t;
+        }
+        return null;
+    }
 
     static bool TryParseInt(string value, out int result)
     {

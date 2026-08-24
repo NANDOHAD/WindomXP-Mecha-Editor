@@ -201,6 +201,7 @@ public class TestPlayController : MonoBehaviour
     [Header("Weapon Preview")]
     public float defaultProjectileSpeed = 35f;
     public float defaultProjectileDamage = 50f;
+    [Tooltip("旧Inspector互換用。type 57は原作WEAPONPOINT掃引判定を使用するため、この距離値は命中判定に使いません。")]
     public float meleeRange = 3f;
     public float projectileRadius = 0.25f;
     [Min(1)]
@@ -372,6 +373,7 @@ public class TestPlayController : MonoBehaviour
     int lastSyncedAuxiliaryEnergyInt;
     float lastSyncedAuxiliaryEnergyFloat;
     readonly int[] attackCooldownTicks = new int[5];
+    readonly List<TestPlayMeleeAttackState> activeMeleeAttacks = new List<TestPlayMeleeAttackState>();
     bool attackSequenceActive;
     bool meleeApproachActive;
     bool meleeComboInputPending;
@@ -456,6 +458,7 @@ public class TestPlayController : MonoBehaviour
         UpdateOriginalMovementEnergy();
         UpdateActionFromInput();
         TickAnimation();
+        TickActiveMeleeAttacks();
         ApplyQueuedAimCommands();
         ApplyRootMotion();
         ConsumeLatchedInput();
@@ -514,6 +517,7 @@ public class TestPlayController : MonoBehaviour
         StopAllBurnerEffects();
         presentationRuntime?.StopPresentation();
         hudRuntime?.HideHud();
+        activeMeleeAttacks.Clear();
         DestroyTransientObjects();
     }
 
@@ -3661,7 +3665,7 @@ public class TestPlayController : MonoBehaviour
 
         if (procType == 57)
         {
-            ApplyCurrentMeleeAttack(args, extended ? "RunProc2:57" : "RunProc:57", EstimateDamageForWeapon(procType));
+            SpawnMeleeAttack(args, extended ? "RunProc2:57" : "RunProc:57", EstimateDamageForWeapon(procType));
             return;
         }
 
@@ -3689,24 +3693,88 @@ public class TestPlayController : MonoBehaviour
             attackProfile, fallback, 0f, false, "Damage").damage);
     }
 
-    void ApplyCurrentMeleeAttack(List<TestPlayScriptValue> args, string source, float fallbackDamage)
+    void SpawnMeleeAttack(List<TestPlayScriptValue> args, string source, float fallbackDamage)
     {
-        if (target == null || robo == null || robo.root == null)
+        // FUN_004fa150: [2]=WEAPONPOINT, [3]/100=長さ, [5]/[6]=原作未命名値,
+        // [11]=存続tick。FUN_00502e60はATTACKテーブルを生成時に複製する。
+        if (args == null || args.Count < 12 || sptSource == null || sptSource.LastSptData == null)
+        {
+            LogUnhandled(source + " requires the original 12 arguments and parsed Script.spt WEAPONPOINT data.");
             return;
+        }
 
-        float distance = Vector3.Distance(robo.root.transform.position, target.transform.position);
-        if (distance > meleeRange + target.hitRadius)
+        int weaponPointId = args[2].AsInt(-1);
+        if (!sptSource.LastSptData.WeaponPoints.TryGetValue(weaponPointId, out WeaponPointInfo weaponPoint) ||
+            weaponPoint == null || weaponPoint.BoneTr == null)
+        {
+            LogUnhandled(source + " WEAPONPOINT " + weaponPointId + " is not bound; original type 57 creates no hit object.");
             return;
+        }
 
         EnsureAttackProfile();
-        Vector3 direction = target.transform.position - robo.root.transform.position;
-        if (direction.sqrMagnitude <= 0.0001f)
-            direction = robo.root.transform.forward;
-        TestPlayCombatHitResult hit = TestPlayCombatCore.CreateHitResult(
-            attackProfile, fallbackDamage, direction, source);
-        target.ApplyImpact(hit.damage, hit.impactForce, hit.down, hit.source);
-        RecordCombatHit(hit);
-        RaiseRuntimeEvent(TestPlayRuntimeEventType.AttackHit, source, args, "", Mathf.RoundToInt(hit.damage));
+        activeMeleeAttacks.Add(TestPlayCombatCore.CreateMeleeAttackState(
+            attackProfile,
+            fallbackDamage,
+            weaponPointId,
+            args[3].AsFloat() / 100f,
+            args[11].AsInt(),
+            args[5].AsInt(),
+            args[6].AsInt(),
+            weaponPoint.BoneTr.position,
+            weaponPoint.WorldForward,
+            source));
+    }
+
+    void TickActiveMeleeAttacks()
+    {
+        if (activeMeleeAttacks.Count == 0)
+            return;
+
+        SptRuntimeData sptData = sptSource != null ? sptSource.LastSptData : null;
+        for (int i = activeMeleeAttacks.Count - 1; i >= 0; i--)
+        {
+            TestPlayMeleeAttackState attack = activeMeleeAttacks[i];
+            if (sptData == null ||
+                !sptData.WeaponPoints.TryGetValue(attack.weaponPointId, out WeaponPointInfo weaponPoint) ||
+                weaponPoint == null || weaponPoint.BoneTr == null)
+            {
+                activeMeleeAttacks.RemoveAt(i);
+                continue;
+            }
+
+            TestPlayMeleeTickResult tickResult = TestPlayCombatCore.TickMeleeAttack(
+                attack,
+                new TestPlayMeleeTickInput
+                {
+                    origin = weaponPoint.BoneTr.position,
+                    forward = weaponPoint.WorldForward,
+                    targetAlive = target != null && target.IsAlive,
+                    targetId = target != null
+                        ? System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(target)
+                        : 0,
+                    targetPosition = target != null ? target.transform.position : Vector3.zero,
+                    targetRadius = target != null ? target.hitRadius : 0f
+                });
+
+            if (tickResult.hit && target != null)
+            {
+                Vector3 impactDirection = target.transform.position - tickResult.currentOrigin;
+                TestPlayCombatHitResult hit = TestPlayCombatCore.CreateHitResult(
+                    attack.payload, impactDirection);
+                target.ApplyImpact(hit.damage, hit.impactForce, hit.down, hit.source);
+                RecordCombatHit(hit);
+                RaiseRuntimeEvent(
+                    TestPlayRuntimeEventType.AttackHit,
+                    attack.source,
+                    null,
+                    "WEAPONPOINT:" + attack.weaponPointId,
+                    Mathf.RoundToInt(hit.damage),
+                    attack.remainingTicks);
+            }
+
+            if (tickResult.expired)
+                activeMeleeAttacks.RemoveAt(i);
+        }
     }
 
     void SpawnProjectile(string source, float damage, float speed, bool homing)
@@ -4272,6 +4340,7 @@ public class TestPlayController : MonoBehaviour
         attackSequenceActive = false;
         meleeApproachActive = false;
         meleeComboInputPending = false;
+        activeMeleeAttacks.Clear();
         currentCombatTraceEvents.Clear();
         pendingCombatTraceEvents.Clear();
         simulatingCombatTick = false;
