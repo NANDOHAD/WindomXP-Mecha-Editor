@@ -80,6 +80,15 @@ public class TestPlayController : MonoBehaviour
     public float airborneHorizontalForceRetention = 0.95f;
     [Range(0f, 1f)]
     public float groundedHorizontalForceRetention = 0.9f;
+    [Range(0f, 1f)]
+    [Tooltip("原作action開始時に接地待機へ適用するANI Move保持率(+0xA88)。Move/STOPの状態とは分離します。")]
+    public float idleMoveRetention = 0.8f;
+    [Range(0f, 1f)]
+    [Tooltip("原作action開始時に通常移動へ適用するANI Move保持率(+0xA88)。")]
+    public float moveActionRetention = 1f;
+    [Range(0f, 1f)]
+    [Tooltip("個別対応をまだ確定していないactionのANI Move保持率。")]
+    public float defaultMoveRetention = 1f;
     public float aimTurnSpeed = 540f;
     public float doubleTapStepSeconds = 0.3f;
     public float inputMoveMagnitude = 0.08f;
@@ -269,6 +278,7 @@ public class TestPlayController : MonoBehaviour
     float camEffect;
     float vFMulti = 1f;
     Vector3 moveCommand;
+    float scriptedMoveRetention = 1f;
     Vector3 forceCommand;
     Vector3 velocity;
     Vector3 pendingDrivenHorizontalVelocity;
@@ -555,6 +565,7 @@ public class TestPlayController : MonoBehaviour
         currentAnimation = robo.ani.animations[actionId];
         currentScriptAnimation = robo.ani.animations[selection.scriptActionId];
         currentAnimationName = currentAnimation != null ? currentAnimation.name : "";
+        scriptedMoveRetention = GetScriptedMoveRetention(logicalActionId);
         SyncAniScriptExecutionChannel(actionId);
         CompileAnimationScripts(currentScriptAnimation);
         animationPoseHeldAtEnd = false;
@@ -606,7 +617,7 @@ public class TestPlayController : MonoBehaviour
 
         if (logicalActionId == idleAction)
         {
-            ClearHeldMotionState();
+            ClearHeldMotionState(true);
             pendingDrivenHorizontalVelocity = Vector3.zero;
             hasPendingDrivenHorizontalVelocity = false;
         }
@@ -745,7 +756,9 @@ public class TestPlayController : MonoBehaviour
 
     void ResetOriginalBlockState()
     {
-        moveCommand = Vector3.zero;
+        // Original numeric Move=0 preserves the current Move component. Keep
+        // the dedicated ANI Move state across block/action entry; only STOP or
+        // a new numeric Move command changes it.
         forceCommand = Vector3.zero;
         moveLocked = false;
         shieldGuard = false;
@@ -899,14 +912,23 @@ public class TestPlayController : MonoBehaviour
         }
         ApplyOriginalRiseSteering(root);
         IntegrateOriginalForceVelocity();
-        Vector3 scriptedVelocity = worldMove;
-        if (!CaptureDrivenHorizontalVelocity(scriptedVelocity))
+        Vector3 scriptedVelocityBeforeRetention = worldMove;
+        if (!CaptureDrivenHorizontalVelocity(scriptedVelocityBeforeRetention))
             DecayPendingDrivenHorizontalVelocity();
         float unitScale = Mathf.Max(0f, aniUnitsToUnityScale);
-        lastMotionStep = TestPlayMotionCore.ComposeDisplacement(lastMotionStep, scriptedVelocity, unitScale);
-        Vector3 scriptedMove = scriptedVelocity * unitScale;
-        Vector3 requestedMove = (scriptedVelocity + velocity) * unitScale;
+        lastMotionStep = TestPlayMotionCore.ComposeDisplacement(
+            lastMotionStep, scriptedVelocityBeforeRetention, scriptedMoveRetention, unitScale);
+        Vector3 scriptedVelocityAfterRetention = lastMotionStep.scriptedVelocityAfterRetention;
+        Vector3 scriptedMove = scriptedVelocityAfterRetention * unitScale;
+        Vector3 requestedMove = (scriptedVelocityAfterRetention + velocity) * unitScale;
         Vector3 appliedMove = MoveRootWithColliderGrounding(root, requestedMove);
+
+        // FUN_004cd840 writes the retained Move back into the persistent ANI
+        // state before the next 60 Hz tick.  Keep this state separate from
+        // Force/pending jump inertia: numeric Move values decay here, while
+        // STOP has already zeroed only the requested axis in HandleCommand.
+        scriptedMoveRetention = Mathf.Clamp01(scriptedMoveRetention);
+        moveCommand *= scriptedMoveRetention;
 
         float debugStepMovedDistance = stepMovedDistance;
         float debugStepTargetDistance = GetActiveStepMoveTargetDistance();
@@ -917,6 +939,15 @@ public class TestPlayController : MonoBehaviour
         }
 
         LogMotionRootDebug(root, positionBefore, localMove, worldMove, scriptedMove, appliedMove, usingInputMove, usingStepFallbackMove, debugStepMovedDistance, debugStepTargetDistance);
+    }
+
+    float GetScriptedMoveRetention(int logicalActionId)
+    {
+        if (logicalActionId == idleAction)
+            return Mathf.Clamp01(idleMoveRetention);
+        if (logicalActionId == moveAction)
+            return Mathf.Clamp01(moveActionRetention);
+        return Mathf.Clamp01(defaultMoveRetention);
     }
 
     void IntegrateOriginalForceVelocity()
@@ -2162,6 +2193,7 @@ public class TestPlayController : MonoBehaviour
         stepMovedDistance = 0f;
         pendingDrivenHorizontalVelocity = Vector3.zero;
         hasPendingDrivenHorizontalVelocity = false;
+        ClearHeldMotionState();
         // Sword-side recovery 56 commonly has no script blocks. Clear the
         // preceding attack block's transient aim/Force/attack state here,
         // because a scriptless action never enters the regular block reset.
@@ -3141,9 +3173,10 @@ public class TestPlayController : MonoBehaviour
         frameTime = Mathf.Clamp01(pose - frameIndex);
     }
 
-    void ClearHeldMotionState()
+    void ClearHeldMotionState(bool preserveScriptedMove = false)
     {
-        moveCommand = Vector3.zero;
+        if (!preserveScriptedMove)
+            moveCommand = Vector3.zero;
         forceCommand = Vector3.zero;
         moveLocked = false;
         shieldGuard = false;
@@ -3852,11 +3885,16 @@ public class TestPlayController : MonoBehaviour
         if (!mappedEffect)
             go.transform.localScale = Vector3.one * scale;
         Renderer renderer = go.GetComponent<Renderer>();
-        if (!mappedEffect && renderer != null)
+        // renderer.material instantiates a scene material and delayed Destroy
+        // is invalid while editor verification runs outside Play Mode. Golden
+        // Trace does not need the fallback visual; EndDeterministicTraceSession
+        // removes every tracked transient immediately.
+        if (!mappedEffect && renderer != null && Application.isPlaying)
             renderer.material.color = color;
         spawnedTransientObjects.Add(go);
         RaiseRuntimeEvent(TestPlayRuntimeEventType.EffectSpawned, effectKey, null, effectKey, 0, life);
-        Destroy(go, life);
+        if (Application.isPlaying)
+            Destroy(go, life);
     }
 
     void ApplyBurners()
@@ -4172,6 +4210,7 @@ public class TestPlayController : MonoBehaviour
         camEffect = 0f;
         vFMulti = 1f;
         moveCommand = Vector3.zero;
+        scriptedMoveRetention = 1f;
         forceCommand = Vector3.zero;
         velocity = Vector3.zero;
         pendingDrivenHorizontalVelocity = Vector3.zero;

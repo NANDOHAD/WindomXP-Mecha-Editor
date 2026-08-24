@@ -224,7 +224,8 @@ public static class TestPlayRuntimeVerification
             Require(move == new Vector3(1f, 0f, 4f), "Move numeric zero preserves and STOP clears an axis", ref assertions);
             MethodInfo resetBlock = typeof(TestPlayController).GetMethod("ResetOriginalBlockState", InstancePrivate);
             resetBlock.Invoke(controller, null);
-            Require((Vector3)GetField(controller, "moveCommand") == Vector3.zero, "block entry resets original transient state", ref assertions);
+            Require((Vector3)GetField(controller, "moveCommand") == new Vector3(1f, 0f, 4f),
+                "block entry preserves ANI Move while resetting transient Force state", ref assertions);
 
             handle.Invoke(controller, new object[]
             {

@@ -103,13 +103,34 @@ def main() -> int:
         "scripted_velocity": "scriptedVelocity",
         "requested_displacement": "requestedDisplacement",
     }
+    move_stage_columns = [
+        "move_retention",
+        "scripted_velocity_after_retention_x",
+        "scripted_velocity_after_retention_y",
+        "scripted_velocity_after_retention_z",
+    ]
+    has_move_stage_columns = any(name in set(fieldnames or ()) for name in move_stage_columns)
+    if has_move_stage_columns and not has_columns(fieldnames, move_stage_columns):
+        missing = [name for name in move_stage_columns if name not in set(fieldnames or ())]
+        raise ValueError(
+            "Phase 6B Move-stage capture requires all additional columns; missing "
+            + ", ".join(missing)
+        )
+    if has_move_stage_columns and not has_columns(fieldnames, ["scripted_velocity_x", "scripted_velocity_y", "scripted_velocity_z"]):
+        raise ValueError("Phase 6B Move-stage capture requires scripted_velocity_x/y/z as the entry Move.")
+
     observed_fields = ["tick", "input.direction", "logicalAction", "runtime.grounded"]
     enabled_vectors: dict[str, str] = {}
     for csv_prefix, json_name in vector_groups.items():
         columns = [f"{csv_prefix}_{axis}" for axis in ("x", "y", "z")]
         if has_columns(fieldnames, columns):
             enabled_vectors[csv_prefix] = json_name
-            observed_fields.append(json_name)
+            if not (has_move_stage_columns and csv_prefix == "scripted_velocity"):
+                observed_fields.append(json_name)
+    if has_move_stage_columns:
+        observed_fields.extend(
+            ["scriptedVelocityBeforeRetention", "moveRetention", "scriptedVelocityAfterRetention"]
+        )
 
     records: list[dict[str, object]] = []
     for tick, row in enumerate(rows):
@@ -139,14 +160,23 @@ def main() -> int:
             raw_vector = vector(row, csv_prefix, line)
             if csv_prefix == "scripted_velocity":
                 record[json_name] = [normalize_float32_subnormal(value) for value in raw_vector]
+                if has_move_stage_columns:
+                    record["scriptedVelocityBeforeRetention"] = [
+                        normalize_float32_subnormal(value) for value in raw_vector
+                    ]
                 record["rawScriptedVelocity"] = raw_vector
             else:
                 record[json_name] = raw_vector
+        if has_move_stage_columns:
+            record["moveRetention"] = number(row, "move_retention", line)
+            record["scriptedVelocityAfterRetention"] = vector(
+                row, "scripted_velocity_after_retention", line
+            )
         records.append(record)
 
     header = {
         "session": {
-            "schemaVersion": 1,
+            "schemaVersion": 2 if has_move_stage_columns else 1,
             "source": "original-observation",
             "scenario": "GT-001",
             "mechId": args.mech_id,

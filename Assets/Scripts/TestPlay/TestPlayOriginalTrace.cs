@@ -83,7 +83,7 @@ public sealed class TestPlayOriginalTraceSession
             error = "Original observation header must contain a session object.";
             return false;
         }
-        if (envelope.session.schemaVersion != 1)
+        if (envelope.session.schemaVersion != 1 && envelope.session.schemaVersion != 2)
         {
             error = "Unsupported original observation schemaVersion " + envelope.session.schemaVersion + ".";
             return false;
@@ -190,13 +190,14 @@ public static class TestPlayOriginalTraceComparer
 
     static readonly HashSet<string> NumberFields = new HashSet<string>(StringComparer.Ordinal)
     {
-        "retention", "velocityMultiplier", "resources.hp", "resources.movementEnergy",
+        "retention", "moveRetention", "velocityMultiplier", "resources.hp", "resources.movementEnergy",
         "resources.auxiliaryEnergy"
     };
 
     static readonly HashSet<string> VectorFields = new HashSet<string>(StringComparer.Ordinal)
     {
         "velocityBefore", "force", "velocityAfter", "scriptedVelocity",
+        "scriptedVelocityBeforeRetention", "scriptedVelocityAfterRetention",
         "requestedDisplacement", "runtime.rootPosition"
     };
 
@@ -225,7 +226,7 @@ public static class TestPlayOriginalTraceComparer
         TestPlayOriginalObservationHeader originalHeader = original.Header;
         if (!string.Equals(unityHeader.scenarioId, originalHeader.scenario, StringComparison.Ordinal))
             return HeaderMismatch(result, "scenario", originalHeader.scenario, unityHeader.scenarioId);
-        if (!string.Equals(unityHeader.mechId, originalHeader.mechId, StringComparison.Ordinal))
+        if (!MechIdsMatch(unityHeader.mechId, originalHeader.mechId))
             return HeaderMismatch(result, "mechId", originalHeader.mechId, unityHeader.mechId);
         if (!HashEquals(unityHeader.aniHash, originalHeader.aniHash))
             return HeaderMismatch(result, "aniHash", originalHeader.aniHash, unityHeader.aniHash);
@@ -266,6 +267,19 @@ public static class TestPlayOriginalTraceComparer
                 "Trace lengths differ at the first unavailable tick.");
         }
         return result;
+    }
+
+    static bool MechIdsMatch(string unityMechId, string originalMechId)
+    {
+        if (string.Equals(unityMechId, originalMechId, StringComparison.Ordinal))
+            return true;
+
+        // The original trace records the canonical ROBO folder id while the
+        // Unity real-mech trace records the display folder name.  The ANI/SPT
+        // hashes are still checked immediately after this alias, so this does
+        // not weaken the data-identity gate.
+        return string.Equals(originalMechId, "KD-03", StringComparison.Ordinal) &&
+               string.Equals(unityMechId, "ガンダムTR-1ヘイズル改", StringComparison.Ordinal);
     }
 
     public static string BuildFirstMismatchReport(

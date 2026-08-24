@@ -94,6 +94,15 @@ public static class TestPlayPhase2Verification
         Require(Approximately(step.requestedDisplacement, new Vector3(2.135f, 0.3318f, -1.05f)),
             "ANI Move and Force velocity compose before unit scaling", ref assertions);
 
+        TestPlayMotionStep retained = TestPlayMotionCore.ComposeDisplacement(
+            step, new Vector3(0.2f, 0f, 0.4f), 0.8f, 0.7f);
+        Require(Approximately(retained.scriptedVelocityBeforeRetention, new Vector3(0.2f, 0f, 0.4f)) &&
+                Mathf.Approximately(retained.scriptedMoveRetention, 0.8f) &&
+                Approximately(retained.scriptedVelocityAfterRetention, new Vector3(0.16f, 0f, 0.32f)),
+            "ANI Move keeps entry, action retention, and post-retention stages separately", ref assertions);
+        Require(Approximately(retained.requestedDisplacement, new Vector3(2.107f, 0.3318f, -1.106f)),
+            "post-retention Move is used for requested displacement", ref assertions);
+
         TestPlayMotionStep terminal = TestPlayMotionCore.Integrate(new TestPlayMotionInput
         {
             velocity = new Vector3(1f, -0.9f, 1f),

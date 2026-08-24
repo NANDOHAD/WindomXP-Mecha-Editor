@@ -19,6 +19,45 @@ public static class TestPlayGoldenTraceVerification
     {
         public TestPlayGoldenTraceSession session;
         public readonly HashSet<int> observedActions = new HashSet<int>();
+        public int riseActionEntries;
+        public int riseActionTicks;
+        public int riseFrameCount;
+        public string riseScriptTiming = "";
+        public int maximumRiseFrameIndex = -1;
+        public int consecutiveRiseFinalFrameTicks;
+        public int maximumRiseFinalFrameTicks;
+        public bool sawRiseFinalFrameWhileHeld;
+        public bool sawAirIdleAfterRiseRelease;
+        public int lastAnimationIndex = int.MinValue;
+        public int lastLogicalAction = int.MinValue;
+        public bool sawRiseAction;
+        public bool sawFirstStepTapWithoutStep;
+        public int stepActionEntries;
+        public int stepActionTicks;
+        public int stepEntryTick = -1;
+        public int stepEntryAction = -1;
+        public int stepExitTick = -1;
+        public int stepExitAction = -1;
+        public bool stepEntryOnSecondTap;
+        public bool stepExitedAfterRelease;
+        public bool stepHorizontalMovementObserved;
+        public bool stepEnergySemanticsValid = true;
+        public float stepEnergyConsumed;
+        public int stepEnergyDrainTicks;
+        public bool sawFirstBoostTapWithoutBoost;
+        public int boostActionEntries;
+        public int boostActionTicks;
+        public int boostEntryTick = -1;
+        public int boostExitTick = -1;
+        public int boostExitAction = -1;
+        public bool boostEntryOnSecondTap;
+        public bool boostExitedAfterRelease;
+        public bool boostInitialFiveTicksStationary = true;
+        public bool boostMovedAfterInitialWindow;
+        public bool boostEnergySemanticsValid = true;
+        public float boostEntryEnergyCost;
+        public float boostPerTickEnergyConsumed;
+        public int boostEnergyDrainTicks;
     }
 
     [MenuItem("Tools/WindomXP/Test Play/Run Real-Mech Golden Traces")]
@@ -141,6 +180,7 @@ public static class TestPlayGoldenTraceVerification
             if (mismatch >= 0)
                 throw new InvalidOperationException(definition.id + " diverged at tick index " + mismatch);
             ValidateObservedActions(definition, first.observedActions);
+            ValidateFocusedScenarioOutcome(definition, first);
 
             string firstHash = first.session.ComputeTraceHash();
             string secondHash = second.session.ComputeTraceHash();
@@ -267,9 +307,21 @@ public static class TestPlayGoldenTraceVerification
             TestPlayGoldenInputFrame[] frames = definition.ExpandInputFrames();
             for (int i = 0; i < frames.Length; i++)
             {
-                capture.session.AddTick(controller.SimulateDeterministicTraceTick(frames[i]));
+                float energyBeforeTick = controller.currentEnergy;
+                Vector3 positionBeforeTick = root.transform.position;
+                string tickTrace = controller.SimulateDeterministicTraceTick(frames[i]);
+                capture.session.AddTick(tickTrace);
                 capture.observedActions.Add(controller.currentAnimationIndex);
                 capture.observedActions.Add(controller.CurrentActionSelection.logicalActionId);
+                CaptureFocusedScenarioState(
+                    definition.id,
+                    capture,
+                    controller,
+                    frames[i],
+                    i + 1,
+                    energyBeforeTick,
+                    positionBeforeTick,
+                    root.transform.position);
             }
             controller.EndDeterministicTraceSession();
             return capture;
@@ -308,6 +360,325 @@ public static class TestPlayGoldenTraceVerification
             int actionId = definition.requiredActionIds[i];
             if (!observedActions.Contains(actionId))
                 throw new InvalidOperationException(definition.id + " did not observe action " + actionId);
+        }
+    }
+
+    static void CaptureFocusedScenarioState(
+        string scenarioId,
+        RunCapture capture,
+        TestPlayController controller,
+        TestPlayGoldenInputFrame input,
+        int traceTick,
+        float energyBeforeTick,
+        Vector3 positionBeforeTick,
+        Vector3 positionAfterTick)
+    {
+        int action = controller.currentAnimationIndex;
+        int logicalAction = controller.CurrentActionSelection.logicalActionId;
+        if (action == controller.riseAction)
+        {
+            capture.sawRiseAction = true;
+            if (capture.lastAnimationIndex != controller.riseAction)
+                capture.riseActionEntries++;
+            capture.riseActionTicks++;
+
+            animation riseAnimation = controller.robo != null && controller.robo.ani != null &&
+                                      controller.robo.ani.animations != null &&
+                                      controller.riseAction >= 0 &&
+                                      controller.riseAction < controller.robo.ani.animations.Count
+                ? controller.robo.ani.animations[controller.riseAction]
+                : null;
+            int frameCount = riseAnimation != null && riseAnimation.frames != null
+                ? riseAnimation.frames.Count
+                : 0;
+            capture.riseFrameCount = frameCount;
+            if (string.IsNullOrEmpty(capture.riseScriptTiming) &&
+                riseAnimation != null && riseAnimation.scripts != null)
+            {
+                StringBuilder timing = new StringBuilder();
+                for (int i = 0; i < riseAnimation.scripts.Count; i++)
+                {
+                    if (i > 0)
+                        timing.Append(',');
+                    timing.Append(i).Append(':')
+                        .Append(riseAnimation.scripts[i].unk).Append('/')
+                        .Append(riseAnimation.scripts[i].time.ToString("R", CultureInfo.InvariantCulture));
+                }
+                capture.riseScriptTiming = timing.ToString();
+            }
+            capture.maximumRiseFrameIndex = Mathf.Max(
+                capture.maximumRiseFrameIndex, controller.frameIndex);
+            if (input.rise &&
+                capture.riseActionTicks >= controller.riseMinimumReleaseTicks &&
+                frameCount > 0 &&
+                controller.frameIndex == frameCount - 1)
+            {
+                capture.consecutiveRiseFinalFrameTicks++;
+                capture.maximumRiseFinalFrameTicks = Mathf.Max(
+                    capture.maximumRiseFinalFrameTicks,
+                    capture.consecutiveRiseFinalFrameTicks);
+                // The representative real ANI holds its last HOD frame in a
+                // long zero-progress script block instead of reaching the
+                // synthetic end-pose flag. Require a sustained hold so a
+                // transient final frame or animation loop cannot pass.
+                if (capture.consecutiveRiseFinalFrameTicks >= 10)
+                    capture.sawRiseFinalFrameWhileHeld = true;
+            }
+            else
+                capture.consecutiveRiseFinalFrameTicks = 0;
+        }
+        else if (capture.sawRiseAction && !input.rise && action == controller.airIdleAction)
+        {
+            capture.sawAirIdleAfterRiseRelease = true;
+        }
+
+        float energyDelta = energyBeforeTick - controller.currentEnergy;
+        Vector3 horizontalDelta = positionAfterTick - positionBeforeTick;
+        horizontalDelta.y = 0f;
+
+        if (scenarioId == "GT-005")
+        {
+            CaptureStepScenarioState(
+                capture, controller, input, traceTick, logicalAction, energyDelta, horizontalDelta);
+        }
+        else if (scenarioId == "GT-006")
+        {
+            CaptureBoostScenarioState(
+                capture, controller, input, traceTick, logicalAction, energyDelta, horizontalDelta);
+        }
+
+        capture.lastAnimationIndex = action;
+        capture.lastLogicalAction = logicalAction;
+    }
+
+    static void CaptureStepScenarioState(
+        RunCapture capture,
+        TestPlayController controller,
+        TestPlayGoldenInputFrame input,
+        int traceTick,
+        int logicalAction,
+        float energyDelta,
+        Vector3 horizontalDelta)
+    {
+        bool wasStep = IsStepAction(controller, capture.lastLogicalAction);
+        bool isStep = IsStepAction(controller, logicalAction);
+        if (traceTick == 1 && input.direction != 0 && !isStep)
+            capture.sawFirstStepTapWithoutStep = true;
+
+        if (isStep)
+        {
+            if (!wasStep)
+            {
+                capture.stepActionEntries++;
+                capture.stepEntryTick = traceTick;
+                capture.stepEntryAction = logicalAction;
+                capture.stepEntryOnSecondTap =
+                    capture.sawFirstStepTapWithoutStep && input.direction == 8;
+                capture.stepEnergySemanticsValid &= NearlyEqual(energyDelta, 0f);
+            }
+
+            capture.stepActionTicks++;
+            if (horizontalDelta.sqrMagnitude > 0.000001f)
+                capture.stepHorizontalMovementObserved = true;
+        }
+
+        // UpdateOriginalMovementEnergy runs before action selection. Therefore
+        // the entry tick is free, every following active tick costs 4, and the
+        // transition tick pays the final 4 before leaving the step action.
+        if (wasStep)
+        {
+            capture.stepEnergyDrainTicks++;
+            capture.stepEnergyConsumed += energyDelta;
+            capture.stepEnergySemanticsValid &=
+                NearlyEqual(energyDelta, Mathf.Max(0f, controller.stepEnergyPerTick));
+        }
+
+        if (wasStep && !isStep)
+        {
+            capture.stepExitTick = traceTick;
+            capture.stepExitAction = logicalAction;
+            capture.stepExitedAfterRelease =
+                input.direction == 0 && logicalAction == controller.stepLandingAction;
+        }
+    }
+
+    static void CaptureBoostScenarioState(
+        RunCapture capture,
+        TestPlayController controller,
+        TestPlayGoldenInputFrame input,
+        int traceTick,
+        int logicalAction,
+        float energyDelta,
+        Vector3 horizontalDelta)
+    {
+        bool wasBoost = capture.lastLogicalAction == controller.boostAction;
+        bool isBoost = logicalAction == controller.boostAction;
+        if (traceTick == 1 && input.rise && !isBoost)
+            capture.sawFirstBoostTapWithoutBoost = true;
+
+        if (isBoost)
+        {
+            if (!wasBoost)
+            {
+                capture.boostActionEntries++;
+                capture.boostEntryTick = traceTick;
+                capture.boostEntryOnSecondTap =
+                    capture.sawFirstBoostTapWithoutBoost && input.rise;
+                capture.boostEntryEnergyCost = energyDelta;
+                float expectedEntryCost = Mathf.Floor(Mathf.Max(0f, controller.maximumEnergy) / 5f);
+                capture.boostEnergySemanticsValid &= NearlyEqual(energyDelta, expectedEntryCost);
+            }
+
+            capture.boostActionTicks++;
+            if (capture.boostActionTicks <= 5)
+            {
+                if (horizontalDelta.sqrMagnitude > 0.000001f)
+                    capture.boostInitialFiveTicksStationary = false;
+            }
+            else if (horizontalDelta.sqrMagnitude > 0.000001f)
+            {
+                capture.boostMovedAfterInitialWindow = true;
+            }
+        }
+
+        // As with step, the normal per-tick drain begins on the tick after
+        // entry and includes the tick that transitions out of action 22.
+        if (wasBoost)
+        {
+            capture.boostEnergyDrainTicks++;
+            capture.boostPerTickEnergyConsumed += energyDelta;
+            capture.boostEnergySemanticsValid &=
+                NearlyEqual(energyDelta, Mathf.Max(0f, controller.boostEnergyPerTick));
+        }
+
+        if (wasBoost && !isBoost)
+        {
+            capture.boostExitTick = traceTick;
+            capture.boostExitAction = logicalAction;
+            capture.boostExitedAfterRelease =
+                !input.rise && logicalAction == controller.airIdleAction;
+        }
+    }
+
+    static bool IsStepAction(TestPlayController controller, int action)
+    {
+        return action == controller.forwardStepAction ||
+               action == controller.backStepAction ||
+               action == controller.leftStepAction ||
+               action == controller.rightStepAction;
+    }
+
+    static bool NearlyEqual(float actual, float expected)
+    {
+        return Mathf.Abs(actual - expected) < 0.0001f;
+    }
+
+    static void ValidateFocusedScenarioOutcome(
+        TestPlayGoldenScenarioDefinition definition,
+        RunCapture capture)
+    {
+        if (definition.id == "GT-002")
+        {
+            if (capture.riseActionEntries != 1 || !capture.sawAirIdleAfterRiseRelease)
+            {
+                throw new InvalidOperationException(
+                    "GT-002 must enter rise action 7 once and leave it for air-stop action 8 after Z release.");
+            }
+            return;
+        }
+
+        if (definition.id == "GT-003" &&
+            (capture.riseActionEntries != 1 ||
+             !capture.sawRiseFinalFrameWhileHeld ||
+             !capture.sawAirIdleAfterRiseRelease))
+        {
+            throw new InvalidOperationException(
+                "GT-003 must play rise action 7 once, keep its final HOD frame while Z is held, " +
+                "and leave it for air-stop action 8 after release. " +
+                "entries=" + capture.riseActionEntries +
+                " riseTicks=" + capture.riseActionTicks +
+                " maxFrame=" + capture.maximumRiseFrameIndex +
+                " frameCount=" + capture.riseFrameCount +
+                " scriptTiming=" + capture.riseScriptTiming +
+                " finalFrameTicks=" + capture.maximumRiseFinalFrameTicks +
+                " finalFrameHeld=" + capture.sawRiseFinalFrameWhileHeld +
+                " airIdleAfterRelease=" + capture.sawAirIdleAfterRiseRelease);
+        }
+
+        if (definition.id == "GT-005")
+        {
+            bool durationWithinOriginalBoundary =
+                capture.stepActionTicks >= 16 && capture.stepActionTicks <= 61;
+            bool totalEnergyMatches = NearlyEqual(
+                capture.stepEnergyConsumed,
+                capture.stepEnergyDrainTicks * 4f);
+            if (!capture.sawFirstStepTapWithoutStep ||
+                capture.stepActionEntries != 1 ||
+                capture.stepEntryAction != 11 ||
+                !capture.stepEntryOnSecondTap ||
+                !durationWithinOriginalBoundary ||
+                !capture.stepExitedAfterRelease ||
+                !capture.stepHorizontalMovementObserved ||
+                !capture.stepEnergySemanticsValid ||
+                capture.stepEnergyDrainTicks != capture.stepActionTicks ||
+                !totalEnergyMatches)
+            {
+                throw new InvalidOperationException(
+                    "GT-005 must reject the first direction tap, enter forward step action 11 once " +
+                    "on the second tap, move horizontally, drain 4 movement-energy units per step tick, " +
+                    "and leave through grounded step landing action 6 after release inside ticks 16-61. " +
+                    "firstTapRejected=" + capture.sawFirstStepTapWithoutStep +
+                    " entries=" + capture.stepActionEntries +
+                    " entryTick=" + capture.stepEntryTick +
+                    " entryAction=" + capture.stepEntryAction +
+                    " entryOnSecondTap=" + capture.stepEntryOnSecondTap +
+                    " actionTicks=" + capture.stepActionTicks +
+                    " exitTick=" + capture.stepExitTick +
+                    " exitAction=" + capture.stepExitAction +
+                    " moved=" + capture.stepHorizontalMovementObserved +
+                    " energyValid=" + capture.stepEnergySemanticsValid +
+                    " drainTicks=" + capture.stepEnergyDrainTicks +
+                    " consumed=" + capture.stepEnergyConsumed.ToString("R", CultureInfo.InvariantCulture));
+            }
+            return;
+        }
+
+        if (definition.id == "GT-006")
+        {
+            bool durationPastOriginalReleaseBoundary = capture.boostActionTicks >= 31;
+            bool totalEnergyMatches = NearlyEqual(
+                capture.boostPerTickEnergyConsumed,
+                capture.boostEnergyDrainTicks * 5f);
+            if (!capture.sawFirstBoostTapWithoutBoost ||
+                capture.boostActionEntries != 1 ||
+                !capture.boostEntryOnSecondTap ||
+                !durationPastOriginalReleaseBoundary ||
+                !capture.boostExitedAfterRelease ||
+                !capture.boostInitialFiveTicksStationary ||
+                !capture.boostMovedAfterInitialWindow ||
+                !capture.boostEnergySemanticsValid ||
+                capture.boostEnergyDrainTicks != capture.boostActionTicks ||
+                !totalEnergyMatches)
+            {
+                throw new InvalidOperationException(
+                    "GT-006 must reject the first Z tap, enter boost action 22 once on the second tap, " +
+                    "charge Generator/5 once, drain 5 movement-energy units per boost tick, keep the " +
+                    "representative ANI stationary for its first five action ticks, then move and leave " +
+                    "through air-stop action 8 after release beyond tick 30. " +
+                    "firstTapRejected=" + capture.sawFirstBoostTapWithoutBoost +
+                    " entries=" + capture.boostActionEntries +
+                    " entryTick=" + capture.boostEntryTick +
+                    " entryOnSecondTap=" + capture.boostEntryOnSecondTap +
+                    " actionTicks=" + capture.boostActionTicks +
+                    " exitTick=" + capture.boostExitTick +
+                    " exitAction=" + capture.boostExitAction +
+                    " entryCost=" + capture.boostEntryEnergyCost.ToString("R", CultureInfo.InvariantCulture) +
+                    " initialStationary=" + capture.boostInitialFiveTicksStationary +
+                    " movedAfterInitial=" + capture.boostMovedAfterInitialWindow +
+                    " energyValid=" + capture.boostEnergySemanticsValid +
+                    " drainTicks=" + capture.boostEnergyDrainTicks +
+                    " perTickConsumed=" + capture.boostPerTickEnergyConsumed.ToString("R", CultureInfo.InvariantCulture));
+            }
         }
     }
 

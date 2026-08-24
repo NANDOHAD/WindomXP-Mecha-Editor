@@ -2,6 +2,13 @@
 
 このフォルダは、原作EXEの観測値をUnity基準値と混同せず、再検査可能なJSONLへ変換するためのPhase 6A成果物です。原作プロセスへの自動注入は行いません。ブレークポイントで得た値をCSVへ保存し、`convert_gt001_probe.py`でhash検査と入力境界検査を行います。
 
+## 現在の扱い
+
+- 既存Run 1～3とschema v1 JSONLは、GT-001の取得経路と22tick適合traceの証拠として維持します。
+- Phase 6Bの接地Move保持は、一次擬似コード、原作EXEのアンカー観測、schema v1一致、Unity回帰検証を組み合わせて受入済みです。
+- schema v2の22tick完全取得は既定工程ではありません。同形式での原作観測一致を明示的な受入条件とする場合だけ再開します。
+- 新しい観測は[`OBSERVATION_TICKET_TEMPLATE.md`](OBSERVATION_TICKET_TEMPLATE.md)で疑問、処理段階、最小フィールド、成功条件、停止条件を固定してから開始します。
+
 ## 固定対象
 
 - 原作ゲーム環境: `Logs/WindomXP`
@@ -11,7 +18,7 @@
 - ANI SHA-256: `CA1D7A9CF134ECC305DC646BAB7EA8CF9E2421ACF9ED3B2108D5591DF97C9C6A`
 - SPT SHA-256: `4414870017376ACE0DEAAE8D64EE6237D02005758B43CF4C62D6EEC9BE324A3D`
 - x86 / image base `0x00400000`
-- シナリオ: GT-001、全22tick
+- 既存証拠シナリオ: GT-001、全22tick
 - 原作direction: tick 0～1は待機5、2～13は前進8、14～21は待機5
 - 論理入力: tick 0～1は0、2～13は前進action 1、14～21は0
 
@@ -48,18 +55,22 @@ GT-001では初期値0から、前進開始時の1、解放後の0を保持値�
 | `scripted_velocity_*` | float `[ECX+0xAD0/0xAD4/0xAD8]` | Move値。`0xA88`適用前の値 |
 | `airborne` | int `[ECX+0xBA8]` | 0=接地、1=空中 |
 
+`scripted_velocity_*`は関数入口の保持率適用前Moveです。Phase 6B用CSVでは、さらに`move_retention`（`+0xA88`）と`scripted_velocity_after_retention_*`（乗算後Move）を追加できます。変換器はこの4列が揃ったときschema v2を生成し、`scriptedVelocityBeforeRetention`／`moveRetention`／`scriptedVelocityAfterRetention`として`observedFields`へ列挙します。この対応はschema v2を受け入れるための互換機能であり、新しい22tick取得を必須にするものではありません。既存Run 1～3とschema v1 JSONLは取得証拠として変更しません。
+
 `velocity_after_*`は同じ呼び出しから戻った直後の`[ECX+0xA7C/0xA80/0xA84]`です。呼出元のreturn addressへ一時ブレークポイントを置く場合、別スレッド・別機体の停止と混同しないよう入口時のECXを照合します。
 
 位置は行列`[ECX+0x78C/0x790/0x794]`ですが、Unity座標・scaleとの正規化が未確定なためPhase 6Aの既定CSVには含めません。未確定変換を適用して`runtime.rootPosition`と比較しないでください。
 
 ## 取得手順
 
+以下は既存GT-001の再現、または観測チケットで22tick適合traceが必要と判断された場合の手順です。アンカー観測ではチケットに書いた最小窓だけを取得し、未観測tickを推定値で補いません。
+
 1. `Logs/WindomXP/WindomXP_orig.exe`を通常起動し、起動設定で`Launch`を選ぶ。x32dbgからEXEを直接開始すると起動設定段階で失敗したため、実行中プロセスへのAttachを使う。
 2. x32dbgの環境設定で`ユーザー TLS コールバック`と`システム TLS コールバック`の自動停止を無効にする。この設定変更後はDetach／Attachし直す。
-3. 実行中の`WindomXP_orig.exe`へAttachし、`bp 0x004CD840`と`bp 0x004D2030`を16進表記で設定する。`0x`を省略すると10進値として解釈されるため省略しない。
+3. 実行中の`WindomXP_orig.exe`へAttachし、残留BPが空であることを確認する。まず低頻度の`bp 0x004D2030`でactionと現在PIDの自機ECXを確定し、その後だけ対象ECX限定の`bp 0x004CD840`を使う。`0x`を省略すると10進値として解釈されるため省略しない。
 4. `gt001_probe_template.csv`を作業用ファイルへコピーする。
 5. `KD-03`の対象機体ECXを固定し、GT-001開始前の2 idle tickから22tickを採取する。
-6. 同じ初期状態・入力で最低3回取得し、CSV値が一致することを先に確認する。
+6. GT-001は計測経路の初回妥当性確認を兼ねるため、同じ初期状態・入力で最低3回取得し、CSV値が一致することを先に確認する。
 7. 次の形式でJSONLへ変換する。
 
 ```powershell
@@ -81,5 +92,16 @@ python Tools/OriginalTrace/convert_gt001_probe.py `
 - x32dbg 2026.05.27を`Logs/OriginalTraceTools/`へ配置し、通常起動した原作プロセスへのAttachを確認済みです。物理キー入力と対象機体ECX条件付きブレークポイントを組み合わせ、Run 1～3の22tickを採取済みです。3回のraw CSVと変換後JSONLはそれぞれbyte単位で一致しています。
 - `Logs/WindomXP/ROBO/KD-03`のANI/SPT hashはプロジェクト基準と完全一致します。hash別Unity基準は`Logs/TestPlayGolden/ByDataHash/ca1d7a9cf134ecc3_4414870017376ace/GT-001.unity-reference.jsonl`へ生成済みです。
 - Actionは`FUN_004d2030`を通るGT-001範囲だけを最初の対象とします。
+- 現在の変換器、22tick入力境界検査、Selected-Mech基準生成はGT-001専用です。全GT対応へ先行共通化せず、追加観測の条件を満たす2つ目の代表シナリオが実際に選ばれた時点で、hash、ヘッダー、`observedFields`、scenario catalog入力の実共通部分だけを分離します。
+- GT-001の3回一致は既存証拠として維持します。同じ機体ECX、offset、ブレーク位置を再利用する後続の代表観測は2回一致を既定とし、不一致、新規ポインター／offset、非決定性の疑いがある場合だけ3回目を追加します。
+- GT番号ごとの全件観測は行いません。共有Coreの解釈が一意でない、実装後に説明できない実機差が残る、複数候補から選べない、原作観測一致を主張する、またはtraceの処理段階が揃っていない場合だけ、挙動クラスから代表1ケースを追加します。
 - 接触補正後の位置、HOD frame、Generatorの原作offsetはまだ観測契約へ入れていません。
-- CSVが作れない場合もUnity実装を推測修正せず、Ghidra側で対象ポインターとoffsetの根拠を追加します。
+- CSVが作れない場合は、共有Coreの確定に観測が必須かを先に再判定します。必須ならGhidra側で対象ポインターとoffsetの根拠を追加し、必須でなければ`原作推定`または`Unity代替`として範囲を明記し、全体工程を停止しません。
+
+## 停止規則
+
+- 同じ機体ECX取得方法、offset、ブレーク位置を再利用する観測は2回一致で終了します。値の不一致、新規ポインター／offset、非決定性の疑いがある場合だけ3回目を追加します。
+- 2セッション連続で対象特定、入力受理、BP運用に失敗した場合は、その観測を停止します。入力初期化や別アクションへ調査範囲を広げず、一次資料へ戻るか証拠レベルを降格します。
+- 自動入力は`FUN_004d2030`などの低頻度入口で要求actionが記録された場合だけ、受理済み入力として扱います。画面変化やキー送信成功だけではtraceへ採用しません。
+- 高頻度BPは対象ECX限定のワンショットまたは非停止ログにします。取得後はBP撤去、実行再開、実行中デタッチの順で終了します。
+- 観測中に見つかった別の疑問は同じセッションで追跡せず、新しい観測チケットへ分離します。

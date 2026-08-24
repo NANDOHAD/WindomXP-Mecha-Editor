@@ -56,7 +56,12 @@ public class TestPlayOriginalEffect : MonoBehaviour
         }
 
         if (age >= lifeSeconds)
-            Destroy(gameObject);
+        {
+            if (Application.isPlaying)
+                Destroy(gameObject);
+            else
+                DestroyImmediate(gameObject);
+        }
     }
 
     void OnDestroy()

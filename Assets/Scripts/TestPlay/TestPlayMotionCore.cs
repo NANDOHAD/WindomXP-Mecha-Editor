@@ -26,6 +26,9 @@ public struct TestPlayMotionStep
     public Vector3 velocityAfterDamping;
     public Vector3 velocityAfterMultiplier;
     public Vector3 scriptedVelocity;
+    public Vector3 scriptedVelocityBeforeRetention;
+    public float scriptedMoveRetention;
+    public Vector3 scriptedVelocityAfterRetention;
     public Vector3 requestedDisplacement;
     public bool riseClampApplied;
     public bool gravityApplied;
@@ -92,10 +95,22 @@ public static class TestPlayMotionCore
         Vector3 scriptedVelocity,
         float aniUnitsToUnityScale)
     {
+        return ComposeDisplacement(step, scriptedVelocity, 1f, aniUnitsToUnityScale);
+    }
+
+    public static TestPlayMotionStep ComposeDisplacement(
+        TestPlayMotionStep step,
+        Vector3 scriptedVelocity,
+        float scriptedMoveRetention,
+        float aniUnitsToUnityScale)
+    {
         step.scriptedVelocity = scriptedVelocity;
+        step.scriptedVelocityBeforeRetention = scriptedVelocity;
+        step.scriptedMoveRetention = Mathf.Clamp01(scriptedMoveRetention);
+        step.scriptedVelocityAfterRetention = scriptedVelocity * step.scriptedMoveRetention;
         step.unitScale = Mathf.Max(0f, aniUnitsToUnityScale);
         step.requestedDisplacement =
-            (scriptedVelocity + step.velocityAfterMultiplier) * step.unitScale;
+            (step.scriptedVelocityAfterRetention + step.velocityAfterMultiplier) * step.unitScale;
         return step;
     }
 }

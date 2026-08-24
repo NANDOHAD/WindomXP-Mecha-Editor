@@ -35,6 +35,11 @@ public static class TestPlayPhase2TickTrace
         AppendVector(builder, motion.velocityAfterMultiplier);
         builder.Append(",\"scriptedVelocity\":");
         AppendVector(builder, motion.scriptedVelocity);
+        builder.Append(",\"scriptedVelocityBeforeRetention\":");
+        AppendVector(builder, motion.scriptedVelocityBeforeRetention);
+        builder.Append(",\"moveRetention\":").Append(Format(motion.scriptedMoveRetention));
+        builder.Append(",\"scriptedVelocityAfterRetention\":");
+        AppendVector(builder, motion.scriptedVelocityAfterRetention);
         builder.Append(",\"requestedDisplacement\":");
         AppendVector(builder, motion.requestedDisplacement);
         builder.Append(",\"riseClampApplied\":").Append(motion.riseClampApplied ? "true" : "false");

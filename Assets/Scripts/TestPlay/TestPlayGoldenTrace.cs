@@ -78,7 +78,11 @@ public static class TestPlayGoldenScenarioCatalog
             Segment(2, Idle), Segment(1, Input(rise: true)), Segment(90, Idle)),
         Scenario("GT-003", "Z長押し", TestPlayGoldenSetupKind.GroundedGun,
             new[] { 3, 7, 8 }, new[] { "Force" },
-            Segment(2, Idle), Segment(80, Input(rise: true)), Segment(35, Idle)),
+            // The representative real ANI spends about 185 ticks completing
+            // action 7 (5 ticks at 0.1 frame, then 180 ticks at 0.01 frame).
+            // Keep Z held beyond that boundary so the trace observes the
+            // non-loop final-pose hold before validating release to 8.
+            Segment(2, Idle), Segment(220, Input(rise: true)), Segment(35, Idle)),
         Scenario("GT-004", "空中方向入力から解放", TestPlayGoldenSetupKind.AirborneGun,
             new[] { 4, 8 }, new[] { "Force" },
             Segment(15, Input(direction: 8)), Segment(35, Idle)),

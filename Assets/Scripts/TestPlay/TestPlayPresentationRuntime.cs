@@ -141,7 +141,12 @@ public class TestPlayPresentationRuntime : MonoBehaviour
         GameObject effectObject = GameObject.CreatePrimitive(PrimitiveType.Quad);
         Collider collider = effectObject.GetComponent<Collider>();
         if (collider != null)
-            Destroy(collider);
+        {
+            if (Application.isPlaying)
+                Destroy(collider);
+            else
+                DestroyImmediate(collider);
+        }
 
         effectObject.name = "TestPlayOriginalEffect_" + missingKey + "_" + binding.texture.name;
         effectObject.transform.SetPositionAndRotation(position, rotation);

@@ -12,6 +12,7 @@ public static class TestPlayPhase6Verification
     {
         int assertions = 0;
         VerifyObservationContract(ref assertions);
+        VerifyMoveStageComparison(ref assertions);
         VerifyPartialComparison(ref assertions);
         VerifyMismatchDiagnostics(ref assertions);
         VerifyTransformTolerance(ref assertions);
@@ -55,6 +56,16 @@ public static class TestPlayPhase6Verification
             "Unity reference JSONL parser accepts the existing tick-one origin", ref assertions);
         Require(reparsed.TickCount == 2 && reparsed.Header.scenarioId == "GT-001",
             "Unity reference parser preserves header and tick records", ref assertions);
+
+        string canonicalMechId = jsonl.Replace(
+            "\"mechId\":\"ガンダムTR-1ヘイズル改\"",
+            "\"mechId\":\"KD-03\"");
+        Require(TestPlayOriginalTraceSession.TryParseJsonLines(
+                canonicalMechId, out TestPlayOriginalTraceSession canonicalOriginal, out _) &&
+                TestPlayOriginalTraceComparer.Compare(
+                    BuildUnitySession(Tick(0, 0, 0, "[0,0,0]"), Tick(1, 8, 1, "[0,0,0.1]")),
+                    canonicalOriginal).IsMatch,
+            "canonical ROBO id and Unity display mech name remain comparable", ref assertions);
     }
 
     static void VerifyPartialComparison(ref int assertions)
@@ -77,6 +88,31 @@ public static class TestPlayPhase6Verification
         Require(TestPlayOriginalTraceComparer.BuildFirstMismatchReport(unity, original, result)
                 .Contains("Match across 2 ticks"),
             "matching comparison has a concise coverage report", ref assertions);
+    }
+
+    static void VerifyMoveStageComparison(ref int assertions)
+    {
+        string[] fields =
+        {
+            "tick", "scriptedVelocityBeforeRetention", "moveRetention",
+            "scriptedVelocityAfterRetention"
+        };
+        string[] ticks =
+        {
+            Tick(0, 8, 1, "[0,0,0.08]", "", "[0,0,0]", 1f, "[0,0,0.08]"),
+            Tick(1, 0, 0, "[0,0,0.08]", "", "[0,0,0]", 0.8f, "[0,0,0.064]")
+        };
+        TestPlayGoldenTraceSession unity = BuildUnitySession(ticks);
+        string jsonl = BuildObservation(2, fields, ticks);
+        Require(TestPlayOriginalTraceSession.TryParseJsonLines(jsonl,
+                out TestPlayOriginalTraceSession original, out string parseError) &&
+                string.IsNullOrEmpty(parseError) && original.Header.schemaVersion == 2,
+            "schema v2 Move-stage observation parses", ref assertions);
+        TestPlayOriginalTraceComparisonResult result =
+            TestPlayOriginalTraceComparer.Compare(unity, original);
+        Require(result.IsMatch && result.comparedTicks == 2 && result.comparedValues == 8,
+            "entry Move, action retention, and post-retention Move compare at the same tick stage",
+            ref assertions);
     }
 
     static void VerifyMismatchDiagnostics(ref int assertions)
@@ -212,8 +248,14 @@ public static class TestPlayPhase6Verification
 
     static string BuildObservation(string[] fields, params string[] ticks)
     {
+        return BuildObservation(1, fields, ticks);
+    }
+
+    static string BuildObservation(int schemaVersion, string[] fields, params string[] ticks)
+    {
         StringBuilder builder = new StringBuilder();
-        builder.Append("{\"session\":{\"schemaVersion\":1,\"source\":\"original-observation\",")
+        builder.Append("{\"session\":{\"schemaVersion\":").Append(schemaVersion)
+            .Append(",\"source\":\"original-observation\",")
             .Append("\"scenario\":\"GT-001\",\"mechId\":\"ガンダムTR-1ヘイズル改\",")
             .Append("\"exeHash\":\"").Append(ExpectedOriginalExeSha256).Append("\",")
             .Append("\"aniHash\":\"ani-hash\",\"sptHash\":\"spt-hash\",\"tickRate\":60,")
@@ -237,8 +279,11 @@ public static class TestPlayPhase6Verification
         int logicalAction,
         string scriptedVelocity,
         string prefix = "",
-        string rootPosition = "[0,0,0]")
+        string rootPosition = "[0,0,0]",
+        float moveRetention = 1f,
+        string scriptedVelocityAfterRetention = null)
     {
+        string afterRetention = scriptedVelocityAfterRetention ?? scriptedVelocity;
         return "{" + prefix +
                "\"tick\":" + tick +
                ",\"requestedAction\":" + logicalAction +
@@ -249,6 +294,9 @@ public static class TestPlayPhase6Verification
                ",\"locomotion\":\"GroundedIdle\",\"velocityBefore\":[0,0,0]" +
                ",\"force\":[0,0,0],\"velocityAfter\":[0,0,0]" +
                ",\"scriptedVelocity\":" + scriptedVelocity +
+               ",\"scriptedVelocityBeforeRetention\":" + scriptedVelocity +
+               ",\"moveRetention\":" + moveRetention.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+               ",\"scriptedVelocityAfterRetention\":" + afterRetention +
                ",\"requestedDisplacement\":" + scriptedVelocity +
                ",\"riseClampApplied\":false,\"gravityApplied\":false" +
                ",\"retention\":0.9,\"velocityMultiplier\":1" +

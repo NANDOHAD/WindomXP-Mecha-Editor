@@ -37,7 +37,13 @@ public static class TestPlayOriginalTraceComparison
                     out string unityError))
                 throw new InvalidDataException(unityError);
 
-            TestPlayOriginalTraceComparisonOptions options = new TestPlayOriginalTraceComparisonOptions();
+            // Original debugger CSV values are decimal renderings of float32
+            // memory, while Unity's round-trip JSON prints the stored float32
+            // bit pattern.  Keep the comparer strict by default, but use the
+            // explicit float32 serialization tolerance for this real-trace
+            // menu comparison.
+            TestPlayOriginalTraceComparisonOptions options =
+                new TestPlayOriginalTraceComparisonOptions { rawFloatTolerance = 0.0000001d };
             TestPlayOriginalTraceComparisonResult result =
                 TestPlayOriginalTraceComparer.Compare(unity, original, options);
             string report = TestPlayOriginalTraceComparer.BuildFirstMismatchReport(
