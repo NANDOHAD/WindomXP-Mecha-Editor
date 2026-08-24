@@ -92,6 +92,54 @@ public static class TestPlayGoldenTraceVerification
         public bool shotCooldownDecayValid = true;
         public bool shotCooldownTracking;
         public int previousShotCooldown;
+        public int switchMeleeInputTicks;
+        public int switchToSwordEntries;
+        public int switchToSwordTicks;
+        public int switchToSwordEntryTick = -1;
+        public int switchToSwordCompleteTick = -1;
+        public bool switchToSwordEntryOnPress;
+        public bool switchToSwordSemanticsValid = true;
+        public readonly List<int> switchProcType55Ticks = new List<int>();
+        public int forwardMeleeEntries;
+        public int forwardMeleeTicks;
+        public int forwardMeleeEntryTick = -1;
+        public bool forwardMeleeEntryOnPress;
+        public bool forwardMeleeSemanticsValid = true;
+        public int forwardMeleeMovementTicks;
+        public int forwardMeleeEnergyDrainTicks;
+        public float forwardMeleeEnergyConsumed;
+        public int forwardMeleeFollowupEvents;
+        public int forwardMeleeFollowupTick = -1;
+        public bool forwardMeleeFollowupValid;
+        public int forwardMeleeFollowupEntries;
+        public int forwardMeleeFollowupTicks;
+        public readonly List<int> forwardMeleeProcType57Ticks = new List<int>();
+        public int forwardMeleeRecoveryTick = -1;
+        public int forwardMeleeRecoveryTicks;
+        public int forwardMeleeIdleTick = -1;
+        public int comboMeleeInputTicks;
+        public int combo131Entries;
+        public int combo131Ticks;
+        public int combo132Entries;
+        public int combo132Ticks;
+        public int combo133Entries;
+        public int combo133Ticks;
+        public int comboEntryTick = -1;
+        public bool comboEntryOnPress;
+        public readonly List<int> comboQueueTicks = new List<int>();
+        public int swordCancel132Tick = -1;
+        public int swordCancel133Tick = -1;
+        public int swordCancel132TransitionTick = -1;
+        public int swordCancel133TransitionTick = -1;
+        public int swordCancelTransitionEvents;
+        public int comboAttackProfileEvents;
+        public int comboAttackFlagEvents;
+        public bool comboProfileSemanticsValid = true;
+        public bool comboSequenceSemanticsValid = true;
+        public readonly List<int> comboProcType57Ticks = new List<int>();
+        public int comboRecoveryTick = -1;
+        public int comboRecoveryTicks;
+        public int comboIdleTick = -1;
     }
 
     [MenuItem("Tools/WindomXP/Test Play/Run Real-Mech Golden Traces")]
@@ -492,6 +540,23 @@ public static class TestPlayGoldenTraceVerification
             CaptureShotScenarioState(
                 capture, controller, input, traceTick, logicalAction, tickTrace);
         }
+        else if (scenarioId == "GT-008")
+        {
+            CaptureSwitchAndForwardMeleeScenarioState(
+                capture,
+                controller,
+                input,
+                traceTick,
+                logicalAction,
+                energyDelta,
+                horizontalDelta,
+                tickTrace);
+        }
+        else if (scenarioId == "GT-009")
+        {
+            CaptureSwordCancelComboScenarioState(
+                capture, controller, input, traceTick, logicalAction, tickTrace);
+        }
 
         capture.lastAnimationIndex = action;
         capture.lastLogicalAction = logicalAction;
@@ -687,6 +752,289 @@ public static class TestPlayGoldenTraceVerification
         {
             capture.shotCooldownDecayValid &= cooldown == 0;
         }
+    }
+
+    static void CaptureSwitchAndForwardMeleeScenarioState(
+        RunCapture capture,
+        TestPlayController controller,
+        TestPlayGoldenInputFrame input,
+        int traceTick,
+        int logicalAction,
+        float energyDelta,
+        Vector3 horizontalDelta,
+        string tickTrace)
+    {
+        bool wasSwitch = capture.lastLogicalAction == controller.switchToSwordAction;
+        bool isSwitch = logicalAction == controller.switchToSwordAction;
+        bool wasForwardMelee = capture.lastLogicalAction == controller.meleeAction;
+        bool isForwardMelee = logicalAction == controller.meleeAction;
+        bool wasFollowup = capture.lastLogicalAction == controller.meleeApproachFollowupAction;
+        bool isFollowup = logicalAction == controller.meleeApproachFollowupAction;
+
+        if (input.melee)
+            capture.switchMeleeInputTicks++;
+
+        if (isSwitch)
+        {
+            if (!wasSwitch)
+            {
+                capture.switchToSwordEntries++;
+                capture.switchToSwordEntryTick = traceTick;
+                capture.switchToSwordEntryOnPress = input.melee;
+            }
+            capture.switchToSwordTicks++;
+            capture.switchToSwordSemanticsValid &=
+                controller.CurrentActionSelection.weaponMode == TestPlayWeaponMode.Gun &&
+                controller.CurrentActionSelection.poseActionId == controller.switchToSwordAction &&
+                logicalAction == controller.switchToSwordAction;
+        }
+
+        if (wasSwitch && logicalAction == controller.idleAction)
+        {
+            capture.switchToSwordCompleteTick = traceTick;
+            capture.switchToSwordSemanticsValid &=
+                controller.CurrentActionSelection.weaponMode == TestPlayWeaponMode.Sword &&
+                controller.CurrentActionSelection.poseActionId == controller.idleAction + 50;
+        }
+
+        if (IsProcEvent(tickTrace, 55))
+            capture.switchProcType55Ticks.Add(traceTick);
+
+        if (isForwardMelee)
+        {
+            if (!wasForwardMelee)
+            {
+                capture.forwardMeleeEntries++;
+                capture.forwardMeleeEntryTick = traceTick;
+                capture.forwardMeleeEntryOnPress = input.melee && input.direction == 8;
+                capture.forwardMeleeSemanticsValid &= NearlyEqual(energyDelta, 0f);
+            }
+            else
+            {
+                capture.forwardMeleeSemanticsValid &= NearlyEqual(energyDelta, 5f);
+                capture.forwardMeleeEnergyDrainTicks++;
+                capture.forwardMeleeEnergyConsumed += energyDelta;
+            }
+
+            capture.forwardMeleeTicks++;
+            if (horizontalDelta.sqrMagnitude > 0.00000001f)
+                capture.forwardMeleeMovementTicks++;
+            capture.forwardMeleeSemanticsValid &=
+                input.direction == 8 &&
+                controller.CurrentActionSelection.weaponMode == TestPlayWeaponMode.Sword &&
+                TraceContains(tickTrace, "\"meleeApproachActive\":true") &&
+                TraceContains(tickTrace, "\"sequenceActive\":true");
+        }
+
+        if (wasForwardMelee && isFollowup)
+        {
+            capture.forwardMeleeEnergyDrainTicks++;
+            capture.forwardMeleeEnergyConsumed += energyDelta;
+            capture.forwardMeleeFollowupTick = traceTick;
+            if (TraceContains(tickTrace, "\"type\":\"ActionTransition\"") &&
+                TraceContains(tickTrace, "\"reason\":\"MeleeApproachFollowup\""))
+            {
+                capture.forwardMeleeFollowupEvents++;
+            }
+            capture.forwardMeleeFollowupValid =
+                NearlyEqual(energyDelta, 5f) &&
+                TraceContains(tickTrace, "\"meleeApproachActive\":false") &&
+                TraceContains(tickTrace, "\"sequenceActive\":true");
+        }
+
+        if (isFollowup)
+        {
+            if (!wasFollowup)
+                capture.forwardMeleeFollowupEntries++;
+            capture.forwardMeleeFollowupTicks++;
+        }
+        if (IsProcEvent(tickTrace, 57))
+            capture.forwardMeleeProcType57Ticks.Add(traceTick);
+
+        if (wasFollowup && logicalAction == controller.stepLandingAction)
+        {
+            capture.forwardMeleeRecoveryTick = traceTick;
+            capture.forwardMeleeSemanticsValid &=
+                controller.CurrentActionSelection.weaponMode == TestPlayWeaponMode.Sword &&
+                controller.CurrentActionSelection.poseActionId == controller.stepLandingAction + 50 &&
+                TraceContains(tickTrace, "\"reason\":\"AttackFinished\"");
+        }
+        if (capture.forwardMeleeRecoveryTick >= 0 &&
+            logicalAction == controller.stepLandingAction)
+        {
+            capture.forwardMeleeRecoveryTicks++;
+        }
+        if (capture.lastLogicalAction == controller.stepLandingAction &&
+            logicalAction == controller.idleAction)
+        {
+            capture.forwardMeleeIdleTick = traceTick;
+            capture.forwardMeleeSemanticsValid &=
+                controller.CurrentActionSelection.poseActionId == controller.idleAction + 50;
+        }
+    }
+
+    static void CaptureSwordCancelComboScenarioState(
+        RunCapture capture,
+        TestPlayController controller,
+        TestPlayGoldenInputFrame input,
+        int traceTick,
+        int logicalAction,
+        string tickTrace)
+    {
+        const int secondComboAction = 132;
+        const int thirdComboAction = 133;
+        bool was131 = capture.lastLogicalAction == controller.neutralMeleeAction;
+        bool was132 = capture.lastLogicalAction == secondComboAction;
+        bool was133 = capture.lastLogicalAction == thirdComboAction;
+        bool is131 = logicalAction == controller.neutralMeleeAction;
+        bool is132 = logicalAction == secondComboAction;
+        bool is133 = logicalAction == thirdComboAction;
+
+        if (input.melee)
+            capture.comboMeleeInputTicks++;
+
+        if (is131)
+        {
+            if (!was131)
+            {
+                capture.combo131Entries++;
+                capture.comboEntryTick = traceTick;
+                capture.comboEntryOnPress = input.melee;
+                CaptureComboProfileBundle(
+                    capture, controller, tickTrace, 20, 50, 0.5f, 0f, 1);
+            }
+            capture.combo131Ticks++;
+        }
+        if (is132)
+        {
+            if (!was132)
+            {
+                capture.combo132Entries++;
+                CaptureComboProfileBundle(
+                    capture, controller, tickTrace, 50, 50, 0.5f, 0f, 1);
+            }
+            capture.combo132Ticks++;
+        }
+        if (is133)
+        {
+            if (!was133)
+            {
+                capture.combo133Entries++;
+                CaptureComboProfileBundle(
+                    capture, controller, tickTrace, 100, 200, 0.5f, 0f, 1);
+            }
+            capture.combo133Ticks++;
+        }
+
+        if (is131 || is132 || is133)
+        {
+            capture.comboSequenceSemanticsValid &=
+                controller.CurrentActionSelection.weaponMode == TestPlayWeaponMode.Sword &&
+                TraceContains(tickTrace, "\"sequenceActive\":true");
+        }
+
+        if (TraceContains(tickTrace, "\"type\":\"ComboQueued\""))
+        {
+            capture.comboQueueTicks.Add(traceTick);
+            capture.comboSequenceSemanticsValid &= input.melee &&
+                controller.attackProfile != null &&
+                controller.attackProfile.swordCancel < 0 &&
+                TraceContains(tickTrace, "\"comboPending\":true");
+        }
+
+        if (controller.attackProfile != null && controller.attackProfile.swordCancel == secondComboAction)
+        {
+            capture.swordCancel132Tick = traceTick;
+            capture.comboSequenceSemanticsValid &= is131 &&
+                TraceContains(tickTrace, "\"comboPending\":true");
+        }
+        if (controller.attackProfile != null && controller.attackProfile.swordCancel == thirdComboAction)
+        {
+            capture.swordCancel133Tick = traceTick;
+            capture.comboSequenceSemanticsValid &= is132 &&
+                TraceContains(tickTrace, "\"comboPending\":true");
+        }
+
+        if (was131 && is132)
+        {
+            capture.swordCancel132TransitionTick = traceTick;
+            if (IsSwordCancelTransition(tickTrace, secondComboAction))
+                capture.swordCancelTransitionEvents++;
+            capture.comboSequenceSemanticsValid &=
+                controller.attackProfile != null &&
+                controller.attackProfile.swordCancel < 0 &&
+                TraceContains(tickTrace, "\"comboPending\":false");
+        }
+        if (was132 && is133)
+        {
+            capture.swordCancel133TransitionTick = traceTick;
+            if (IsSwordCancelTransition(tickTrace, thirdComboAction))
+                capture.swordCancelTransitionEvents++;
+            capture.comboSequenceSemanticsValid &=
+                controller.attackProfile != null &&
+                controller.attackProfile.swordCancel < 0 &&
+                TraceContains(tickTrace, "\"comboPending\":false");
+        }
+
+        if (IsProcEvent(tickTrace, 57))
+            capture.comboProcType57Ticks.Add(traceTick);
+
+        if (was133 && logicalAction == controller.stepLandingAction)
+        {
+            capture.comboRecoveryTick = traceTick;
+            capture.comboSequenceSemanticsValid &=
+                controller.CurrentActionSelection.poseActionId == controller.stepLandingAction + 50 &&
+                TraceContains(tickTrace, "\"reason\":\"AttackFinished\"") &&
+                TraceContains(tickTrace, "\"sequenceActive\":false");
+        }
+        if (capture.comboRecoveryTick >= 0 && logicalAction == controller.stepLandingAction)
+            capture.comboRecoveryTicks++;
+        if (capture.lastLogicalAction == controller.stepLandingAction &&
+            logicalAction == controller.idleAction)
+        {
+            capture.comboIdleTick = traceTick;
+            capture.comboSequenceSemanticsValid &=
+                controller.CurrentActionSelection.poseActionId == controller.idleAction + 50;
+        }
+    }
+
+    static void CaptureComboProfileBundle(
+        RunCapture capture,
+        TestPlayController controller,
+        string tickTrace,
+        int power,
+        int down,
+        float force,
+        float forceY,
+        int attackFlag)
+    {
+        bool profileEvent = TraceContains(tickTrace, "\"source\":\"ATTACK\"");
+        bool flagEvent = TraceContains(tickTrace, "\"source\":\"AttackFlag\"");
+        if (profileEvent) capture.comboAttackProfileEvents++;
+        if (flagEvent) capture.comboAttackFlagEvents++;
+
+        TestPlayAttackProfile profile = controller.attackProfile;
+        capture.comboProfileSemanticsValid &=
+            profileEvent && flagEvent && profile != null &&
+            profile.power == power &&
+            profile.down == down &&
+            NearlyEqual(profile.force, force) &&
+            NearlyEqual(profile.forceY, forceY) &&
+            profile.attackFlag == attackFlag;
+    }
+
+    static bool IsProcEvent(string tickTrace, int procType)
+    {
+        return TraceContains(tickTrace, "\"type\":\"Proc\"") &&
+               TraceContains(tickTrace, "\"command\":\"RunProc2\"") &&
+               TraceContains(tickTrace, "\"procType\":" + procType);
+    }
+
+    static bool IsSwordCancelTransition(string tickTrace, int targetAction)
+    {
+        return TraceContains(tickTrace, "\"type\":\"ActionTransition\"") &&
+               TraceContains(tickTrace, "\"targetAction\":" + targetAction) &&
+               TraceContains(tickTrace, "\"reason\":\"SwordCancel\"");
     }
 
     static void CaptureStepScenarioState(
@@ -1012,7 +1360,145 @@ public static class TestPlayGoldenTraceVerification
                     " recoveryTicks=" + capture.shotRecoveryTicks +
                     " idleTick=" + capture.shotIdleReturnTick);
             }
+            return;
         }
+
+        if (definition.id == "GT-008")
+        {
+            if (capture.switchMeleeInputTicks != 2 ||
+                capture.switchToSwordEntries != 1 ||
+                capture.switchToSwordTicks != 21 ||
+                capture.switchToSwordEntryTick != 1 ||
+                !capture.switchToSwordEntryOnPress ||
+                capture.switchToSwordCompleteTick != 22 ||
+                !capture.switchToSwordSemanticsValid ||
+                !TicksEqual(capture.switchProcType55Ticks, 6) ||
+                capture.forwardMeleeEntries != 1 ||
+                capture.forwardMeleeTicks != 6 ||
+                capture.forwardMeleeEntryTick != 62 ||
+                !capture.forwardMeleeEntryOnPress ||
+                !capture.forwardMeleeSemanticsValid ||
+                capture.forwardMeleeMovementTicks != 6 ||
+                capture.forwardMeleeEnergyDrainTicks != 6 ||
+                !NearlyEqual(capture.forwardMeleeEnergyConsumed, 30f) ||
+                capture.forwardMeleeFollowupEvents != 1 ||
+                capture.forwardMeleeFollowupTick != 68 ||
+                !capture.forwardMeleeFollowupValid ||
+                capture.forwardMeleeFollowupEntries != 1 ||
+                capture.forwardMeleeFollowupTicks != 59 ||
+                !TicksEqual(capture.forwardMeleeProcType57Ticks, 68, 78, 83, 88, 93, 98, 103) ||
+                capture.forwardMeleeRecoveryTick != 127 ||
+                capture.forwardMeleeRecoveryTicks != 34 ||
+                capture.forwardMeleeIdleTick != 161)
+            {
+                throw new InvalidOperationException(
+                    "GT-008 must accept one C edge at tick 1, run switch action 18 once for 21 " +
+                    "ticks, and return at tick 22 using sword idle pose 50. Direction 8 plus a " +
+                    "second C edge at tick 62 must enter approach action 130 once for six ticks, " +
+                    "move on all six action ticks, drain 5 movement-energy units on six updates, " +
+                    "and transition to action 136 at tick 68. The representative real ANI must " +
+                    "schedule RunProc2 type 55/57 at the recorded ticks, then recover through " +
+                    "sword pose 56 at tick 127 and idle pose 50 at tick 161. Proc scheduling is " +
+                    "checked as RealAniObserved; type-57 hit geometry and hit success are excluded. " +
+                    "inputs=" + capture.switchMeleeInputTicks +
+                    " switchEntries=" + capture.switchToSwordEntries +
+                    " switchTicks=" + capture.switchToSwordTicks +
+                    " switchEntry=" + capture.switchToSwordEntryTick +
+                    " switchComplete=" + capture.switchToSwordCompleteTick +
+                    " switchValid=" + capture.switchToSwordSemanticsValid +
+                    " type55=" + FormatTicks(capture.switchProcType55Ticks) +
+                    " approachEntries=" + capture.forwardMeleeEntries +
+                    " approachTicks=" + capture.forwardMeleeTicks +
+                    " approachEntry=" + capture.forwardMeleeEntryTick +
+                    " approachValid=" + capture.forwardMeleeSemanticsValid +
+                    " moveTicks=" + capture.forwardMeleeMovementTicks +
+                    " drainTicks=" + capture.forwardMeleeEnergyDrainTicks +
+                    " energy=" + capture.forwardMeleeEnergyConsumed.ToString("R", CultureInfo.InvariantCulture) +
+                    " followupEvents=" + capture.forwardMeleeFollowupEvents +
+                    " followupTick=" + capture.forwardMeleeFollowupTick +
+                    " followupValid=" + capture.forwardMeleeFollowupValid +
+                    " followupEntries=" + capture.forwardMeleeFollowupEntries +
+                    " followupTicks=" + capture.forwardMeleeFollowupTicks +
+                    " type57=" + FormatTicks(capture.forwardMeleeProcType57Ticks) +
+                    " recoveryTick=" + capture.forwardMeleeRecoveryTick +
+                    " recoveryTicks=" + capture.forwardMeleeRecoveryTicks +
+                    " idleTick=" + capture.forwardMeleeIdleTick);
+            }
+            return;
+        }
+
+        if (definition.id == "GT-009")
+        {
+            if (capture.comboMeleeInputTicks != 3 ||
+                capture.combo131Entries != 1 ||
+                capture.combo131Ticks != 21 ||
+                capture.combo132Entries != 1 ||
+                capture.combo132Ticks != 16 ||
+                capture.combo133Entries != 1 ||
+                capture.combo133Ticks != 54 ||
+                capture.comboEntryTick != 1 ||
+                !capture.comboEntryOnPress ||
+                !TicksEqual(capture.comboQueueTicks, 12, 33) ||
+                capture.swordCancel132Tick != 21 ||
+                capture.swordCancel133Tick != 37 ||
+                capture.swordCancel132TransitionTick != 22 ||
+                capture.swordCancel133TransitionTick != 38 ||
+                capture.swordCancelTransitionEvents != 2 ||
+                capture.comboAttackProfileEvents != 3 ||
+                capture.comboAttackFlagEvents != 3 ||
+                !capture.comboProfileSemanticsValid ||
+                !capture.comboSequenceSemanticsValid ||
+                !TicksEqual(capture.comboProcType57Ticks, 1, 11, 16, 21, 22, 27, 32, 37, 58, 63) ||
+                capture.comboRecoveryTick != 92 ||
+                capture.comboRecoveryTicks != 34 ||
+                capture.comboIdleTick != 126)
+            {
+                throw new InvalidOperationException(
+                    "GT-009 must enter actions 131, 132, and 133 once for 21, 16, and 54 ticks. " +
+                    "C edges at ticks 12 and 33 must queue without an immediate transition; " +
+                    "SwordCancel 132/133 must appear at ticks 21/37 and transition at ticks " +
+                    "22/38. Each action entry must apply its representative ATTACK and AttackFlag " +
+                    "profile, while RunProc2 type 57 is scheduled at the recorded real-ANI ticks. " +
+                    "The combo must recover through sword pose 56 at tick 92 and idle pose 50 at " +
+                    "tick 126. Proc scheduling is checked as RealAniObserved; type-57 hit geometry, " +
+                    "multi-hit rules, and hit success are excluded. inputs=" + capture.comboMeleeInputTicks +
+                    " action131=" + capture.combo131Entries + "/" + capture.combo131Ticks +
+                    " action132=" + capture.combo132Entries + "/" + capture.combo132Ticks +
+                    " action133=" + capture.combo133Entries + "/" + capture.combo133Ticks +
+                    " entryTick=" + capture.comboEntryTick +
+                    " queues=" + FormatTicks(capture.comboQueueTicks) +
+                    " cancel132=" + capture.swordCancel132Tick +
+                    " cancel133=" + capture.swordCancel133Tick +
+                    " transition132=" + capture.swordCancel132TransitionTick +
+                    " transition133=" + capture.swordCancel133TransitionTick +
+                    " transitionEvents=" + capture.swordCancelTransitionEvents +
+                    " profileEvents=" + capture.comboAttackProfileEvents +
+                    " flagEvents=" + capture.comboAttackFlagEvents +
+                    " profileValid=" + capture.comboProfileSemanticsValid +
+                    " sequenceValid=" + capture.comboSequenceSemanticsValid +
+                    " type57=" + FormatTicks(capture.comboProcType57Ticks) +
+                    " recoveryTick=" + capture.comboRecoveryTick +
+                    " recoveryTicks=" + capture.comboRecoveryTicks +
+                    " idleTick=" + capture.comboIdleTick);
+            }
+        }
+    }
+
+    static bool TicksEqual(List<int> actual, params int[] expected)
+    {
+        if (actual == null || expected == null || actual.Count != expected.Length)
+            return false;
+        for (int i = 0; i < expected.Length; i++)
+        {
+            if (actual[i] != expected[i])
+                return false;
+        }
+        return true;
+    }
+
+    static string FormatTicks(List<int> ticks)
+    {
+        return ticks == null ? "(null)" : string.Join(",", ticks);
     }
 
     static bool HasUsableAction(ani2 data, int actionId)
