@@ -58,6 +58,19 @@ public static class TestPlayGoldenTraceVerification
         public float boostEntryEnergyCost;
         public float boostPerTickEnergyConsumed;
         public int boostEnergyDrainTicks;
+        public int airMoveActionEntries;
+        public int airMoveActionTicks;
+        public int airIdleEntriesAfterAirMove;
+        public int airIdleTicksAfterAirMove;
+        public bool airMoveSemanticsValid = true;
+        public bool airIdleSemanticsValid = true;
+        public bool airMoveExitedOnRelease;
+        public bool sawAirIdleMoveDecay;
+        public bool sawAirIdleVerticalBrake;
+        public bool sawAirIdleBrakeBoundary;
+        public bool sawAirIdleDescent;
+        public bool hasGt004PreviousStep;
+        public TestPlayMotionStep previousGt004Step;
     }
 
     [MenuItem("Tools/WindomXP/Test Play/Run Real-Mech Golden Traces")]
@@ -436,7 +449,12 @@ public static class TestPlayGoldenTraceVerification
         Vector3 horizontalDelta = positionAfterTick - positionBeforeTick;
         horizontalDelta.y = 0f;
 
-        if (scenarioId == "GT-005")
+        if (scenarioId == "GT-004")
+        {
+            CaptureAirMoveReleaseScenarioState(
+                capture, controller, input, logicalAction, energyDelta);
+        }
+        else if (scenarioId == "GT-005")
         {
             CaptureStepScenarioState(
                 capture, controller, input, traceTick, logicalAction, energyDelta, horizontalDelta);
@@ -449,6 +467,98 @@ public static class TestPlayGoldenTraceVerification
 
         capture.lastAnimationIndex = action;
         capture.lastLogicalAction = logicalAction;
+    }
+
+    static void CaptureAirMoveReleaseScenarioState(
+        RunCapture capture,
+        TestPlayController controller,
+        TestPlayGoldenInputFrame input,
+        int logicalAction,
+        float energyDelta)
+    {
+        TestPlayMotionStep step = controller.LastMotionStep;
+        bool wasAirMove = capture.lastLogicalAction == controller.airMoveAction;
+        bool isAirMove = logicalAction == controller.airMoveAction;
+        bool isAirIdleAfterMove = capture.airMoveActionTicks > 0 &&
+                                  logicalAction == controller.airIdleAction;
+
+        if (isAirMove)
+        {
+            if (!wasAirMove)
+                capture.airMoveActionEntries++;
+            capture.airMoveActionTicks++;
+
+            float expectedForceY = capture.airMoveActionTicks <= 5 ? 0.04f : 0.02f;
+            capture.airMoveSemanticsValid &= input.direction == 8 &&
+                NearlyEqual(energyDelta, 0f) &&
+                NearlyEqual(step.forcePerTick.x, 0f) &&
+                NearlyEqual(step.forcePerTick.y, expectedForceY) &&
+                NearlyEqual(step.forcePerTick.z, 0f) &&
+                NearlyEqual(step.scriptedVelocityBeforeRetention.x, 0f) &&
+                NearlyEqual(step.scriptedVelocityBeforeRetention.y, 0f) &&
+                NearlyEqual(step.scriptedVelocityBeforeRetention.z, 0.06f) &&
+                NearlyEqual(step.velocityAfterForce.y,
+                    step.velocityAfterRiseClamp.y + expectedForceY);
+        }
+
+        if (wasAirMove && isAirIdleAfterMove)
+        {
+            capture.airIdleEntriesAfterAirMove++;
+            capture.airMoveExitedOnRelease = input.direction == 0;
+        }
+
+        if (isAirIdleAfterMove)
+        {
+            capture.airIdleTicksAfterAirMove++;
+            capture.airIdleSemanticsValid &= input.direction == 0 &&
+                NearlyEqual(energyDelta, 0f) &&
+                VectorsNearlyEqual(step.forcePerTick, Vector3.zero) &&
+                NearlyEqual(step.scriptedMoveRetention, 0.99f) &&
+                VectorsNearlyEqual(
+                    step.scriptedVelocityAfterRetention,
+                    step.scriptedVelocityBeforeRetention * 0.99f);
+
+            if (step.scriptedVelocityAfterRetention.sqrMagnitude + 0.00000001f <
+                step.scriptedVelocityBeforeRetention.sqrMagnitude)
+            {
+                capture.sawAirIdleMoveDecay = true;
+            }
+
+            if (capture.hasGt004PreviousStep)
+            {
+                capture.airIdleSemanticsValid &= VectorsNearlyEqual(
+                    step.scriptedVelocityBeforeRetention,
+                    capture.previousGt004Step.scriptedVelocityAfterRetention);
+
+                bool brakeExpected =
+                    capture.airIdleTicksAfterAirMove < controller.airIdleVerticalBrakeTicks &&
+                    capture.previousGt004Step.velocityAfterMultiplier.y <
+                        controller.airIdleVerticalBrakeVelocityThreshold;
+                float expectedVerticalAdjustment = brakeExpected
+                    ? controller.airIdleVerticalBrakePerTick
+                    : 0f;
+                float actualVerticalAdjustment =
+                    step.velocityBefore.y - capture.previousGt004Step.velocityAfterMultiplier.y;
+                capture.airIdleSemanticsValid &= NearlyEqual(
+                    actualVerticalAdjustment, expectedVerticalAdjustment);
+                if (brakeExpected && NearlyEqual(
+                        actualVerticalAdjustment, controller.airIdleVerticalBrakePerTick))
+                {
+                    capture.sawAirIdleVerticalBrake = true;
+                }
+                if (capture.airIdleTicksAfterAirMove == controller.airIdleVerticalBrakeTicks &&
+                    NearlyEqual(actualVerticalAdjustment, 0f))
+                {
+                    capture.sawAirIdleBrakeBoundary = true;
+                }
+            }
+
+            if (step.velocityAfterMultiplier.y < 0f)
+                capture.sawAirIdleDescent = true;
+        }
+
+        capture.previousGt004Step = step;
+        capture.hasGt004PreviousStep = true;
     }
 
     static void CaptureStepScenarioState(
@@ -573,6 +683,11 @@ public static class TestPlayGoldenTraceVerification
         return Mathf.Abs(actual - expected) < 0.0001f;
     }
 
+    static bool VectorsNearlyEqual(Vector3 actual, Vector3 expected)
+    {
+        return (actual - expected).sqrMagnitude < 0.00000001f;
+    }
+
     static void ValidateFocusedScenarioOutcome(
         TestPlayGoldenScenarioDefinition definition,
         RunCapture capture)
@@ -603,6 +718,40 @@ public static class TestPlayGoldenTraceVerification
                 " finalFrameTicks=" + capture.maximumRiseFinalFrameTicks +
                 " finalFrameHeld=" + capture.sawRiseFinalFrameWhileHeld +
                 " airIdleAfterRelease=" + capture.sawAirIdleAfterRiseRelease);
+        }
+
+        if (definition.id == "GT-004")
+        {
+            if (capture.airMoveActionEntries != 1 ||
+                capture.airMoveActionTicks != 15 ||
+                capture.airIdleEntriesAfterAirMove != 1 ||
+                capture.airIdleTicksAfterAirMove != 35 ||
+                !capture.airMoveExitedOnRelease ||
+                !capture.airMoveSemanticsValid ||
+                !capture.airIdleSemanticsValid ||
+                !capture.sawAirIdleMoveDecay ||
+                !capture.sawAirIdleVerticalBrake ||
+                !capture.sawAirIdleBrakeBoundary ||
+                !capture.sawAirIdleDescent)
+            {
+                throw new InvalidOperationException(
+                    "GT-004 must run real-ANI air-move action 4 for 15 ticks with Move(0,0,0.06) " +
+                    "and Force Y 0.04 then 0.02, release to air-stop action 8 for 35 ticks, retain " +
+                    "inherited Move by 0.99, apply +0.012 vertical braking only before tick 31 " +
+                    "below Y 0.05, then resume gravity-driven descent. " +
+                    "airMoveEntries=" + capture.airMoveActionEntries +
+                    " airMoveTicks=" + capture.airMoveActionTicks +
+                    " airIdleEntries=" + capture.airIdleEntriesAfterAirMove +
+                    " airIdleTicks=" + capture.airIdleTicksAfterAirMove +
+                    " released=" + capture.airMoveExitedOnRelease +
+                    " airMoveValid=" + capture.airMoveSemanticsValid +
+                    " airIdleValid=" + capture.airIdleSemanticsValid +
+                    " moveDecay=" + capture.sawAirIdleMoveDecay +
+                    " verticalBrake=" + capture.sawAirIdleVerticalBrake +
+                    " brakeBoundary=" + capture.sawAirIdleBrakeBoundary +
+                    " descended=" + capture.sawAirIdleDescent);
+            }
+            return;
         }
 
         if (definition.id == "GT-005")

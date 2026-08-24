@@ -87,6 +87,9 @@ public class TestPlayController : MonoBehaviour
     [Tooltip("原作action開始時に通常移動へ適用するANI Move保持率(+0xA88)。")]
     public float moveActionRetention = 1f;
     [Range(0f, 1f)]
+    [Tooltip("原作FUN_004d68e0へ入る空中停止action 8のANI Move保持率(+0xA88)。")]
+    public float airIdleMoveRetention = 0.99f;
+    [Range(0f, 1f)]
     [Tooltip("個別対応をまだ確定していないactionのANI Move保持率。")]
     public float defaultMoveRetention = 1f;
     public float aimTurnSpeed = 540f;
@@ -110,6 +113,15 @@ public class TestPlayController : MonoBehaviour
     [Min(1)]
     [Tooltip("原作FUN_004d68e0が空中停止から再上昇を受け付ける最小action 8 tick数。c38が10を超えてから受け付けます。")]
     public int airRiseMinimumIdleTicks = 11;
+    [Min(0f)]
+    [Tooltip("原作FUN_004d68e0が空中停止中、共通重力処理の前にY速度へ加える値。")]
+    public float airIdleVerticalBrakePerTick = 0.012f;
+    [Min(0f)]
+    [Tooltip("空中停止補助を加える直前Y速度の上限。原作はY速度が0.05未満のときだけ加算します。")]
+    public float airIdleVerticalBrakeVelocityThreshold = 0.05f;
+    [Min(1)]
+    [Tooltip("空中停止補助を受け付けるaction 8のtick上限。原作c38 < 31に対応します。")]
+    public int airIdleVerticalBrakeTicks = 31;
     [Min(1)]
     public int boostMinimumReleaseTicks = 31;
     public float doubleTapBoostSeconds = 0.3f;
@@ -911,6 +923,7 @@ public class TestPlayController : MonoBehaviour
             worldMove = root.right * localMove.x + Vector3.up * localMove.y + root.forward * localMove.z;
         }
         ApplyOriginalRiseSteering(root);
+        ApplyOriginalAirIdleVerticalBrake();
         IntegrateOriginalForceVelocity();
         Vector3 scriptedVelocityBeforeRetention = worldMove;
         if (!CaptureDrivenHorizontalVelocity(scriptedVelocityBeforeRetention))
@@ -947,7 +960,23 @@ public class TestPlayController : MonoBehaviour
             return Mathf.Clamp01(idleMoveRetention);
         if (logicalActionId == moveAction)
             return Mathf.Clamp01(moveActionRetention);
+        if (logicalActionId == airIdleAction)
+            return Mathf.Clamp01(airIdleMoveRetention);
         return Mathf.Clamp01(defaultMoveRetention);
+    }
+
+    void ApplyOriginalAirIdleVerticalBrake()
+    {
+        // FUN_004d68e0 adjusts +0xA80 directly before FUN_004cd840. Keep this
+        // separate from ANI Force so the trace reports the action-8 command
+        // state (zero) at the common integration boundary.
+        if (!IsCurrentAction(airIdleAction) ||
+            actionTick >= Mathf.Max(1, airIdleVerticalBrakeTicks) ||
+            currentEnergy <= 0f ||
+            velocity.y >= Mathf.Max(0f, airIdleVerticalBrakeVelocityThreshold))
+            return;
+
+        velocity.y += Mathf.Max(0f, airIdleVerticalBrakePerTick);
     }
 
     void IntegrateOriginalForceVelocity()

@@ -1516,6 +1516,8 @@ public static class TestPlayRuntimeVerification
             MethodInfo riseSteering = typeof(TestPlayController).GetMethod("ApplyOriginalRiseSteering", InstancePrivate);
             MethodInfo energyTick = typeof(TestPlayController).GetMethod("UpdateOriginalMovementEnergy", InstancePrivate);
             MethodInfo integrateForce = typeof(TestPlayController).GetMethod("IntegrateOriginalForceVelocity", InstancePrivate);
+            MethodInfo scriptedMoveRetention = typeof(TestPlayController).GetMethod("GetScriptedMoveRetention", InstancePrivate);
+            MethodInfo airIdleBrake = typeof(TestPlayController).GetMethod("ApplyOriginalAirIdleVerticalBrake", InstancePrivate);
             MethodInfo captureDrivenVelocity = typeof(TestPlayController).GetMethod("CaptureDrivenHorizontalVelocity", InstancePrivate);
             MethodInfo applyDrivenInertia = typeof(TestPlayController).GetMethod("ApplyPendingDrivenHorizontalInertia", InstancePrivate);
             MethodInfo applyRootMotion = typeof(TestPlayController).GetMethod("ApplyRootMotion", InstancePrivate);
@@ -1523,7 +1525,8 @@ public static class TestPlayRuntimeVerification
                 normalizeActions != null && airborneAction != null && boostMove != null && resetBoost != null &&
                 endBoost != null && endRise != null && canAirRise != null && startBoost != null &&
                 forceAirborne != null && riseSteering != null && energyTick != null &&
-                integrateForce != null && captureDrivenVelocity != null && applyDrivenInertia != null && applyRootMotion != null,
+                integrateForce != null && scriptedMoveRetention != null && airIdleBrake != null &&
+                captureDrivenVelocity != null && applyDrivenInertia != null && applyRootMotion != null,
                 "original jump/boost runtime helpers are available", ref assertions);
 
             controller.landingAction = controller.riseStartAction;
@@ -1539,6 +1542,46 @@ public static class TestPlayRuntimeVerification
             controller.state.SetInt(190, 8);
             Require((int)airborneAction.Invoke(controller, null) == controller.airMoveAction,
                 "directional airborne state uses original air-move action 4", ref assertions);
+            Require(Mathf.Abs((float)scriptedMoveRetention.Invoke(
+                        controller, new object[] { controller.airIdleAction }) - 0.99f) < 0.0001f,
+                "air-stop action 8 retains inherited ANI Move by the original 0.99 factor", ref assertions);
+
+            controller.currentAnimationIndex = controller.airIdleAction;
+            controller.currentEnergy = 1000f;
+            SetField(controller, "actionTick", controller.airIdleVerticalBrakeTicks - 1);
+            SetField(controller, "velocity", Vector3.up * 0.049f);
+            airIdleBrake.Invoke(controller, null);
+            Require(Mathf.Abs(((Vector3)GetField(controller, "velocity")).y - 0.061f) < 0.0001f,
+                "air-stop adds the original 0.012 vertical brake through c38 tick 30", ref assertions);
+
+            SetField(controller, "actionTick", controller.airIdleVerticalBrakeTicks);
+            SetField(controller, "velocity", Vector3.up * 0.049f);
+            airIdleBrake.Invoke(controller, null);
+            Require(Mathf.Abs(((Vector3)GetField(controller, "velocity")).y - 0.049f) < 0.0001f,
+                "air-stop vertical brake stops at the original c38 < 31 boundary", ref assertions);
+
+            SetField(controller, "actionTick", controller.airIdleVerticalBrakeTicks - 1);
+            SetField(controller, "velocity", Vector3.up * controller.airIdleVerticalBrakeVelocityThreshold);
+            airIdleBrake.Invoke(controller, null);
+            Require(Mathf.Abs(((Vector3)GetField(controller, "velocity")).y -
+                             controller.airIdleVerticalBrakeVelocityThreshold) < 0.0001f,
+                "air-stop vertical brake requires Y velocity strictly below 0.05", ref assertions);
+
+            controller.currentEnergy = 0f;
+            SetField(controller, "velocity", Vector3.zero);
+            airIdleBrake.Invoke(controller, null);
+            Require(Mathf.Abs(((Vector3)GetField(controller, "velocity")).y) < 0.0001f,
+                "air-stop vertical brake requires positive movement energy", ref assertions);
+
+            controller.currentEnergy = 1000f;
+            SetField(controller, "velocity", Vector3.zero);
+            SetField(controller, "forceCommand", Vector3.zero);
+            SetField(controller, "gvEnable", true);
+            controller.SetAirborneFlag(true);
+            airIdleBrake.Invoke(controller, null);
+            integrateForce.Invoke(controller, null);
+            Require(Mathf.Abs(((Vector3)GetField(controller, "velocity")).y + 0.001f) < 0.0001f,
+                "air-stop applies +0.012 before the common -0.013 gravity tick", ref assertions);
 
             controller.currentAnimationIndex = controller.boostAction;
             SetField(controller, "boostMotionActive", true);
@@ -1658,15 +1701,17 @@ public static class TestPlayRuntimeVerification
             SetField(controller, "forceCommand", Vector3.zero);
             SetField(controller, "moveCommand", Vector3.zero);
             controller.verticalFallSpeed = 0f;
+            SetField(controller, "actionTick", 1);
             rootObject.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
             float releasedRisePeak = rootObject.transform.position.y;
-            for (int i = 0; i < 25; i++)
+            for (int i = 0; i < 50; i++)
             {
                 applyRootMotion.Invoke(controller, null);
                 releasedRisePeak = Mathf.Max(releasedRisePeak, rootObject.transform.position.y);
+                SetField(controller, "actionTick", (int)GetField(controller, "actionTick") + 1);
             }
             Require(rootObject.transform.position.y < releasedRisePeak - 0.01f,
-                "released directional air move turns from bounded rise into gravity-driven descent", ref assertions);
+                "released directional air move descends after the original 31-tick air-stop brake window", ref assertions);
 
             controller.useColliderGrounding = false;
             controller.currentAnimationIndex = controller.airIdleAction;
