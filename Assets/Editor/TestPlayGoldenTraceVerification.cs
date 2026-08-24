@@ -71,6 +71,27 @@ public static class TestPlayGoldenTraceVerification
         public bool sawAirIdleDescent;
         public bool hasGt004PreviousStep;
         public TestPlayMotionStep previousGt004Step;
+        public int shotInputTicks;
+        public int shotActionEntries;
+        public int shotActionTicks;
+        public int shotEntryTick = -1;
+        public int shotScriptBundleTick = -1;
+        public int shotRecoveryEntryTick = -1;
+        public int shotRecoveryTicks;
+        public int shotIdleReturnTick = -1;
+        public int shotCooldownZeroTick = -1;
+        public int shotCooldownSetEvents;
+        public int shotProfileEvents;
+        public int shotAttackFlagEvents;
+        public int shotProjectileEvents;
+        public int shotProcTypeOneEvents;
+        public bool shotEntryOnPress;
+        public bool shotExitedToRecovery;
+        public bool shotReturnedToIdle;
+        public bool shotScriptBundleSemanticsValid = true;
+        public bool shotCooldownDecayValid = true;
+        public bool shotCooldownTracking;
+        public int previousShotCooldown;
     }
 
     [MenuItem("Tools/WindomXP/Test Play/Run Real-Mech Golden Traces")]
@@ -334,7 +355,8 @@ public static class TestPlayGoldenTraceVerification
                     i + 1,
                     energyBeforeTick,
                     positionBeforeTick,
-                    root.transform.position);
+                    root.transform.position,
+                    tickTrace);
             }
             controller.EndDeterministicTraceSession();
             return capture;
@@ -384,7 +406,8 @@ public static class TestPlayGoldenTraceVerification
         int traceTick,
         float energyBeforeTick,
         Vector3 positionBeforeTick,
-        Vector3 positionAfterTick)
+        Vector3 positionAfterTick,
+        string tickTrace)
     {
         int action = controller.currentAnimationIndex;
         int logicalAction = controller.CurrentActionSelection.logicalActionId;
@@ -463,6 +486,11 @@ public static class TestPlayGoldenTraceVerification
         {
             CaptureBoostScenarioState(
                 capture, controller, input, traceTick, logicalAction, energyDelta, horizontalDelta);
+        }
+        else if (scenarioId == "GT-007")
+        {
+            CaptureShotScenarioState(
+                capture, controller, input, traceTick, logicalAction, tickTrace);
         }
 
         capture.lastAnimationIndex = action;
@@ -559,6 +587,106 @@ public static class TestPlayGoldenTraceVerification
 
         capture.previousGt004Step = step;
         capture.hasGt004PreviousStep = true;
+    }
+
+    static void CaptureShotScenarioState(
+        RunCapture capture,
+        TestPlayController controller,
+        TestPlayGoldenInputFrame input,
+        int traceTick,
+        int logicalAction,
+        string tickTrace)
+    {
+        bool wasShot = capture.lastLogicalAction == controller.shotAction;
+        bool isShot = logicalAction == controller.shotAction;
+        if (input.shot)
+            capture.shotInputTicks++;
+
+        if (isShot)
+        {
+            if (!wasShot)
+            {
+                capture.shotActionEntries++;
+                capture.shotEntryTick = traceTick;
+                capture.shotEntryOnPress = input.shot;
+            }
+            capture.shotActionTicks++;
+        }
+
+        if (wasShot && logicalAction == controller.stepLandingAction)
+        {
+            capture.shotExitedToRecovery = true;
+            capture.shotRecoveryEntryTick = traceTick;
+        }
+        if (capture.shotExitedToRecovery && logicalAction == controller.stepLandingAction)
+            capture.shotRecoveryTicks++;
+        if (capture.lastLogicalAction == controller.stepLandingAction &&
+            logicalAction == controller.idleAction)
+        {
+            capture.shotReturnedToIdle = true;
+            capture.shotIdleReturnTick = traceTick;
+        }
+
+        bool cooldownEvent = TraceContains(tickTrace, "\"type\":\"CooldownSet\"");
+        bool profileEvent = TraceContains(tickTrace, "\"source\":\"ATTACK\"");
+        bool attackFlagEvent = TraceContains(tickTrace, "\"source\":\"AttackFlag\"");
+        bool projectileEvent = TraceContains(tickTrace, "\"type\":\"ProjectileSpawned\"");
+        bool procTypeOneEvent =
+            TraceContains(tickTrace, "\"type\":\"Proc\"") &&
+            TraceContains(tickTrace, "\"command\":\"RunProc2\"") &&
+            TraceContains(tickTrace, "\"procType\":1");
+
+        if (cooldownEvent) capture.shotCooldownSetEvents++;
+        if (profileEvent) capture.shotProfileEvents++;
+        if (attackFlagEvent) capture.shotAttackFlagEvents++;
+        if (projectileEvent) capture.shotProjectileEvents++;
+        if (procTypeOneEvent) capture.shotProcTypeOneEvents++;
+
+        if (cooldownEvent || profileEvent || attackFlagEvent || projectileEvent || procTypeOneEvent)
+        {
+            bool completeBundle = cooldownEvent && profileEvent && attackFlagEvent &&
+                                  projectileEvent && procTypeOneEvent;
+            if (completeBundle)
+                capture.shotScriptBundleTick = traceTick;
+
+            TestPlayAttackProfile profile = controller.attackProfile;
+            capture.shotScriptBundleSemanticsValid &= completeBundle &&
+                controller.GetAttackCooldownTicks(0) == 100 &&
+                profile != null &&
+                profile.power == 100 &&
+                profile.down == 200 &&
+                NearlyEqual(profile.force, 0.4f) &&
+                NearlyEqual(profile.forceY, 0f) &&
+                TraceContains(tickTrace, "\"attackFlag\":2") &&
+                TraceContains(tickTrace,
+                    "\"slot\":0,\"cooldown\":100,\"source\":\"AttackDelay\"") &&
+                TraceContains(tickTrace,
+                    "\"source\":\"RunProc2:1\",\"damage\":100,\"down\":200," +
+                    "\"force\":0.4,\"forceY\":0,\"valueSource\":\"OriginalScriptProfile\"");
+        }
+
+        int cooldown = controller.GetAttackCooldownTicks(0);
+        if (cooldownEvent)
+        {
+            capture.shotCooldownTracking = true;
+            capture.previousShotCooldown = cooldown;
+            capture.shotCooldownDecayValid &= cooldown == 100;
+        }
+        else if (capture.shotCooldownTracking)
+        {
+            int expected = Mathf.Max(0, capture.previousShotCooldown - 1);
+            capture.shotCooldownDecayValid &= cooldown == expected;
+            if (capture.shotCooldownZeroTick < 0 &&
+                capture.previousShotCooldown > 0 && cooldown == 0)
+            {
+                capture.shotCooldownZeroTick = traceTick;
+            }
+            capture.previousShotCooldown = cooldown;
+        }
+        else
+        {
+            capture.shotCooldownDecayValid &= cooldown == 0;
+        }
     }
 
     static void CaptureStepScenarioState(
@@ -686,6 +814,12 @@ public static class TestPlayGoldenTraceVerification
     static bool VectorsNearlyEqual(Vector3 actual, Vector3 expected)
     {
         return (actual - expected).sqrMagnitude < 0.00000001f;
+    }
+
+    static bool TraceContains(string tickTrace, string value)
+    {
+        return !string.IsNullOrEmpty(tickTrace) &&
+               tickTrace.IndexOf(value, StringComparison.Ordinal) >= 0;
     }
 
     static void ValidateFocusedScenarioOutcome(
@@ -827,6 +961,56 @@ public static class TestPlayGoldenTraceVerification
                     " energyValid=" + capture.boostEnergySemanticsValid +
                     " drainTicks=" + capture.boostEnergyDrainTicks +
                     " perTickConsumed=" + capture.boostPerTickEnergyConsumed.ToString("R", CultureInfo.InvariantCulture));
+            }
+            return;
+        }
+
+        if (definition.id == "GT-007")
+        {
+            if (capture.shotInputTicks != 1 ||
+                capture.shotActionEntries != 1 ||
+                capture.shotActionTicks != 39 ||
+                capture.shotEntryTick != 3 ||
+                !capture.shotEntryOnPress ||
+                capture.shotScriptBundleTick != 18 ||
+                capture.shotCooldownSetEvents != 1 ||
+                capture.shotProfileEvents != 1 ||
+                capture.shotAttackFlagEvents != 1 ||
+                capture.shotProjectileEvents != 1 ||
+                capture.shotProcTypeOneEvents != 1 ||
+                !capture.shotScriptBundleSemanticsValid ||
+                !capture.shotCooldownDecayValid ||
+                capture.shotCooldownZeroTick != 118 ||
+                !capture.shotExitedToRecovery ||
+                capture.shotRecoveryEntryTick != 42 ||
+                capture.shotRecoveryTicks != 34 ||
+                !capture.shotReturnedToIdle ||
+                capture.shotIdleReturnTick != 76)
+            {
+                throw new InvalidOperationException(
+                    "GT-007 must accept one X press edge at tick 3, run shot action 100 once for " +
+                    "39 ticks, and execute the representative real ANI bundle at tick 18: " +
+                    "AttackDelay(0,100), ATTACK(100,200,0.4,0), AttackFlag=2, and one RunProc2 " +
+                    "type-1 projectile using OriginalScriptProfile. Cooldown slot 0 must decay " +
+                    "once per 60 Hz tick to zero at tick 118, while the action exits through " +
+                    "grounded recovery action 6 at tick 42 and returns to idle 0 at tick 76. " +
+                    "inputTicks=" + capture.shotInputTicks +
+                    " entries=" + capture.shotActionEntries +
+                    " actionTicks=" + capture.shotActionTicks +
+                    " entryTick=" + capture.shotEntryTick +
+                    " entryOnPress=" + capture.shotEntryOnPress +
+                    " bundleTick=" + capture.shotScriptBundleTick +
+                    " cooldownEvents=" + capture.shotCooldownSetEvents +
+                    " profileEvents=" + capture.shotProfileEvents +
+                    " attackFlagEvents=" + capture.shotAttackFlagEvents +
+                    " projectileEvents=" + capture.shotProjectileEvents +
+                    " procTypeOneEvents=" + capture.shotProcTypeOneEvents +
+                    " bundleValid=" + capture.shotScriptBundleSemanticsValid +
+                    " cooldownValid=" + capture.shotCooldownDecayValid +
+                    " cooldownZeroTick=" + capture.shotCooldownZeroTick +
+                    " recoveryTick=" + capture.shotRecoveryEntryTick +
+                    " recoveryTicks=" + capture.shotRecoveryTicks +
+                    " idleTick=" + capture.shotIdleReturnTick);
             }
         }
     }
