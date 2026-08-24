@@ -364,6 +364,7 @@ public static class TestPlayRuntimeVerification
 
             MethodInfo setWeapon = typeof(TestPlayController).GetMethod("SetHeldWeapon", InstancePrivate);
             MethodInfo resolveShot = typeof(TestPlayController).GetMethod("ResolveShotInputAction", InstancePrivate);
+            MethodInfo resolveShotSelection = typeof(TestPlayController).GetMethod("ResolveShotActionSelection", InstancePrivate);
             MethodInfo resolveMelee = typeof(TestPlayController).GetMethod("ResolveMeleeInputAction", InstancePrivate);
             MethodInfo resolveWeaponAction = typeof(TestPlayController).GetMethod("ResolveActionForWeaponMode", InstancePrivate);
             MethodInfo handle = typeof(TestPlayController).GetMethod("HandleCommand", InstancePrivate);
@@ -384,7 +385,8 @@ public static class TestPlayRuntimeVerification
                 null,
                 new[] { typeof(string), typeof(float), typeof(float), typeof(bool) },
                 null);
-            Require(setWeapon != null && resolveShot != null && resolveMelee != null && resolveWeaponAction != null &&
+            Require(setWeapon != null && resolveShot != null && resolveShotSelection != null &&
+                    resolveMelee != null && resolveWeaponAction != null &&
                     handle != null && spawnRunProc != null && updateCooldowns != null && updateAttack != null &&
                     updateInput != null && awake != null && tickAnimation != null && startGroundRecovery != null &&
                     applyRootMotion != null && getOneShot != null && applyShotSteering != null &&
@@ -404,6 +406,66 @@ public static class TestPlayRuntimeVerification
                 "normal test-play state starts on ANI execution channel 1", ref assertions);
             Require((int)resolveShot.Invoke(controller, null) == controller.shotAction,
                 "gun-mode X selects action 100", ref assertions);
+
+            TestPlayShotActionDecision forwardShot = TestPlayCombatCore.ResolveTargetRelativeShotAction(
+                100, Vector3.forward, Vector3.forward, action => true);
+            TestPlayShotActionDecision leftShot = TestPlayCombatCore.ResolveTargetRelativeShotAction(
+                100, Vector3.forward, Vector3.left, action => true);
+            TestPlayShotActionDecision rightShot = TestPlayCombatCore.ResolveTargetRelativeShotAction(
+                100, Vector3.forward, Vector3.right, action => true);
+            TestPlayShotActionDecision rearShot = TestPlayCombatCore.ResolveTargetRelativeShotAction(
+                100, Vector3.forward, Vector3.back, action => true);
+            TestPlayShotActionDecision unavailableVariant = TestPlayCombatCore.ResolveTargetRelativeShotAction(
+                100, Vector3.forward, Vector3.right, action => action == 100);
+            TestPlayShotActionDecision missingSideUsesRear = TestPlayCombatCore.ResolveTargetRelativeShotAction(
+                100, Vector3.forward, Vector3.right, action => action == 100 || action == 103);
+            TestPlayShotActionDecision boostLeftShot = TestPlayCombatCore.ResolveTargetRelativeShotAction(
+                106, Vector3.forward, Vector3.left, action => true);
+            TestPlayShotActionDecision boostRightShot = TestPlayCombatCore.ResolveTargetRelativeShotAction(
+                106, Vector3.forward, Vector3.right, action => true);
+            TestPlayShotActionDecision boostRearShot = TestPlayCombatCore.ResolveTargetRelativeShotAction(
+                106, Vector3.forward, Vector3.back, action => true);
+            Require(forwardShot.selectedActionId == 100 && !forwardShot.usesDirectionalVariant,
+                "target-relative shot keeps base action 100 inside the forward cone", ref assertions);
+            Require(leftShot.selectedActionId == 102 && leftShot.scriptActionId == 100 &&
+                    leftShot.usesDirectionalVariant && leftShot.usesDualChannels,
+                "left target selects pose 102 with base script 100 on dual channels", ref assertions);
+            Require(rightShot.selectedActionId == 101 && rightShot.scriptActionId == 100 &&
+                    rightShot.usesDirectionalVariant && rightShot.usesDualChannels,
+                "right target selects pose 101 with base script 100 on dual channels", ref assertions);
+            Require(rearShot.selectedActionId == 103 && rearShot.scriptActionId == 103 &&
+                    rearShot.usesDirectionalVariant && rearShot.usesDualChannels,
+                "rear target selects self-scripted action 103 on dual channels", ref assertions);
+            Require(unavailableVariant.selectedActionId == 100 &&
+                    !unavailableVariant.usesDirectionalVariant,
+                "missing side and rear variants fall back to the base shot", ref assertions);
+            Require(missingSideUsesRear.selectedActionId == 103 &&
+                    missingSideUsesRear.scriptActionId == 103,
+                "missing side variant uses rear action 103 when available", ref assertions);
+            Require(boostLeftShot.selectedActionId == 108 && boostLeftShot.scriptActionId == 106 &&
+                    boostRightShot.selectedActionId == 107 && boostRightShot.scriptActionId == 106 &&
+                    boostRearShot.selectedActionId == 103 && boostRearShot.scriptActionId == 103,
+                "boost shot 106 resolves left 108, right 107, and rear 103", ref assertions);
+
+            controller.lockedTarget = target;
+            controller.targetLockActive = true;
+            targetObject.transform.position = Vector3.left * 2f;
+            Require((int)resolveShot.Invoke(controller, null) == 102,
+                "locked left target selects grounded shot action 102", ref assertions);
+            targetObject.transform.position = Vector3.right * 2f;
+            Require((int)resolveShot.Invoke(controller, null) == 101,
+                "locked right target selects grounded shot action 101", ref assertions);
+            targetObject.transform.position = Vector3.back * 2f;
+            Require((int)resolveShot.Invoke(controller, null) == 103,
+                "locked rear target selects grounded shot action 103", ref assertions);
+            TestPlayActionSelection rearSelection = (TestPlayActionSelection)resolveShotSelection.Invoke(
+                controller, new object[] { 103 });
+            Require(rearSelection.requestedActionId == controller.shotAction &&
+                    rearSelection.logicalActionId == 103 && rearSelection.poseActionId == 103 &&
+                    rearSelection.scriptActionId == 103 && rearSelection.primaryChannel == 0 &&
+                    rearSelection.secondaryChannel == 1,
+                "rear shot keeps base request identity while action 103 supplies pose and script", ref assertions);
+            targetObject.transform.position = Vector3.forward * 2f;
             Require((int)resolveMelee.Invoke(controller, new object[] { 8 }) == controller.switchToSwordAction,
                 "gun-mode C first selects weapon-switch action 18", ref assertions);
 
@@ -466,14 +528,14 @@ public static class TestPlayRuntimeVerification
                 "sword mode resolves basic action IDs through the original +50 table", ref assertions);
 
             rootObject.transform.rotation = Quaternion.identity;
-            controller.currentAnimationIndex = controller.shotAction;
+            controller.currentAnimationIndex = 103;
             controller.state.SetInt(190, 4);
             SetField(controller, "attackSequenceActive", true);
             SetField(controller, "shotTurnAng", 20f);
             applyShotSteering.Invoke(controller, new object[] { rootObject.transform });
             Require(Mathf.Abs(Vector3.Angle(Vector3.forward, rootObject.transform.forward) - 20f) < 0.01f &&
                     rootObject.transform.forward.x < 0f,
-                "ShotTurnAng steers a held-left shot by the scripted angle", ref assertions);
+                "ShotTurnAng steers target-relative action 103 left by the scripted angle", ref assertions);
             rootObject.transform.rotation = Quaternion.identity;
 
             handle.Invoke(controller, new object[] { "AttackDelay", Values(0f, 3f), "AttackDelay(0,3);" });

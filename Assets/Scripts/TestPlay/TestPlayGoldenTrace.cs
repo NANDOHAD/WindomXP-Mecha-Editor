@@ -44,6 +44,7 @@ public sealed class TestPlayGoldenScenarioDefinition
     public string title;
     public TestPlayGoldenBaselineKind baseline;
     public TestPlayGoldenSetupKind setup;
+    public Vector3 targetPosition;
     public int[] requiredActionIds;
     public string[] requiredCommands;
     public TestPlayGoldenInputSegment[] inputSegments;
@@ -107,8 +108,9 @@ public static class TestPlayGoldenScenarioCatalog
             Segment(1, Input(melee: true)), Segment(10, Idle),
             Segment(1, Input(melee: true)), Segment(20, Idle),
             Segment(1, Input(melee: true)), Segment(200, Idle)),
-        Scenario("GT-010", "ロックと射撃旋回", TestPlayGoldenSetupKind.GroundedGun,
-            new[] { 100 }, new[] { "ShotTurnAng" },
+        ScenarioWithTarget("GT-010", "ロックと射撃旋回", TestPlayGoldenSetupKind.GroundedGun,
+            Vector3.back * 2f,
+            new[] { 103, 6 }, new[] { "ShotTurnAng" },
             Segment(1, Input(lockTarget: true)), Segment(2, Idle),
             Segment(1, Input(direction: 4, shot: true)), Segment(70, Input(direction: 4)),
             Segment(60, Idle))
@@ -140,10 +142,26 @@ public static class TestPlayGoldenScenarioCatalog
             title = title,
             baseline = TestPlayGoldenBaselineKind.RealAniObserved,
             setup = setup,
+            targetPosition = Vector3.forward * 2f,
             requiredActionIds = requiredActionIds,
             requiredCommands = requiredCommands,
             inputSegments = segments
         };
+    }
+
+    static TestPlayGoldenScenarioDefinition ScenarioWithTarget(
+        string id,
+        string title,
+        TestPlayGoldenSetupKind setup,
+        Vector3 targetPosition,
+        int[] requiredActionIds,
+        string[] requiredCommands,
+        params TestPlayGoldenInputSegment[] segments)
+    {
+        TestPlayGoldenScenarioDefinition definition = Scenario(
+            id, title, setup, requiredActionIds, requiredCommands, segments);
+        definition.targetPosition = targetPosition;
+        return definition;
     }
 
     static TestPlayGoldenInputSegment Segment(int ticks, TestPlayGoldenInputFrame input)

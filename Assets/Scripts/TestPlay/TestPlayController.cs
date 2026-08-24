@@ -544,8 +544,12 @@ public class TestPlayController : MonoBehaviour
     void ChangeAnimation(int actionId, bool restartSameAction)
     {
         NormalizeActionIds();
-        TestPlayActionSelection selection = ResolveActionSelection(actionId);
-        actionId = selection.poseActionId;
+        ChangeAnimation(ResolveActionSelection(actionId), restartSameAction);
+    }
+
+    void ChangeAnimation(TestPlayActionSelection selection, bool restartSameAction)
+    {
+        int actionId = selection.poseActionId;
         int logicalActionId = selection.logicalActionId;
 
         if (ShouldRedirectBoostToAirIdle(logicalActionId))
@@ -561,6 +565,11 @@ public class TestPlayController : MonoBehaviour
         if (actionId < 0 || actionId >= robo.ani.animations.Count)
         {
             LogUnhandled("ChangeAnimation out of range: " + actionId);
+            return;
+        }
+        if (selection.scriptActionId < 0 || selection.scriptActionId >= robo.ani.animations.Count)
+        {
+            LogUnhandled("ChangeAnimation script out of range: " + selection.scriptActionId);
             return;
         }
 
@@ -1508,7 +1517,7 @@ public class TestPlayController : MonoBehaviour
 
     int ResolveShotInputAction()
     {
-        return TestPlayCombatCore.ResolveShotInputAction(
+        int baseActionId = TestPlayCombatCore.ResolveShotInputAction(
             IsCurrentAction(boostAction),
             actionTick,
             HasUsableAction(boostShotAction),
@@ -1517,6 +1526,19 @@ public class TestPlayController : MonoBehaviour
             shotAction,
             boostShotAction,
             switchToGunAction);
+        if (baseActionId != shotAction && baseActionId != boostShotAction)
+            return baseActionId;
+
+        Transform lockedTargetTransform = GetLockedTargetTransform();
+        if (robo == null || robo.root == null || lockedTargetTransform == null)
+            return baseActionId;
+
+        Transform root = robo.root.transform;
+        return TestPlayCombatCore.ResolveTargetRelativeShotAction(
+            baseActionId,
+            root.forward,
+            lockedTargetTransform.position - root.position,
+            HasUsableAction).selectedActionId;
     }
 
     int ResolveMeleeInputAction(int direction)
@@ -1561,9 +1583,14 @@ public class TestPlayController : MonoBehaviour
     {
         return actionId == switchToSwordAction ||
                actionId == switchToGunAction ||
-               actionId == shotAction ||
-               actionId == boostShotAction ||
+               IsShotAttackAction(actionId) ||
                IsMeleeAttackAction(actionId);
+    }
+
+    bool IsShotAttackAction(int actionId)
+    {
+        return (actionId >= 100 && actionId <= 103) ||
+               (actionId >= 106 && actionId <= 108);
     }
 
     bool IsMeleeAttackAction(int actionId)
@@ -1588,14 +1615,13 @@ public class TestPlayController : MonoBehaviour
 
     bool ExecuteCurrentAnimationScript(string text)
     {
-        if (state == null || !UsesOriginalDualAniChannels(currentAnimationIndex))
+        if (state == null || !currentActionSelection.UsesDualChannels)
             return ExecuteScript(text);
 
-        // FUN_004d2030 starts the same basic ANI on the main channel first and,
-        // when param_7 is non-zero (the normal locomotion calls), on the
-        // secondary channel afterwards. Script.ani places Move/Force/GvEnable
-        // for actions 0..49 behind channel 0 and upper-body/weapon work behind
-        // channel 1, so executing only channel 1 suppresses jump lift entirely.
+        // FUN_004d2030 starts the selected ANI on the main channel first and,
+        // when param_7 is non-zero, on the secondary channel afterwards. The
+        // normal locomotion family and target-relative shot variants both use
+        // this route in the original dispatch.
         int actionBeforeMainChannel = currentAnimationIndex;
         state.SetInt(151, 0);
         bool interrupted = ExecuteScript(text);
@@ -1606,15 +1632,9 @@ public class TestPlayController : MonoBehaviour
         return ExecuteScript(text);
     }
 
-    static bool UsesOriginalDualAniChannels(int actionId)
-    {
-        return TestPlayActionCore.UsesOriginalDualAniChannels(actionId);
-    }
-
     void StartNormalAttackAction(int actionId)
     {
-        bool startsAttack = actionId == shotAction ||
-                            actionId == boostShotAction ||
+        bool startsAttack = IsShotAttackAction(actionId) ||
                             IsMeleeAttackAction(actionId);
         attackSequenceActive = startsAttack;
         meleeApproachActive = startsAttack && actionId == meleeAction;
@@ -1630,7 +1650,10 @@ public class TestPlayController : MonoBehaviour
                 source = "Input"
             });
         }
-        ChangeAnimation(actionId);
+        if (IsShotAttackAction(actionId))
+            ChangeAnimation(ResolveShotActionSelection(actionId), false);
+        else
+            ChangeAnimation(actionId);
     }
 
     bool TryUpdateNormalAttackSequence()
@@ -1988,6 +2011,28 @@ public class TestPlayController : MonoBehaviour
             IsSwordEquipped() ? TestPlayWeaponMode.Sword : TestPlayWeaponMode.Gun,
             HasUsableAction,
             HasActionScript);
+    }
+
+    TestPlayActionSelection ResolveShotActionSelection(int selectedActionId)
+    {
+        if (selectedActionId == shotAction || selectedActionId == boostShotAction)
+            return ResolveActionSelection(selectedActionId);
+
+        int baseActionId = selectedActionId == 107 || selectedActionId == 108 ||
+                           (selectedActionId == 103 && IsCurrentAction(boostAction))
+            ? boostShotAction
+            : shotAction;
+        bool rearVariant = selectedActionId == 103;
+        return new TestPlayActionSelection
+        {
+            requestedActionId = baseActionId,
+            logicalActionId = rearVariant ? 103 : baseActionId,
+            poseActionId = selectedActionId,
+            scriptActionId = rearVariant ? 103 : baseActionId,
+            weaponMode = TestPlayWeaponMode.Gun,
+            primaryChannel = 0,
+            secondaryChannel = 1
+        };
     }
 
     bool HasActionScript(int actionId)
@@ -2476,7 +2521,7 @@ public class TestPlayController : MonoBehaviour
     void ApplyOriginalShotSteering(Transform root)
     {
         if (root == null || !attackSequenceActive ||
-            (currentAnimationIndex != shotAction && currentAnimationIndex != boostShotAction))
+            !IsShotAttackAction(currentAnimationIndex))
             return;
 
         int direction = state != null ? state.GetInt(190) : 0;

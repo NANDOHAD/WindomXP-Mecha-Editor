@@ -140,6 +140,21 @@ public static class TestPlayGoldenTraceVerification
         public int comboRecoveryTick = -1;
         public int comboRecoveryTicks;
         public int comboIdleTick = -1;
+        public int lockInputTicks;
+        public int lockAcquiredTick = -1;
+        public TestPlayTargetDummy lockedTargetReference;
+        public bool lockStateSemanticsValid = true;
+        public int targetRelativeShotEntries;
+        public int targetRelativeShotTicks;
+        public int targetRelativeShotEntryTick = -1;
+        public bool targetRelativeShotEntryOnPress;
+        public bool targetRelativeShotSelectionValid = true;
+        public int targetRelativeShotTurnTicks;
+        public bool targetRelativeShotTurnSemanticsValid = true;
+        public bool targetRelativeShotNoTurnOutsideAction = true;
+        public int targetRelativeShotRecoveryTick = -1;
+        public int targetRelativeShotRecoveryTicks;
+        public int targetRelativeShotIdleTick = -1;
     }
 
     [MenuItem("Tools/WindomXP/Test Play/Run Real-Mech Golden Traces")]
@@ -359,7 +374,7 @@ public static class TestPlayGoldenTraceVerification
 
             TestPlayTargetDummy target = targetObject.AddComponent<TestPlayTargetDummy>();
             target.logHits = false;
-            targetObject.transform.position = Vector3.forward * 2f;
+            targetObject.transform.position = definition.targetPosition;
 
             TestPlayController controller = host.AddComponent<TestPlayController>();
             controller.robo = robo;
@@ -391,6 +406,7 @@ public static class TestPlayGoldenTraceVerification
             {
                 float energyBeforeTick = controller.currentEnergy;
                 Vector3 positionBeforeTick = root.transform.position;
+                Quaternion rotationBeforeTick = root.transform.rotation;
                 string tickTrace = controller.SimulateDeterministicTraceTick(frames[i]);
                 capture.session.AddTick(tickTrace);
                 capture.observedActions.Add(controller.currentAnimationIndex);
@@ -404,6 +420,8 @@ public static class TestPlayGoldenTraceVerification
                     energyBeforeTick,
                     positionBeforeTick,
                     root.transform.position,
+                    rotationBeforeTick,
+                    root.transform.rotation,
                     tickTrace);
             }
             controller.EndDeterministicTraceSession();
@@ -429,7 +447,7 @@ public static class TestPlayGoldenTraceVerification
         for (int i = 0; i < definition.requiredCommands.Length; i++)
         {
             string command = definition.requiredCommands[i];
-            if (!ContainsCommand(data, command))
+            if (!ContainsCommand(data, definition.requiredActionIds, command))
                 throw new InvalidDataException(definition.id + " requires missing ANI command " + command);
         }
     }
@@ -455,6 +473,8 @@ public static class TestPlayGoldenTraceVerification
         float energyBeforeTick,
         Vector3 positionBeforeTick,
         Vector3 positionAfterTick,
+        Quaternion rotationBeforeTick,
+        Quaternion rotationAfterTick,
         string tickTrace)
     {
         int action = controller.currentAnimationIndex;
@@ -556,6 +576,17 @@ public static class TestPlayGoldenTraceVerification
         {
             CaptureSwordCancelComboScenarioState(
                 capture, controller, input, traceTick, logicalAction, tickTrace);
+        }
+        else if (scenarioId == "GT-010")
+        {
+            CaptureTargetRelativeShotScenarioState(
+                capture,
+                controller,
+                input,
+                traceTick,
+                logicalAction,
+                rotationBeforeTick,
+                rotationAfterTick);
         }
 
         capture.lastAnimationIndex = action;
@@ -754,6 +785,83 @@ public static class TestPlayGoldenTraceVerification
         }
     }
 
+    static void CaptureTargetRelativeShotScenarioState(
+        RunCapture capture,
+        TestPlayController controller,
+        TestPlayGoldenInputFrame input,
+        int traceTick,
+        int logicalAction,
+        Quaternion rotationBeforeTick,
+        Quaternion rotationAfterTick)
+    {
+        const int rearShotAction = 103;
+        bool wasRearShot = capture.lastLogicalAction == rearShotAction;
+        bool isRearShot = logicalAction == rearShotAction;
+
+        if (input.lockTarget)
+            capture.lockInputTicks++;
+        if (capture.lockAcquiredTick < 0 && controller.targetLockActive)
+        {
+            capture.lockAcquiredTick = traceTick;
+            capture.lockedTargetReference = controller.lockedTarget;
+        }
+        if (capture.lockAcquiredTick >= 0)
+        {
+            capture.lockStateSemanticsValid &=
+                controller.targetLockActive &&
+                ReferenceEquals(controller.lockedTarget, capture.lockedTargetReference) &&
+                capture.lockedTargetReference != null &&
+                NearlyEqual(controller.activeTargetDistance, 2f) &&
+                NearlyEqual(controller.state.GetFloat(99), 2f) &&
+                controller.state.GetInt(154) == controller.lockedTarget.stateId;
+        }
+
+        float signedYaw = Vector3.SignedAngle(
+            rotationBeforeTick * Vector3.forward,
+            rotationAfterTick * Vector3.forward,
+            Vector3.up);
+        if (isRearShot)
+        {
+            if (!wasRearShot)
+            {
+                capture.targetRelativeShotEntries++;
+                capture.targetRelativeShotEntryTick = traceTick;
+                capture.targetRelativeShotEntryOnPress = input.shot && input.direction == 4;
+            }
+            capture.targetRelativeShotTicks++;
+            capture.targetRelativeShotTurnTicks++;
+            TestPlayActionSelection selection = controller.CurrentActionSelection;
+            capture.targetRelativeShotSelectionValid &=
+                selection.requestedActionId == controller.shotAction &&
+                selection.logicalActionId == rearShotAction &&
+                selection.poseActionId == rearShotAction &&
+                selection.scriptActionId == rearShotAction &&
+                selection.weaponMode == TestPlayWeaponMode.Gun &&
+                selection.primaryChannel == 0 &&
+                selection.secondaryChannel == 1 &&
+                selection.UsesDualChannels;
+            capture.targetRelativeShotTurnSemanticsValid &=
+                input.direction == 4 && NearlyEqual(signedYaw, -20f);
+        }
+        else
+        {
+            capture.targetRelativeShotNoTurnOutsideAction &= NearlyEqual(signedYaw, 0f);
+        }
+
+        if (wasRearShot && logicalAction == controller.stepLandingAction)
+            capture.targetRelativeShotRecoveryTick = traceTick;
+        if (capture.targetRelativeShotRecoveryTick >= 0 &&
+            logicalAction == controller.stepLandingAction)
+        {
+            capture.targetRelativeShotRecoveryTicks++;
+        }
+        if (capture.lastLogicalAction == controller.stepLandingAction &&
+            logicalAction == controller.idleAction)
+        {
+            capture.targetRelativeShotIdleTick = traceTick;
+        }
+    }
+
     static void CaptureSwitchAndForwardMeleeScenarioState(
         RunCapture capture,
         TestPlayController controller,
@@ -921,7 +1029,7 @@ public static class TestPlayGoldenTraceVerification
             {
                 capture.combo133Entries++;
                 CaptureComboProfileBundle(
-                    capture, controller, tickTrace, 100, 200, 0.5f, 0f, 1);
+                    capture, controller, tickTrace, 100, 200, 0.5f, 0f, 8);
             }
             capture.combo133Ticks++;
         }
@@ -938,17 +1046,17 @@ public static class TestPlayGoldenTraceVerification
             capture.comboQueueTicks.Add(traceTick);
             capture.comboSequenceSemanticsValid &= input.melee &&
                 controller.attackProfile != null &&
-                controller.attackProfile.swordCancel < 0 &&
+                GetControllerPrivateInt(controller, "swordCancelAction") < 0 &&
                 TraceContains(tickTrace, "\"comboPending\":true");
         }
 
-        if (controller.attackProfile != null && controller.attackProfile.swordCancel == secondComboAction)
+        if (GetControllerPrivateInt(controller, "swordCancelAction") == secondComboAction)
         {
             capture.swordCancel132Tick = traceTick;
             capture.comboSequenceSemanticsValid &= is131 &&
                 TraceContains(tickTrace, "\"comboPending\":true");
         }
-        if (controller.attackProfile != null && controller.attackProfile.swordCancel == thirdComboAction)
+        if (GetControllerPrivateInt(controller, "swordCancelAction") == thirdComboAction)
         {
             capture.swordCancel133Tick = traceTick;
             capture.comboSequenceSemanticsValid &= is132 &&
@@ -962,7 +1070,7 @@ public static class TestPlayGoldenTraceVerification
                 capture.swordCancelTransitionEvents++;
             capture.comboSequenceSemanticsValid &=
                 controller.attackProfile != null &&
-                controller.attackProfile.swordCancel < 0 &&
+                GetControllerPrivateInt(controller, "swordCancelAction") < 0 &&
                 TraceContains(tickTrace, "\"comboPending\":false");
         }
         if (was132 && is133)
@@ -972,7 +1080,7 @@ public static class TestPlayGoldenTraceVerification
                 capture.swordCancelTransitionEvents++;
             capture.comboSequenceSemanticsValid &=
                 controller.attackProfile != null &&
-                controller.attackProfile.swordCancel < 0 &&
+                GetControllerPrivateInt(controller, "swordCancelAction") < 0 &&
                 TraceContains(tickTrace, "\"comboPending\":false");
         }
 
@@ -1020,7 +1128,7 @@ public static class TestPlayGoldenTraceVerification
             profile.down == down &&
             NearlyEqual(profile.force, force) &&
             NearlyEqual(profile.forceY, forceY) &&
-            profile.attackFlag == attackFlag;
+            TraceContains(tickTrace, "\"attackFlag\":" + attackFlag);
     }
 
     static bool IsProcEvent(string tickTrace, int procType)
@@ -1168,6 +1276,15 @@ public static class TestPlayGoldenTraceVerification
     {
         return !string.IsNullOrEmpty(tickTrace) &&
                tickTrace.IndexOf(value, StringComparison.Ordinal) >= 0;
+    }
+
+    static int GetControllerPrivateInt(TestPlayController controller, string fieldName)
+    {
+        FieldInfo field = typeof(TestPlayController).GetField(
+            fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+        if (field == null)
+            throw new MissingFieldException(typeof(TestPlayController).Name, fieldName);
+        return (int)field.GetValue(controller);
     }
 
     static void ValidateFocusedScenarioOutcome(
@@ -1481,6 +1598,47 @@ public static class TestPlayGoldenTraceVerification
                     " recoveryTicks=" + capture.comboRecoveryTicks +
                     " idleTick=" + capture.comboIdleTick);
             }
+            return;
+        }
+
+        if (definition.id == "GT-010")
+        {
+            if (capture.lockInputTicks != 1 ||
+                capture.lockAcquiredTick != 1 ||
+                !capture.lockStateSemanticsValid ||
+                capture.targetRelativeShotEntries != 1 ||
+                capture.targetRelativeShotEntryTick != 4 ||
+                !capture.targetRelativeShotEntryOnPress ||
+                !capture.targetRelativeShotSelectionValid ||
+                capture.targetRelativeShotTicks != 49 ||
+                capture.targetRelativeShotTurnTicks != 49 ||
+                !capture.targetRelativeShotTurnSemanticsValid ||
+                !capture.targetRelativeShotNoTurnOutsideAction ||
+                capture.targetRelativeShotRecoveryTick != 53 ||
+                capture.targetRelativeShotRecoveryTicks != 34 ||
+                capture.targetRelativeShotIdleTick != 87)
+            {
+                throw new InvalidOperationException(
+                    "GT-010 must acquire and retain the rear target lock from one S edge at tick 1, " +
+                    "select rear-shot action 103 from the grounded base action 100 on the X+left " +
+                    "edge at tick 4, execute action 103 as pose/script on channels 0 and 1, and " +
+                    "apply its real-ANI ShotTurnAng=20 as exactly -20 degrees of root yaw on each " +
+                    "of the 49 action-103 ticks only. The shot must recover through action 6 at " +
+                    "tick 53 for 34 ticks and return to idle at tick 87. lockInputs=" + capture.lockInputTicks +
+                    " lockTick=" + capture.lockAcquiredTick +
+                    " lockValid=" + capture.lockStateSemanticsValid +
+                    " entries=" + capture.targetRelativeShotEntries +
+                    " entryTick=" + capture.targetRelativeShotEntryTick +
+                    " entryOnPress=" + capture.targetRelativeShotEntryOnPress +
+                    " selectionValid=" + capture.targetRelativeShotSelectionValid +
+                    " actionTicks=" + capture.targetRelativeShotTicks +
+                    " turnTicks=" + capture.targetRelativeShotTurnTicks +
+                    " turnValid=" + capture.targetRelativeShotTurnSemanticsValid +
+                    " noOutsideTurn=" + capture.targetRelativeShotNoTurnOutsideAction +
+                    " recoveryTick=" + capture.targetRelativeShotRecoveryTick +
+                    " recoveryTicks=" + capture.targetRelativeShotRecoveryTicks +
+                    " idleTick=" + capture.targetRelativeShotIdleTick);
+            }
         }
     }
 
@@ -1512,13 +1670,17 @@ public static class TestPlayGoldenTraceVerification
                 (candidate.frames != null && candidate.frames.Count > 0));
     }
 
-    static bool ContainsCommand(ani2 data, string command)
+    static bool ContainsCommand(ani2 data, int[] actionIds, string command)
     {
-        if (data == null || data.animations == null || string.IsNullOrWhiteSpace(command))
+        if (data == null || data.animations == null || actionIds == null ||
+            string.IsNullOrWhiteSpace(command))
             return false;
-        for (int i = 0; i < data.animations.Count; i++)
+        for (int i = 0; i < actionIds.Length; i++)
         {
-            animation candidate = data.animations[i];
+            int actionId = actionIds[i];
+            if (actionId < 0 || actionId >= data.animations.Count)
+                continue;
+            animation candidate = data.animations[actionId];
             if (candidate == null)
                 continue;
             if (!string.IsNullOrEmpty(candidate.squirrelInit) &&

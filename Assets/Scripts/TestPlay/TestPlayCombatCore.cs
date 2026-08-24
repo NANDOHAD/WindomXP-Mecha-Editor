@@ -104,6 +104,15 @@ public struct TestPlayProjectileTickResult
     public bool hit;
 }
 
+public struct TestPlayShotActionDecision
+{
+    public int baseActionId;
+    public int selectedActionId;
+    public int scriptActionId;
+    public bool usesDirectionalVariant;
+    public bool usesDualChannels;
+}
+
 /// <summary>
 /// Scene-independent combat decisions. Confirmed ANI values remain separate
 /// from explicit Unity fallback values so uncertain weapon types are traceable.
@@ -111,6 +120,8 @@ public struct TestPlayProjectileTickResult
 public static class TestPlayCombatCore
 {
     public const int AttackCooldownSlotCount = 5;
+    public const float OriginalShotForwardDotThreshold = 0.707f;
+    public const float OriginalShotRearDotThreshold = -0.1f;
 
     public static void ConfigureAttackProfile(
         TestPlayAttackProfile profile,
@@ -174,6 +185,77 @@ public static class TestPlayCombatCore
         if (swordEquipped)
             return switchToGunUsable ? switchToGunAction : shotAction;
         return shotAction;
+    }
+
+    public static TestPlayShotActionDecision ResolveTargetRelativeShotAction(
+        int baseActionId,
+        Vector3 facing,
+        Vector3 targetOffset,
+        Func<int, bool> hasUsableAction)
+    {
+        TestPlayShotActionDecision decision = new TestPlayShotActionDecision
+        {
+            baseActionId = baseActionId,
+            selectedActionId = baseActionId,
+            scriptActionId = baseActionId,
+            usesDirectionalVariant = false,
+            usesDualChannels = false
+        };
+
+        int leftActionId;
+        int rightActionId;
+        if (baseActionId == 100)
+        {
+            leftActionId = 102;
+            rightActionId = 101;
+        }
+        else if (baseActionId == 106)
+        {
+            leftActionId = 108;
+            rightActionId = 107;
+        }
+        else
+        {
+            return decision;
+        }
+
+        Vector3 flatFacing = Vector3.ProjectOnPlane(facing, Vector3.up);
+        Vector3 flatTarget = Vector3.ProjectOnPlane(targetOffset, Vector3.up);
+        if (flatFacing.sqrMagnitude <= Mathf.Epsilon || flatTarget.sqrMagnitude <= Mathf.Epsilon)
+            return decision;
+
+        flatFacing.Normalize();
+        flatTarget.Normalize();
+        float dot = Vector3.Dot(flatFacing, flatTarget);
+        if (dot >= OriginalShotForwardDotThreshold)
+            return decision;
+
+        float side = Vector3.Cross(flatFacing, flatTarget).y;
+        int sideActionId = side <= 0f ? leftActionId : rightActionId;
+        int selectedActionId = sideActionId;
+        int scriptActionId = baseActionId;
+
+        if (dot < OriginalShotRearDotThreshold || !IsUsable(hasUsableAction, sideActionId))
+        {
+            if (!IsUsable(hasUsableAction, 103))
+                return decision;
+            selectedActionId = 103;
+            scriptActionId = 103;
+        }
+
+        if (!IsUsable(hasUsableAction, selectedActionId))
+            return decision;
+
+        decision.selectedActionId = selectedActionId;
+        decision.scriptActionId = scriptActionId;
+        decision.usesDirectionalVariant = true;
+        decision.usesDualChannels = true;
+        return decision;
+    }
+
+    static bool IsUsable(Func<int, bool> hasUsableAction, int actionId)
+    {
+        return hasUsableAction == null || hasUsableAction(actionId);
     }
 
     public static int ResolveMeleeInputAction(
