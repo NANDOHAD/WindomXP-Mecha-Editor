@@ -12,6 +12,8 @@ public class TestPlayProjectile : MonoBehaviour
     public int downValue;
     public float horizontalImpactForce;
     public float verticalImpactForce;
+    public int attackFlag;
+    public TestPlayAttackCollisionKind collisionKind;
     public string sourceCommand = "Projectile";
     public TestPlayCombatValueSource valueSource = TestPlayCombatValueSource.UnityFallback;
     [Min(1f)]
@@ -72,10 +74,17 @@ public class TestPlayProjectile : MonoBehaviour
                 down = downValue,
                 horizontalImpactForce = horizontalImpactForce,
                 verticalImpactForce = verticalImpactForce,
+                attackFlag = attackFlag,
+                collisionKind = collisionKind,
                 valueSource = valueSource
             };
             TestPlayCombatHitResult hit = TestPlayCombatCore.CreateHitResult(payload, transform.forward);
-            target.ApplyImpact(hit.damage, hit.impactForce, hit.down, hit.source);
+            hit = target.ResolveImpact(
+                hit,
+                transform.position - transform.forward,
+                false,
+                false,
+                0);
             owner?.NotifyProjectileHit(hit);
             Destroy(gameObject);
             return true;

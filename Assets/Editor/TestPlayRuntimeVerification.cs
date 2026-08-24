@@ -25,6 +25,7 @@ public static class TestPlayRuntimeVerification
         VerifyFlowInterruption(ref assertions);
         VerifyRepeatInterval(ref assertions);
         VerifyOriginalAttackAndBurnerArguments(ref assertions);
+        VerifyOriginalDefenseSemantics(ref assertions);
         VerifyOriginalNormalAttackFlow(ref assertions);
         VerifyOriginalBasicAniChannelsAndJump(ref assertions);
         VerifyOriginalSoundIds(ref assertions);
@@ -63,6 +64,164 @@ public static class TestPlayRuntimeVerification
         vm.Execute("@int[200]=99;");
         Require(state.GetInt(200) == 0, "script variables are limited to 0..199", ref assertions);
         Require(fallbackAssignments == 1, "out-of-range reference is diagnosed as unsupported", ref assertions);
+    }
+
+    static void VerifyOriginalDefenseSemantics(ref int assertions)
+    {
+        Require(TestPlayCombatCore.ResolveHitReactionState(0) == 1 &&
+                TestPlayCombatCore.ResolveHitReactionState(1) == 2 &&
+                TestPlayCombatCore.ResolveHitReactionState(8) == 3 &&
+                TestPlayCombatCore.ResolveHitReactionState(9) == 3 &&
+                TestPlayCombatCore.ResolveHitReactionState(0x40) == 0,
+            "AttackFlag 1/8 reaction priority and bit 0x40 normal-reaction suppression",
+            ref assertions);
+
+        TestPlayDefenseHitInput input = new TestPlayDefenseHitInput
+        {
+            collisionKind = TestPlayAttackCollisionKind.OriginalType1,
+            defenderForwardDotToAttacker = 1f
+        };
+        input.targetIsAttackOwner = true;
+        Require(TestPlayCombatCore.ResolveDefenseHit(input).decision == TestPlayCombatHitDecision.Ignored,
+            "AttackFlag bit 0x04 is required for owner/self collision", ref assertions);
+        input.attackFlag = 0x04;
+        Require(TestPlayCombatCore.ResolveDefenseHit(input).decision == TestPlayCombatHitDecision.Damaged,
+            "AttackFlag bit 0x04 permits owner/self collision", ref assertions);
+
+        input = new TestPlayDefenseHitInput
+        {
+            collisionKind = TestPlayAttackCollisionKind.OriginalType1,
+            shieldGuardValue = 1,
+            defenderForwardDotToAttacker = TestPlayCombatCore.OriginalType1GuardDotThreshold
+        };
+        Require(TestPlayCombatCore.ResolveDefenseHit(input).decision == TestPlayCombatHitDecision.Guarded,
+            "type 1 guards at the original 0.1736 forward-dot boundary", ref assertions);
+        input.defenderForwardDotToAttacker = TestPlayCombatCore.OriginalType1GuardDotThreshold - 0.0001f;
+        Require(TestPlayCombatCore.ResolveDefenseHit(input).decision == TestPlayCombatHitDecision.Damaged,
+            "type 1 does not guard below the original forward-dot boundary", ref assertions);
+        input.defenderForwardDotToAttacker = 1f;
+        input.attackFlag = 0x10;
+        Require(TestPlayCombatCore.ResolveDefenseHit(input).decision == TestPlayCombatHitDecision.Damaged,
+            "AttackFlag bit 0x10 pierces ShildGuard for collision type 1", ref assertions);
+
+        input = new TestPlayDefenseHitInput
+        {
+            collisionKind = TestPlayAttackCollisionKind.OriginalType11,
+            shieldGuardValue = 2,
+            defenderForwardDotToAttacker = TestPlayCombatCore.OriginalType11GuardDotThreshold
+        };
+        Require(TestPlayCombatCore.ResolveDefenseHit(input).decision == TestPlayCombatHitDecision.Guarded,
+            "type 11 accepts ShildGuard value 2 at the original 0.766 boundary", ref assertions);
+        input.defenderForwardDotToAttacker = TestPlayCombatCore.OriginalType11GuardDotThreshold - 0.0001f;
+        Require(TestPlayCombatCore.ResolveDefenseHit(input).decision == TestPlayCombatHitDecision.Damaged,
+            "type 11 does not guard below the original forward-dot boundary", ref assertions);
+
+        input = new TestPlayDefenseHitInput
+        {
+            collisionKind = TestPlayAttackCollisionKind.OriginalType57,
+            shieldGuardValue = 1,
+            defenderForwardDotToAttacker = TestPlayCombatCore.OriginalType57GuardDotThreshold,
+            sourceIsCharacter = true,
+            meleeHitStopTicks = 5
+        };
+        TestPlayDefenseHitResult swordGuard = TestPlayCombatCore.ResolveDefenseHit(input);
+        Require(swordGuard.decision == TestPlayCombatHitDecision.Guarded &&
+                swordGuard.guardHitTimerTicks == 20 &&
+                swordGuard.attackerGuardReactionTicks == 2 &&
+                swordGuard.applyAttackerGuardRecoil &&
+                swordGuard.defenderHitStopTicks == 0,
+            "type 57 ShildGuard value 1 applies the confirmed guard feedback without hit-stop",
+            ref assertions);
+        input.shieldGuardValue = 2;
+        TestPlayDefenseHitResult swordGuard2 = TestPlayCombatCore.ResolveDefenseHit(input);
+        Require(swordGuard2.decision == TestPlayCombatHitDecision.Guarded &&
+                swordGuard2.guardHitTimerTicks == 20 &&
+                swordGuard2.attackerGuardReactionTicks == 0 &&
+                !swordGuard2.applyAttackerGuardRecoil,
+            "type 57 ShildGuard value 2 guards without the value-1 feedback branch",
+            ref assertions);
+
+        input = new TestPlayDefenseHitInput
+        {
+            collisionKind = TestPlayAttackCollisionKind.OriginalType11,
+            attackFlag = 0x02,
+            reflectionProbabilityPercent = 50,
+            reflectionRoll = 49
+        };
+        Require(TestPlayCombatCore.ResolveDefenseHit(input).decision == TestPlayCombatHitDecision.Reflected,
+            "AttackFlag bit 0x02 reflects when the explicit original probability roll succeeds",
+            ref assertions);
+        input.reflectionRoll = 50;
+        Require(TestPlayCombatCore.ResolveDefenseHit(input).decision == TestPlayCombatHitDecision.Damaged,
+            "AttackFlag bit 0x02 uses a strict roll-less-than-probability boundary",
+            ref assertions);
+        input.reflectionRoll = 0;
+        input.shieldGuardValue = 1;
+        input.defenderForwardDotToAttacker = 1f;
+        Require(TestPlayCombatCore.ResolveDefenseHit(input).decision == TestPlayCombatHitDecision.Guarded,
+            "type 11 evaluates directional guard before its reflection branch", ref assertions);
+
+        input = new TestPlayDefenseHitInput
+        {
+            collisionKind = TestPlayAttackCollisionKind.OriginalType57,
+            attackFlag = 0x20,
+            hitAcceptanceBlockTicks = 1,
+            meleeHitStopTicks = 5
+        };
+        Require(TestPlayCombatCore.ResolveDefenseHit(input).decision == TestPlayCombatHitDecision.Invulnerable,
+            "nonzero @int[158] blocks hit acceptance", ref assertions);
+        input.hitAcceptanceBlockTicks = 0;
+        TestPlayDefenseHitResult swordHit = TestPlayCombatCore.ResolveDefenseHit(input);
+        Require(swordHit.decision == TestPlayCombatHitDecision.Damaged &&
+                swordHit.clearLinkedTarget && swordHit.forceFacingToAttacker &&
+                swordHit.defenderHitStopTicks == 5 && swordHit.attackerHitStopTicks == 5,
+            "AttackFlag bit 0x20 and type 57 p2 hit-stop are preserved in the damage decision",
+            ref assertions);
+
+        Require(TestPlayCombatCore.TickPositiveTimer(2) == 1 &&
+                TestPlayCombatCore.TickPositiveTimer(1) == 0 &&
+                TestPlayCombatCore.TickPositiveTimer(0) == 0,
+            "@int[157], @int[158], and c50 timers decrement with a zero boundary",
+            ref assertions);
+        Require(TestPlayCombatCore.ResolveRunProcCollisionKind(1) == TestPlayAttackCollisionKind.OriginalType1 &&
+                TestPlayCombatCore.ResolveRunProcCollisionKind(11) == TestPlayAttackCollisionKind.OriginalType11 &&
+                TestPlayCombatCore.ResolveRunProcCollisionKind(57) == TestPlayAttackCollisionKind.OriginalType57 &&
+                TestPlayCombatCore.ResolveRunProcCollisionKind(62) == TestPlayAttackCollisionKind.Unspecified,
+            "only confirmed RunProc collision classes 1/11/57 are classified", ref assertions);
+
+        GameObject targetObject = new GameObject("TestPlayVerification_DefenseTarget");
+        try
+        {
+            TestPlayTargetDummy target = targetObject.AddComponent<TestPlayTargetDummy>();
+            target.logHits = false;
+            target.hp = 100f;
+            target.shildGuard = 1;
+            targetObject.transform.position = Vector3.forward * 2f;
+            targetObject.transform.rotation = Quaternion.LookRotation(Vector3.back, Vector3.up);
+            TestPlayCombatHitResult hit = new TestPlayCombatHitResult
+            {
+                source = "RunProc2:57",
+                damage = 25f,
+                attackFlag = 0,
+                collisionKind = TestPlayAttackCollisionKind.OriginalType57
+            };
+            hit = target.ResolveImpact(hit, Vector3.zero, false, true, 5);
+            Require(hit.decision == TestPlayCombatHitDecision.Guarded &&
+                    Mathf.Approximately(target.hp, 100f) && target.guardHitTimerTicks == 20,
+                "TargetDummy adapter blocks type 57 damage and stores @int[157] on front guard",
+                ref assertions);
+
+            target.shildGuard = 0;
+            target.hitAcceptanceBlockTicks = 1;
+            hit = target.ResolveImpact(hit, Vector3.zero, false, true, 5);
+            Require(hit.decision == TestPlayCombatHitDecision.Invulnerable &&
+                    Mathf.Approximately(target.hp, 100f),
+                "TargetDummy adapter blocks damage while @int[158] is nonzero", ref assertions);
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(targetObject);
+        }
     }
 
     static void VerifySptStatusInitialization(ref int assertions)
@@ -389,8 +548,10 @@ public static class TestPlayRuntimeVerification
             MethodInfo resolveMelee = typeof(TestPlayController).GetMethod("ResolveMeleeInputAction", InstancePrivate);
             MethodInfo resolveWeaponAction = typeof(TestPlayController).GetMethod("ResolveActionForWeaponMode", InstancePrivate);
             MethodInfo handle = typeof(TestPlayController).GetMethod("HandleCommand", InstancePrivate);
+            MethodInfo handleAssignment = typeof(TestPlayController).GetMethod("HandleAssignment", InstancePrivate);
             MethodInfo spawnRunProc = typeof(TestPlayController).GetMethod("SpawnRunProc", InstancePrivate);
             MethodInfo tickMeleeAttacks = typeof(TestPlayController).GetMethod("TickActiveMeleeAttacks", InstancePrivate);
+            MethodInfo updateCombatTimers = typeof(TestPlayController).GetMethod("UpdateOriginalCombatTimers", InstancePrivate);
             MethodInfo updateCooldowns = typeof(TestPlayController).GetMethod("UpdateOriginalAttackCooldowns", InstancePrivate);
             MethodInfo updateAttack = typeof(TestPlayController).GetMethod("TryUpdateNormalAttackSequence", InstancePrivate);
             MethodInfo updateInput = typeof(TestPlayController).GetMethod("UpdateInputState", InstancePrivate);
@@ -409,7 +570,8 @@ public static class TestPlayRuntimeVerification
                 null);
             Require(setWeapon != null && resolveShot != null && resolveShotSelection != null &&
                     resolveMelee != null && resolveWeaponAction != null &&
-                    handle != null && spawnRunProc != null && tickMeleeAttacks != null &&
+                    handle != null && handleAssignment != null && spawnRunProc != null && tickMeleeAttacks != null &&
+                    updateCombatTimers != null &&
                     updateCooldowns != null && updateAttack != null &&
                     updateInput != null && awake != null && tickAnimation != null && startGroundRecovery != null &&
                     applyRootMotion != null && getOneShot != null && applyShotSteering != null &&
@@ -568,6 +730,7 @@ public static class TestPlayRuntimeVerification
 
             target.hp = 1000f;
             handle.Invoke(controller, new object[] { "ATTACK", Values(37f, 44f, 2f, 3f), "ATTACK(37,44,2,3);" });
+            handleAssignment.Invoke(controller, new object[] { "AttackFlag", "=", Values(9f), "AttackFlag=9;" });
             Require(Mathf.Approximately(target.hp, 1000f),
                 "ATTACK configures a profile without applying an immediate hit", ref assertions);
             spawnRunProc.Invoke(controller, new object[] { Values(1f, 55f), true });
@@ -577,6 +740,7 @@ public static class TestPlayRuntimeVerification
             {
                 Values(1f, 57f, 1f, 200f, 0f, 5f, 5f, 0f, 0f, 0f, 0f, 9f), true
             });
+            handleAssignment.Invoke(controller, new object[] { "AttackFlag", "=", Values(0f), "AttackFlag=0;" });
             Require(Mathf.Approximately(target.hp, 1000f),
                 "RunProc2 type 57 creates a persistent WEAPONPOINT judgment without an immediate root-distance hit",
                 ref assertions);
@@ -584,7 +748,16 @@ public static class TestPlayRuntimeVerification
             tickMeleeAttacks.Invoke(controller, null);
             Require(Mathf.Approximately(target.hp, 963f) && target.lastDownValue == 44 &&
                     target.lastImpactForce == new Vector3(0f, 3f, 2f),
-                "RunProc2 type 57 sweeps from WEAPONPOINT and uses its spawn-time ATTACK snapshot", ref assertions);
+                "RunProc2 type 57 sweeps from WEAPONPOINT and uses its spawn-time ATTACK snapshot",
+                ref assertions);
+            Require(target.lastAttackFlag == 9 &&
+                    target.lastHitDecision == TestPlayCombatHitDecision.Damaged &&
+                    target.stateId == 3,
+                "RunProc2 type 57 snapshots AttackFlag and resolves its hit reaction " +
+                "(flag=" + target.lastAttackFlag + ", decision=" + target.lastHitDecision +
+                ", state=" + target.stateId + ")", ref assertions);
+            Require(target.hitStopTicks == 5 && (int)GetField(controller, "hitStopTicks") == 5,
+                "RunProc2 type 57 applies p2 hit-stop to attacker and defender", ref assertions);
             tickMeleeAttacks.Invoke(controller, null);
             Require(Mathf.Approximately(target.hp, 963f),
                 "one type 57 judgment hits the same target only once during its lifetime", ref assertions);
@@ -604,15 +777,33 @@ public static class TestPlayRuntimeVerification
                 "type 57 Core tests the swept segment surface rather than root distance", ref assertions);
 
             handle.Invoke(controller, new object[] { "ATTACK", Values(37f, 44f, 2f, 3f), "ATTACK(37,44,2,3);" });
+            handleAssignment.Invoke(controller, new object[] { "AttackFlag", "=", Values(2f), "AttackFlag=2;" });
 
             spawnProjectile.Invoke(controller, new object[] { "VerificationShot", 37f, 20f, false });
+            handleAssignment.Invoke(controller, new object[] { "AttackFlag", "=", Values(0f), "AttackFlag=0;" });
             List<GameObject> transients = (List<GameObject>)GetField(controller, "spawnedTransientObjects");
             spawnedProjectile = transients[transients.Count - 1];
             TestPlayProjectile projectile = spawnedProjectile.GetComponent<TestPlayProjectile>();
             Require(projectile != null && projectile.downValue == 44 &&
                     Mathf.Approximately(projectile.horizontalImpactForce, 2f) &&
-                    Mathf.Approximately(projectile.verticalImpactForce, 3f),
-                "projectiles snapshot the active ATTACK impact profile", ref assertions);
+                    Mathf.Approximately(projectile.verticalImpactForce, 3f) &&
+                    projectile.attackFlag == 2,
+                "projectiles snapshot the active ATTACK and AttackFlag profile", ref assertions);
+
+            handleAssignment.Invoke(controller, new object[] { "ShildGuard", "=", Values(2f), "ShildGuard=2;" });
+            Require((int)GetField(controller, "shieldGuard") == 2,
+                "ShildGuard retains real ANI value 2 instead of collapsing it to bool", ref assertions);
+            controller.state.SetInt(157, 2);
+            controller.state.SetInt(158, 2);
+            target.guardHitTimerTicks = 2;
+            target.hitAcceptanceBlockTicks = 2;
+            bool animationWasHitStopped = (bool)updateCombatTimers.Invoke(controller, null);
+            Require(animationWasHitStopped && controller.state.GetInt(157) == 1 &&
+                    controller.state.GetInt(158) == 1 && target.guardHitTimerTicks == 1 &&
+                    target.hitAcceptanceBlockTicks == 1 &&
+                    (int)GetField(controller, "hitStopTicks") == 4,
+                "controller and target defense timers decrement once per original 60 Hz tick",
+                ref assertions);
 
             controller.ChangeAnimation(controller.neutralMeleeAction);
             SetField(controller, "attackSequenceActive", true);

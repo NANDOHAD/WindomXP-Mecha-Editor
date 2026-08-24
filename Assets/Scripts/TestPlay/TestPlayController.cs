@@ -282,9 +282,11 @@ public class TestPlayController : MonoBehaviour
     bool animeLoop;
     bool animationPoseHeldAtEnd;
     bool moveLocked;
-    bool shieldGuard;
+    int shieldGuard;
     bool gvEnable;
     int attackFlag;
+    int hitStopTicks;
+    int meleeGuardFeedbackTicks;
     int swordCancelAction = -1;
     float shotTurnAng;
     float turnMoveAng;
@@ -451,19 +453,36 @@ public class TestPlayController : MonoBehaviour
         BeginCombatTraceTick();
         BeginPresentationTraceTick();
         groundRecoveryCompletedThisTick = false;
+        bool animationHitStopped = UpdateOriginalCombatTimers();
         UpdateOriginalAttackCooldowns();
         UpdateInputState();
         UpdateTargetLock();
         UpdateTargetState();
         UpdateOriginalMovementEnergy();
         UpdateActionFromInput();
-        TickAnimation();
+        if (!animationHitStopped)
+            TickAnimation();
         TickActiveMeleeAttacks();
         ApplyQueuedAimCommands();
         ApplyRootMotion();
         ConsumeLatchedInput();
         simulatingCombatTick = false;
         simulatingPresentationTick = false;
+    }
+
+    bool UpdateOriginalCombatTimers()
+    {
+        bool animationHitStopped = hitStopTicks > 0;
+        hitStopTicks = TestPlayCombatCore.TickPositiveTimer(hitStopTicks);
+        meleeGuardFeedbackTicks = TestPlayCombatCore.TickPositiveTimer(meleeGuardFeedbackTicks);
+        if (state != null)
+        {
+            state.SetInt(157, TestPlayCombatCore.TickPositiveTimer(state.GetInt(157)));
+            state.SetInt(158, TestPlayCombatCore.TickPositiveTimer(state.GetInt(158)));
+        }
+        if (target != null)
+            target.SimulateOriginalCombatTimerTick();
+        return animationHitStopped;
     }
 
     public void StartTestPlay()
@@ -786,7 +805,7 @@ public class TestPlayController : MonoBehaviour
         // a new numeric Move command changes it.
         forceCommand = Vector3.zero;
         moveLocked = false;
-        shieldGuard = false;
+        shieldGuard = 0;
         gvEnable = true;
         attackFlag = 0;
         camEffect = 0f;
@@ -3077,6 +3096,11 @@ public class TestPlayController : MonoBehaviour
             down = hit.down,
             force = horizontalImpact.magnitude,
             forceY = hit.impactForce.y,
+            attackFlag = hit.attackFlag,
+            hitDecision = hit.decision,
+            reactionState = hit.reactionState,
+            guardHitTimerTicks = hit.guardHitTimerTicks,
+            hitStopTicks = hit.hitStopTicks,
             valueSource = hit.valueSource
         });
     }
@@ -3257,7 +3281,7 @@ public class TestPlayController : MonoBehaviour
             moveCommand = Vector3.zero;
         forceCommand = Vector3.zero;
         moveLocked = false;
-        shieldGuard = false;
+        shieldGuard = 0;
         ResetInputMoveHeading();
     }
 
@@ -3413,7 +3437,7 @@ public class TestPlayController : MonoBehaviour
             case "gvenable": gvEnable = values.Count > 0 && values[0].AsBool(); break;
             case "shotturnang": shotTurnAng = values.Count > 0 ? values[0].AsFloat() : 0f; break;
             case "turnmoveang": turnMoveAng = values.Count > 0 ? values[0].AsFloat() : 0f; break;
-            case "shildguard": shieldGuard = values.Count > 0 && values[0].AsBool(); break;
+            case "shildguard": shieldGuard = values.Count > 0 ? values[0].AsInt() : 0; break;
             case "attackflag":
                 attackFlag = values.Count > 0 ? values[0].AsInt() : 0;
                 RecordAttackProfileChanged("AttackFlag");
@@ -3644,7 +3668,12 @@ public class TestPlayController : MonoBehaviour
 
         float damage = GetCurrentAttackDamage(EstimateDamageForWeapon(weaponType));
         float speed = EstimateSpeed(args, defaultProjectileSpeed);
-        SpawnProjectile(source + ":" + weaponType, damage, speed, IsHomingWeapon(weaponType));
+        SpawnProjectile(
+            source + ":" + weaponType,
+            damage,
+            speed,
+            IsHomingWeapon(weaponType),
+            TestPlayCombatCore.ResolveRunProcCollisionKind(weaponType));
     }
 
     void SpawnRunProc(List<TestPlayScriptValue> args, bool extended)
@@ -3683,7 +3712,8 @@ public class TestPlayController : MonoBehaviour
         Vector2 visualSize = GetRunProcVisualSize(args, procType);
         SpawnProjectile((extended ? "RunProc2:" : "RunProc:") + procType,
             GetCurrentAttackDamage(EstimateDamageForWeapon(procType)), EstimateSpeed(args, defaultProjectileSpeed),
-            IsHomingWeapon(procType), textureId, visualSize);
+            IsHomingWeapon(procType), textureId, visualSize,
+            TestPlayCombatCore.ResolveRunProcCollisionKind(procType));
     }
 
     int GetCurrentAttackDamage(float fallback)
@@ -3722,7 +3752,8 @@ public class TestPlayController : MonoBehaviour
             args[6].AsInt(),
             weaponPoint.BoneTr.position,
             weaponPoint.WorldForward,
-            source));
+            source,
+            attackFlag));
     }
 
     void TickActiveMeleeAttacks()
@@ -3761,7 +3792,16 @@ public class TestPlayController : MonoBehaviour
                 Vector3 impactDirection = target.transform.position - tickResult.currentOrigin;
                 TestPlayCombatHitResult hit = TestPlayCombatCore.CreateHitResult(
                     attack.payload, impactDirection);
-                target.ApplyImpact(hit.damage, hit.impactForce, hit.down, hit.source);
+                Vector3 attackerPosition = robo != null && robo.root != null
+                    ? robo.root.transform.position
+                    : tickResult.currentOrigin;
+                hit = target.ResolveImpact(
+                    hit,
+                    attackerPosition,
+                    false,
+                    true,
+                    attack.originalP2);
+                ApplyMeleeDefenseFeedback(hit);
                 RecordCombatHit(hit);
                 RaiseRuntimeEvent(
                     TestPlayRuntimeEventType.AttackHit,
@@ -3777,19 +3817,56 @@ public class TestPlayController : MonoBehaviour
         }
     }
 
-    void SpawnProjectile(string source, float damage, float speed, bool homing)
+    void ApplyMeleeDefenseFeedback(TestPlayCombatHitResult hit)
     {
-        SpawnProjectile(source, damage, speed, homing, -1, Vector2.zero);
+        if (hit.decision == TestPlayCombatHitDecision.Damaged && hit.hitStopTicks > 0)
+            hitStopTicks = Mathf.Max(hitStopTicks, hit.hitStopTicks);
+
+        if (hit.attackerGuardReactionTicks > 0)
+            meleeGuardFeedbackTicks = Mathf.Max(
+                meleeGuardFeedbackTicks,
+                hit.attackerGuardReactionTicks);
+        if (hit.applyAttackerGuardRecoil && target != null)
+            velocity += target.transform.forward * 0.05f;
     }
 
-    void SpawnProjectile(string source, float damage, float speed, bool homing, int textureId, Vector2 visualSize)
+    void SpawnProjectile(string source, float damage, float speed, bool homing)
+    {
+        SpawnProjectile(
+            source,
+            damage,
+            speed,
+            homing,
+            -1,
+            Vector2.zero,
+            TestPlayAttackCollisionKind.Unspecified);
+    }
+
+    void SpawnProjectile(
+        string source,
+        float damage,
+        float speed,
+        bool homing,
+        TestPlayAttackCollisionKind collisionKind)
+    {
+        SpawnProjectile(source, damage, speed, homing, -1, Vector2.zero, collisionKind);
+    }
+
+    void SpawnProjectile(
+        string source,
+        float damage,
+        float speed,
+        bool homing,
+        int textureId,
+        Vector2 visualSize,
+        TestPlayAttackCollisionKind collisionKind)
     {
         if (robo == null || robo.root == null)
             return;
 
         EnsureAttackProfile();
         TestPlayProjectilePayload payload = TestPlayCombatCore.CreateProjectilePayload(
-            attackProfile, damage, speed, homing, source);
+            attackProfile, damage, speed, homing, source, attackFlag, collisionKind);
 
         Vector3 spawnPosition = robo.root.transform.position + robo.root.transform.forward * 1.5f + Vector3.up * 1.2f;
         Quaternion spawnRotation = robo.root.transform.rotation;
@@ -3834,6 +3911,8 @@ public class TestPlayController : MonoBehaviour
         projectile.downValue = payload.down;
         projectile.horizontalImpactForce = payload.horizontalImpactForce;
         projectile.verticalImpactForce = payload.verticalImpactForce;
+        projectile.attackFlag = payload.attackFlag;
+        projectile.collisionKind = payload.collisionKind;
         projectile.speed = payload.speed;
         projectile.hitRadius = projectileRadius;
         projectile.homingTurnRate = payload.homing ? 180f : 0f;
@@ -3849,6 +3928,7 @@ public class TestPlayController : MonoBehaviour
             down = payload.down,
             force = payload.horizontalImpactForce,
             forceY = payload.verticalImpactForce,
+            attackFlag = payload.attackFlag,
             valueSource = payload.valueSource
         });
         RaiseRuntimeEvent(TestPlayRuntimeEventType.WeaponSpawned, source, null, source, 0, payload.damage);
@@ -4332,9 +4412,11 @@ public class TestPlayController : MonoBehaviour
         animeLoop = false;
         animationPoseHeldAtEnd = false;
         moveLocked = false;
-        shieldGuard = false;
+        shieldGuard = 0;
         gvEnable = true;
         attackFlag = 0;
+        hitStopTicks = 0;
+        meleeGuardFeedbackTicks = 0;
         swordCancelAction = -1;
         Array.Clear(attackCooldownTicks, 0, attackCooldownTicks.Length);
         attackSequenceActive = false;

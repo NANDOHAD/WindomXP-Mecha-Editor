@@ -29,6 +29,10 @@ public struct TestPlayCombatTraceEvent
     public float force;
     public float forceY;
     public int attackFlag;
+    public TestPlayCombatHitDecision hitDecision;
+    public int reactionState;
+    public int guardHitTimerTicks;
+    public int hitStopTicks;
     public TestPlayCombatValueSource valueSource;
     public TestPlayCombatDecisionReason reason;
 }
@@ -102,8 +106,16 @@ public static class TestPlayPhase3TickTrace
             .Append("\"damage\":").Append(Format(value.damage)).Append(',')
             .Append("\"down\":").Append(value.down).Append(',')
             .Append("\"force\":").Append(Format(value.force)).Append(',')
-            .Append("\"forceY\":").Append(Format(value.forceY)).Append(',')
-            .Append("\"valueSource\":\"").Append(value.valueSource).Append("\",")
+            .Append("\"forceY\":").Append(Format(value.forceY)).Append(',');
+        if (value.type == TestPlayCombatTraceEventType.Hit)
+        {
+            builder.Append("\"attackFlag\":").Append(value.attackFlag).Append(',')
+                .Append("\"decision\":\"").Append(value.hitDecision).Append("\",")
+                .Append("\"reaction\":").Append(value.reactionState).Append(',')
+                .Append("\"guardTimer\":").Append(value.guardHitTimerTicks).Append(',')
+                .Append("\"hitStop\":").Append(value.hitStopTicks).Append(',');
+        }
+        builder.Append("\"valueSource\":\"").Append(value.valueSource).Append("\",")
             .Append("\"reason\":\"").Append(value.reason).Append("\"}");
     }
 

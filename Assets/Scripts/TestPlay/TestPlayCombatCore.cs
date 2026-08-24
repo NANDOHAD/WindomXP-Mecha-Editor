@@ -18,6 +18,51 @@ public enum TestPlayCombatDecisionReason
     AttackFinished
 }
 
+public enum TestPlayAttackCollisionKind
+{
+    Unspecified,
+    OriginalType1,
+    OriginalType11,
+    OriginalType57
+}
+
+public enum TestPlayCombatHitDecision
+{
+    None,
+    Ignored,
+    Damaged,
+    Guarded,
+    Reflected,
+    Invulnerable
+}
+
+public struct TestPlayDefenseHitInput
+{
+    public TestPlayAttackCollisionKind collisionKind;
+    public int attackFlag;
+    public bool targetIsAttackOwner;
+    public int shieldGuardValue;
+    public float defenderForwardDotToAttacker;
+    public int hitAcceptanceBlockTicks;
+    public int reflectionProbabilityPercent;
+    public int reflectionRoll;
+    public bool sourceIsCharacter;
+    public int meleeHitStopTicks;
+}
+
+public struct TestPlayDefenseHitResult
+{
+    public TestPlayCombatHitDecision decision;
+    public int reactionState;
+    public bool clearLinkedTarget;
+    public bool forceFacingToAttacker;
+    public int guardHitTimerTicks;
+    public int defenderHitStopTicks;
+    public int attackerHitStopTicks;
+    public int attackerGuardReactionTicks;
+    public bool applyAttackerGuardRecoil;
+}
+
 public struct TestPlayCombatSequenceInput
 {
     public bool sequenceActive;
@@ -69,6 +114,8 @@ public struct TestPlayProjectilePayload
     public float verticalImpactForce;
     public float speed;
     public bool homing;
+    public int attackFlag;
+    public TestPlayAttackCollisionKind collisionKind;
     public TestPlayCombatValueSource valueSource;
 }
 
@@ -78,6 +125,16 @@ public struct TestPlayCombatHitResult
     public float damage;
     public int down;
     public Vector3 impactForce;
+    public int attackFlag;
+    public TestPlayAttackCollisionKind collisionKind;
+    public TestPlayCombatHitDecision decision;
+    public int reactionState;
+    public int guardHitTimerTicks;
+    public int hitStopTicks;
+    public bool clearLinkedTarget;
+    public bool forceFacingToAttacker;
+    public int attackerGuardReactionTicks;
+    public bool applyAttackerGuardRecoil;
     public TestPlayCombatValueSource valueSource;
 }
 
@@ -170,6 +227,115 @@ public static class TestPlayCombatCore
     public const int AttackCooldownSlotCount = 5;
     public const float OriginalShotForwardDotThreshold = 0.707f;
     public const float OriginalShotRearDotThreshold = -0.1f;
+    public const float OriginalType1GuardDotThreshold = 0.1736f;
+    public const float OriginalType11GuardDotThreshold = 0.766f;
+    public const float OriginalType57GuardDotThreshold = 0.5f;
+    public const int OriginalGuardHitTimerTicks = 20;
+
+    /// <summary>
+    /// FUN_004b27a0のAttackFlag・ShildGuard・c40/c44/c50分岐だけを
+    /// Scene非依存で評価する。LaserReflect(b54)と反射率b68の設定元は未確定のため、
+    /// 反射率とrollは呼出側が明示した場合に限って判定する。
+    /// </summary>
+    public static TestPlayDefenseHitResult ResolveDefenseHit(TestPlayDefenseHitInput input)
+    {
+        TestPlayDefenseHitResult result = new TestPlayDefenseHitResult
+        {
+            decision = TestPlayCombatHitDecision.Damaged
+        };
+
+        if (input.targetIsAttackOwner && (input.attackFlag & 0x04) == 0)
+        {
+            result.decision = TestPlayCombatHitDecision.Ignored;
+            return result;
+        }
+
+        if (input.hitAcceptanceBlockTicks > 0)
+        {
+            result.decision = TestPlayCombatHitDecision.Invulnerable;
+            return result;
+        }
+
+        float guardThreshold = GetGuardDotThreshold(input.collisionKind);
+        bool guardPierced = input.collisionKind == TestPlayAttackCollisionKind.OriginalType1 &&
+                            (input.attackFlag & 0x10) != 0;
+        bool guarded = input.shieldGuardValue != 0 && !guardPierced &&
+                       guardThreshold <= 1f &&
+                       input.defenderForwardDotToAttacker >= guardThreshold;
+        if (guarded)
+        {
+            result.decision = TestPlayCombatHitDecision.Guarded;
+            result.guardHitTimerTicks = OriginalGuardHitTimerTicks;
+            if (input.collisionKind == TestPlayAttackCollisionKind.OriginalType57 &&
+                input.shieldGuardValue == 1 && input.sourceIsCharacter)
+            {
+                result.attackerGuardReactionTicks = 2;
+                result.applyAttackerGuardRecoil = true;
+            }
+            return result;
+        }
+
+        if (input.collisionKind == TestPlayAttackCollisionKind.OriginalType11 &&
+            (input.attackFlag & 0x02) != 0 &&
+            Mathf.Clamp(input.reflectionRoll, 0, 99) <
+            Mathf.Clamp(input.reflectionProbabilityPercent, 0, 100))
+        {
+            result.decision = TestPlayCombatHitDecision.Reflected;
+            result.guardHitTimerTicks = OriginalGuardHitTimerTicks;
+            return result;
+        }
+
+        result.reactionState = ResolveHitReactionState(input.attackFlag);
+        result.clearLinkedTarget = (input.attackFlag & 0x20) != 0;
+        result.forceFacingToAttacker = result.clearLinkedTarget;
+        if (input.collisionKind == TestPlayAttackCollisionKind.OriginalType57)
+        {
+            int hitStopTicks = Mathf.Max(0, input.meleeHitStopTicks);
+            result.defenderHitStopTicks = hitStopTicks;
+            result.attackerHitStopTicks = hitStopTicks;
+        }
+        return result;
+    }
+
+    public static int ResolveHitReactionState(int attackFlag)
+    {
+        if ((attackFlag & 0x08) != 0)
+            return 3;
+        if ((attackFlag & 0x01) != 0)
+            return 2;
+        return (attackFlag & 0x40) == 0 ? 1 : 0;
+    }
+
+    public static int TickPositiveTimer(int value)
+    {
+        return value > 0 ? value - 1 : value;
+    }
+
+    public static TestPlayAttackCollisionKind ResolveRunProcCollisionKind(int procType)
+    {
+        switch (procType)
+        {
+            case 1: return TestPlayAttackCollisionKind.OriginalType1;
+            case 11: return TestPlayAttackCollisionKind.OriginalType11;
+            case 57: return TestPlayAttackCollisionKind.OriginalType57;
+            default: return TestPlayAttackCollisionKind.Unspecified;
+        }
+    }
+
+    static float GetGuardDotThreshold(TestPlayAttackCollisionKind collisionKind)
+    {
+        switch (collisionKind)
+        {
+            case TestPlayAttackCollisionKind.OriginalType1:
+                return OriginalType1GuardDotThreshold;
+            case TestPlayAttackCollisionKind.OriginalType11:
+                return OriginalType11GuardDotThreshold;
+            case TestPlayAttackCollisionKind.OriginalType57:
+                return OriginalType57GuardDotThreshold;
+            default:
+                return float.PositiveInfinity;
+        }
+    }
 
     public static void ConfigureAttackProfile(
         TestPlayAttackProfile profile,
@@ -458,7 +624,9 @@ public static class TestPlayCombatCore
         float fallbackDamage,
         float speed,
         bool homing,
-        string source)
+        string source,
+        int attackFlag = 0,
+        TestPlayAttackCollisionKind collisionKind = TestPlayAttackCollisionKind.Unspecified)
     {
         bool usesScriptProfile = profile != null && profile.power > 0;
         return new TestPlayProjectilePayload
@@ -470,6 +638,8 @@ public static class TestPlayCombatCore
             verticalImpactForce = profile != null ? profile.forceY : 0f,
             speed = Mathf.Max(0f, speed),
             homing = homing,
+            attackFlag = attackFlag,
+            collisionKind = collisionKind,
             valueSource = usesScriptProfile
                 ? TestPlayCombatValueSource.OriginalScriptProfile
                 : TestPlayCombatValueSource.UnityFallback
@@ -495,6 +665,8 @@ public static class TestPlayCombatCore
             down = payload.down,
             impactForce = horizontalDirection * payload.horizontalImpactForce +
                           Vector3.up * payload.verticalImpactForce,
+            attackFlag = payload.attackFlag,
+            collisionKind = payload.collisionKind,
             valueSource = payload.valueSource
         };
     }
@@ -514,6 +686,8 @@ public static class TestPlayCombatCore
             down = payload.down,
             impactForce = horizontalDirection * payload.horizontalImpactForce +
                           Vector3.up * payload.verticalImpactForce,
+            attackFlag = payload.attackFlag,
+            collisionKind = payload.collisionKind,
             valueSource = payload.valueSource
         };
     }
@@ -528,7 +702,8 @@ public static class TestPlayCombatCore
         int originalP3,
         Vector3 origin,
         Vector3 forward,
-        string source)
+        string source,
+        int attackFlag = 0)
     {
         Vector3 direction = forward.sqrMagnitude > 0.000001f
             ? forward.normalized
@@ -542,7 +717,14 @@ public static class TestPlayCombatCore
             originalP2 = originalP2,
             originalP3 = originalP3,
             source = source ?? "",
-            payload = CreateProjectilePayload(profile, fallbackDamage, 0f, false, source),
+            payload = CreateProjectilePayload(
+                profile,
+                fallbackDamage,
+                0f,
+                false,
+                source,
+                attackFlag,
+                TestPlayAttackCollisionKind.OriginalType57),
             previousOrigin = origin,
             previousTip = origin + direction * clampedLength
         };
