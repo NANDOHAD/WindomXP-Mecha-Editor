@@ -243,8 +243,10 @@ public static class TestPlayRuntimeVerification
             "ATTACKARMSET(0,ArmAim.x);\n" +
             "ATTACKARMSET(2,InvalidArm.x);\n" +
             "GUNFILENAME(0,Gun.x);\n" +
+            "GUNFILENAME(9,Sword_dammy.x);\n" +
             "GUNFILENAME(20,InvalidGun.x);\n" +
-            "SWORDFILENAME(0,Sword.x);\n");
+            "SWORDFILENAME(0,Sword.x);\n" +
+            "SWORDFILENAME(9,Gun_dammy.x);\n");
 
         Require(data.HasHP && data.HP == 5200, "SPT HP is parsed with presence", ref assertions);
         Require(data.HasGenerator && data.Generator == 3600, "SPT Generator is parsed", ref assertions);
@@ -259,8 +261,10 @@ public static class TestPlayRuntimeVerification
                 data.WeaponPoints[49].Direction == SptDirection.DOWN,
             "SPT WEAPONPOINT accepts original indices 0..49 and normalizes .x names", ref assertions);
         Require(data.AttackArms.Count == 1 && data.AttackArms[0].FrameName == "ArmAim" &&
-                data.GunModels.Count == 1 && data.GunModels[0].FrameName == "Gun" &&
-                data.SwordModels.Count == 1 && data.SwordModels[0].FrameName == "Sword",
+                data.GunModels.Count == 2 && data.GunModels[0].FrameName == "Gun" &&
+                data.GunModels[9].FrameName == "Sword_dammy" &&
+                data.SwordModels.Count == 2 && data.SwordModels[0].FrameName == "Sword" &&
+                data.SwordModels[9].FrameName == "Gun_dammy",
             "SPT attack-arm and weapon-model definitions enforce original ranges and normalize .x names",
             ref assertions);
 
@@ -274,8 +278,12 @@ public static class TestPlayRuntimeVerification
             attackArmObject.transform.SetParent(sptObject.transform, false);
             GameObject gunObject = new GameObject("Gun.x");
             gunObject.transform.SetParent(sptObject.transform, false);
+            GameObject swordDummyObject = new GameObject("Sword_dammy.x");
+            swordDummyObject.transform.SetParent(sptObject.transform, false);
             GameObject swordObject = new GameObject("Sword.x");
             swordObject.transform.SetParent(sptObject.transform, false);
+            GameObject gunDummyObject = new GameObject("Gun_dammy.x");
+            gunDummyObject.transform.SetParent(sptObject.transform, false);
             GameObject inspectorArmObject = new GameObject("InspectorArm");
             inspectorArmObject.transform.SetParent(sptObject.transform, false);
             SptParser.BindTransforms(sptObject.transform, data);
@@ -284,7 +292,9 @@ public static class TestPlayRuntimeVerification
                 "SPT WEAPONPOINT binds the real frame name and UP direction", ref assertions);
             Require(data.AttackArms[0].BoneTr == attackArmObject.transform &&
                     data.GunModels[0].BoneTr == gunObject.transform &&
-                    data.SwordModels[0].BoneTr == swordObject.transform,
+                    data.GunModels[9].BoneTr == swordDummyObject.transform &&
+                    data.SwordModels[0].BoneTr == swordObject.transform &&
+                    data.SwordModels[9].BoneTr == gunDummyObject.transform,
                 "SPT attack-arm and weapon-model definitions bind real frame transforms", ref assertions);
 
             UI_SPT spt = sptObject.AddComponent<UI_SPT>();
@@ -297,6 +307,7 @@ public static class TestPlayRuntimeVerification
             MethodInfo energyTick = typeof(TestPlayController).GetMethod("UpdateOriginalMovementEnergy", InstancePrivate);
             MethodInfo resolveArm = typeof(TestPlayController).GetMethod("ResolveArmAimRoot", InstancePrivate);
             MethodInfo spawnRunProc = typeof(TestPlayController).GetMethod("SpawnRunProc", InstancePrivate);
+            MethodInfo handleCommand = typeof(TestPlayController).GetMethod("HandleCommand", InstancePrivate);
             initialize.Invoke(controller, null);
 
             Require(Mathf.Approximately(controller.maximumHP, 5200f) &&
@@ -313,13 +324,35 @@ public static class TestPlayRuntimeVerification
                 "LockArm uses the Inspector reference first and SPT ATTACKARMSET only as fallback", ref assertions);
 
             gunObject.SetActive(true);
-            swordObject.SetActive(false);
+            swordDummyObject.SetActive(true);
+            swordObject.SetActive(true);
+            gunDummyObject.SetActive(true);
             spawnRunProc.Invoke(controller, new object[] { Values(0f, 51f), false });
-            Require(!gunObject.activeSelf && swordObject.activeSelf,
-                "original RunProc type 51 hides gun frames and shows sword frames", ref assertions);
+            Require(gunObject.activeSelf && swordDummyObject.activeSelf &&
+                    !swordObject.activeSelf && !gunDummyObject.activeSelf,
+                "original proc type 51 shows Gun and Sword_dammy for gun mode", ref assertions);
             spawnRunProc.Invoke(controller, new object[] { Values(0f, 52f), false });
-            Require(gunObject.activeSelf && !swordObject.activeSelf,
-                "original RunProc type 52 shows gun frames and hides sword frames", ref assertions);
+            Require(!gunObject.activeSelf && !swordDummyObject.activeSelf &&
+                    swordObject.activeSelf && gunDummyObject.activeSelf,
+                "original proc type 52 shows Sword and Gun_dammy for sword mode", ref assertions);
+            handleCommand.Invoke(controller, new object[]
+            {
+                "ChangeWeapon",
+                new List<TestPlayScriptValue> { TestPlayScriptValue.Symbol("GUN") },
+                "ChangeWeapon(GUN);"
+            });
+            Require(controller.state.GetInt(152) == 0 && gunObject.activeSelf && swordDummyObject.activeSelf &&
+                    !swordObject.activeSelf && !gunDummyObject.activeSelf,
+                "ChangeWeapon(GUN) uses the same four-model visibility as proc type 51", ref assertions);
+            handleCommand.Invoke(controller, new object[]
+            {
+                "ChangeWeapon",
+                new List<TestPlayScriptValue> { TestPlayScriptValue.Symbol("SWORD") },
+                "ChangeWeapon(SWORD);"
+            });
+            Require(controller.state.GetInt(152) == 1 && !gunObject.activeSelf && !swordDummyObject.activeSelf &&
+                    swordObject.activeSelf && gunDummyObject.activeSelf,
+                "ChangeWeapon(SWORD) uses the same four-model visibility as proc type 52", ref assertions);
             Require(controller.state.GetInt(100) == 3600 && controller.state.GetInt(101) == 3600 &&
                     controller.state.GetInt(102) == 1700 && controller.state.GetInt(103) == 1700,
                 "original integer resource slots 100..103 mirror SPT runtime values", ref assertions);

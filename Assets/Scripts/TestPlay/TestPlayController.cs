@@ -506,6 +506,7 @@ public class TestPlayController : MonoBehaviour
         ResetRuntimeFlags();
         ResetInputSamplingState();
         InitializeOriginalSptStatus();
+        SetHeldWeapon("GUN");
         playModeActive = true;
         EnsureHudRuntime();
         hudRuntime.ShowHud();
@@ -3576,6 +3577,11 @@ public class TestPlayController : MonoBehaviour
         heldWeapon = string.Equals(weapon, "SWORD", StringComparison.OrdinalIgnoreCase) ? "SWORD" : "GUN";
         if (state != null)
             state.SetInt(152, heldWeapon == "SWORD" ? 1 : 0);
+
+        // The original ANI compiler emits proc type 51 for ChangeWeapon(GUN)
+        // and type 52 for ChangeWeapon(SWORD). Keep the source-command VM path
+        // equivalent to those compiled handlers.
+        ApplyOriginalWeaponModelVisibility(heldWeapon == "GUN");
     }
 
     void SetAttackPower(List<TestPlayScriptValue> args)
@@ -3701,10 +3707,11 @@ public class TestPlayController : MonoBehaviour
                 ? TestPlayPresentationAdapterKind.CombatOnly
                 : TestPlayPresentationAdapterKind.None));
         // FUN_004b74a0 dispatches proc type 51/52 to FUN_004f97f0/
-        // FUN_004f9930. They recursively switch the SPT gun/sword frame sets.
+        // FUN_004f9930. Type 51 is ChangeWeapon(GUN); type 52 is
+        // ChangeWeapon(SWORD). Each recursively switches the paired SPT sets.
         if (procType == 51 || procType == 52)
         {
-            ApplyOriginalWeaponModelVisibility(procType == 52);
+            ApplyOriginalWeaponModelVisibility(procType == 51);
             return;
         }
         if (procType == 55)
