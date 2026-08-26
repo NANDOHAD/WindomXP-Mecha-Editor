@@ -59,6 +59,12 @@ public static class TestPlayPresentationCore
 {
     public const int MinimumBurnerId = 0;
     public const int MaximumBurnerId = 19;
+    public const int WindLineProcType = 53;
+    public const int WindRingProcType = 54;
+    public const int OriginalWindLineCount = 7;
+    public const float OriginalWindLineWidth = 0.07f;
+    public const float OriginalWindLineLength = 3f;
+    public const float OriginalWindRingRadius = 1f;
 
     public static TestPlayPresentationEvent CreateSound(
         IReadOnlyList<TestPlayScriptValue> arguments,
@@ -167,14 +173,28 @@ public static class TestPlayPresentationCore
             TestPlayPresentationEventType.Proc,
             extended ? "RunProc2" : "RunProc",
             arguments,
-            procType == 55 || procType == 57
-                ? TestPlayPresentationEvidence.OriginalDataObserved
-                : TestPlayPresentationEvidence.IncompleteInference,
+            IsOriginalWindProc(extended, procType)
+                ? TestPlayPresentationEvidence.OriginalExecutableConfirmed
+                : procType == 55 || procType == 57
+                    ? TestPlayPresentationEvidence.OriginalDataObserved
+                    : TestPlayPresentationEvidence.IncompleteInference,
             adapter);
         value.originalId = GetInt(arguments, 0, -1);
         value.procType = procType;
         value.subtype = procType == 62 ? GetInt(arguments, 3, -1) : -1;
         return value;
+    }
+
+    public static bool IsOriginalWindProc(bool extended, int procType)
+    {
+        return !extended && (procType == WindLineProcType || procType == WindRingProcType);
+    }
+
+    public static int GetOriginalWindVisualCount(bool extended, int procType)
+    {
+        if (!IsOriginalWindProc(extended, procType))
+            return 0;
+        return procType == WindLineProcType ? OriginalWindLineCount : 1;
     }
 
     public static TestPlayPresentationEvent CreateTexture(
@@ -200,16 +220,32 @@ public static class TestPlayPresentationCore
         int textureId,
         TestPlayPresentationAdapterKind adapter)
     {
+        return CreateVisual(
+            source,
+            textureId,
+            adapter,
+            textureId >= 0
+                ? TestPlayPresentationEvidence.OriginalDataObserved
+                : TestPlayPresentationEvidence.IncompleteInference,
+            "");
+    }
+
+    public static TestPlayPresentationEvent CreateVisual(
+        string source,
+        int textureId,
+        TestPlayPresentationAdapterKind adapter,
+        TestPlayPresentationEvidence evidence,
+        string diagnostic)
+    {
         TestPlayPresentationEvent value = CreateBase(
             TestPlayPresentationEventType.Visual,
             "Visual",
             null,
-            textureId >= 0
-                ? TestPlayPresentationEvidence.OriginalDataObserved
-                : TestPlayPresentationEvidence.IncompleteInference,
+            evidence,
             adapter);
         value.source = source ?? "";
         value.textureId = textureId;
+        value.diagnostic = diagnostic ?? "";
         return value;
     }
 

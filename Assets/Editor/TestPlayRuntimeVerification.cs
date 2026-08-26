@@ -497,6 +497,22 @@ public static class TestPlayRuntimeVerification
                 "BURNER(20,1);"
             });
             Require(!outputs.ContainsKey(20), "BURNER id range 0..19", ref assertions);
+
+            Require(TestPlayPresentationCore.IsOriginalWindProc(false, 53) &&
+                    TestPlayPresentationCore.IsOriginalWindProc(false, 54) &&
+                    !TestPlayPresentationCore.IsOriginalWindProc(true, 53) &&
+                    TestPlayPresentationCore.GetOriginalWindVisualCount(false, 53) == 7 &&
+                    TestPlayPresentationCore.GetOriginalWindVisualCount(false, 54) == 1,
+                "RunProc type 53/54 are the confirmed seven-line and one-ring presentation-only handlers",
+                ref assertions);
+            TestPlayPresentationEvent windProc = TestPlayPresentationCore.CreateProc(
+                false,
+                Values(0f, 53f, 2f),
+                TestPlayPresentationAdapterKind.PrimitiveFallback);
+            Require(windProc.evidence == TestPlayPresentationEvidence.OriginalExecutableConfirmed &&
+                    windProc.procType == 53 && windProc.arguments.Length == 3,
+                "RunProc type 53 keeps source arguments while classifying its executable-confirmed visual meaning",
+                ref assertions);
         }
         finally
         {
@@ -802,6 +818,68 @@ public static class TestPlayRuntimeVerification
             handleAssignment.Invoke(controller, new object[] { "AttackFlag", "=", Values(9f), "AttackFlag=9;" });
             Require(Mathf.Approximately(target.hp, 1000f),
                 "ATTACK configures a profile without applying an immediate hit", ref assertions);
+
+            List<TestPlayPresentationEvent> windPresentationEvents = new List<TestPlayPresentationEvent>();
+            controller.PresentationEventRaised += presentationEvent => windPresentationEvents.Add(presentationEvent);
+            List<GameObject> windTransients =
+                (List<GameObject>)GetField(controller, "spawnedTransientObjects");
+            int windStart = windTransients.Count;
+            spawnRunProc.Invoke(controller, new object[] { Values(0f, 53f, 2f), false });
+            int windLineEnd = windTransients.Count;
+            bool windLinesValid = windLineEnd - windStart == TestPlayPresentationCore.OriginalWindLineCount;
+            for (int i = windStart; i < windLineEnd; i++)
+            {
+                GameObject windObject = windTransients[i];
+                TestPlayWindEffect effect = windObject != null ? windObject.GetComponent<TestPlayWindEffect>() : null;
+                windLinesValid &= effect != null && effect.Kind == TestPlayWindEffectKind.WindLine &&
+                    Mathf.Approximately(effect.DisplayWidth, TestPlayPresentationCore.OriginalWindLineWidth) &&
+                    Mathf.Approximately(effect.DisplayLength, TestPlayPresentationCore.OriginalWindLineLength) &&
+                    windObject.GetComponent<TestPlayProjectile>() == null;
+            }
+            Require(windLinesValid,
+                "RunProc type 53 creates seven non-combat BB_WindLine adapters with confirmed 0.07 x 3.0 dimensions and ignores p3",
+                ref assertions);
+
+            spawnRunProc.Invoke(controller, new object[] { Values(1f, 54f, 0f), false });
+            int windRingEnd = windTransients.Count;
+            GameObject ringObject = windRingEnd == windLineEnd + 1 ? windTransients[windLineEnd] : null;
+            TestPlayWindEffect ringEffect = ringObject != null ? ringObject.GetComponent<TestPlayWindEffect>() : null;
+            Require(ringEffect != null && ringEffect.Kind == TestPlayWindEffectKind.WindRing &&
+                    Mathf.Approximately(ringEffect.DisplayRadius, TestPlayPresentationCore.OriginalWindRingRadius) &&
+                    ringObject.GetComponent<TestPlayProjectile>() == null,
+                "RunProc type 54 creates one non-combat BB_WindRing2 adapter",
+                ref assertions);
+
+            int proc53Events = 0;
+            int proc54Events = 0;
+            int visual53Events = 0;
+            int visual54Events = 0;
+            for (int i = 0; i < windPresentationEvents.Count; i++)
+            {
+                TestPlayPresentationEvent presentationEvent = windPresentationEvents[i];
+                if (presentationEvent.type == TestPlayPresentationEventType.Proc &&
+                    presentationEvent.evidence == TestPlayPresentationEvidence.OriginalExecutableConfirmed)
+                {
+                    if (presentationEvent.procType == 53) proc53Events++;
+                    if (presentationEvent.procType == 54) proc54Events++;
+                }
+                if (presentationEvent.type == TestPlayPresentationEventType.Visual &&
+                    presentationEvent.source == "RunProc:53")
+                    visual53Events++;
+                if (presentationEvent.type == TestPlayPresentationEventType.Visual &&
+                    presentationEvent.source == "RunProc:54")
+                    visual54Events++;
+            }
+            Require(proc53Events == 1 && proc54Events == 1 &&
+                    visual53Events == TestPlayPresentationCore.OriginalWindLineCount && visual54Events == 1,
+                "RunProc type 53/54 trace records confirmed Proc semantics and every Unity visual adapter",
+                ref assertions);
+            for (int i = windStart; i < windRingEnd; i++)
+            {
+                if (windTransients[i] != null)
+                    UnityEngine.Object.DestroyImmediate(windTransients[i]);
+            }
+
             spawnRunProc.Invoke(controller, new object[] { Values(1f, 55f), true });
             Require(Mathf.Approximately(target.hp, 1000f),
                 "RunProc2 type 55 is a sword visual and does not damage", ref assertions);

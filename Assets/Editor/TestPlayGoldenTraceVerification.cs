@@ -58,6 +58,9 @@ public static class TestPlayGoldenTraceVerification
         public float boostEntryEnergyCost;
         public float boostPerTickEnergyConsumed;
         public int boostEnergyDrainTicks;
+        public int boostWindLineProcEvents;
+        public int boostWindRingProcEvents;
+        public int boostWindProjectileEvents;
         public int airMoveActionEntries;
         public int airMoveActionTicks;
         public int airIdleEntriesAfterAirMove;
@@ -553,7 +556,7 @@ public static class TestPlayGoldenTraceVerification
         else if (scenarioId == "GT-006")
         {
             CaptureBoostScenarioState(
-                capture, controller, input, traceTick, logicalAction, energyDelta, horizontalDelta);
+                capture, controller, input, traceTick, logicalAction, energyDelta, horizontalDelta, tickTrace);
         }
         else if (scenarioId == "GT-007")
         {
@@ -1203,7 +1206,8 @@ public static class TestPlayGoldenTraceVerification
         int traceTick,
         int logicalAction,
         float energyDelta,
-        Vector3 horizontalDelta)
+        Vector3 horizontalDelta,
+        string tickTrace)
     {
         bool wasBoost = capture.lastLogicalAction == controller.boostAction;
         bool isBoost = logicalAction == controller.boostAction;
@@ -1252,6 +1256,23 @@ public static class TestPlayGoldenTraceVerification
             capture.boostExitedAfterRelease =
                 !input.rise && logicalAction == controller.airIdleAction;
         }
+
+        bool windLineProc =
+            TraceContains(tickTrace, "\"type\":\"Proc\"") &&
+            TraceContains(tickTrace, "\"command\":\"RunProc\"") &&
+            TraceContains(tickTrace, "\"procType\":53");
+        bool windRingProc =
+            TraceContains(tickTrace, "\"type\":\"Proc\"") &&
+            TraceContains(tickTrace, "\"command\":\"RunProc\"") &&
+            TraceContains(tickTrace, "\"procType\":54");
+        if (windLineProc) capture.boostWindLineProcEvents++;
+        if (windRingProc) capture.boostWindRingProcEvents++;
+
+        bool windProjectile =
+            TraceContains(tickTrace, "\"type\":\"ProjectileSpawned\"") &&
+            (TraceContains(tickTrace, "\"source\":\"RunProc:53\"") ||
+             TraceContains(tickTrace, "\"source\":\"RunProc:54\""));
+        if (windProjectile) capture.boostWindProjectileEvents++;
     }
 
     static bool IsStepAction(TestPlayController controller, int action)
@@ -1406,7 +1427,10 @@ public static class TestPlayGoldenTraceVerification
                 !capture.boostMovedAfterInitialWindow ||
                 !capture.boostEnergySemanticsValid ||
                 capture.boostEnergyDrainTicks != capture.boostActionTicks ||
-                !totalEnergyMatches)
+                !totalEnergyMatches ||
+                capture.boostWindLineProcEvents < 1 ||
+                capture.boostWindRingProcEvents < 1 ||
+                capture.boostWindProjectileEvents != 0)
             {
                 throw new InvalidOperationException(
                     "GT-006 must reject the first Z tap, enter boost action 22 once on the second tap, " +
@@ -1425,7 +1449,10 @@ public static class TestPlayGoldenTraceVerification
                     " movedAfterInitial=" + capture.boostMovedAfterInitialWindow +
                     " energyValid=" + capture.boostEnergySemanticsValid +
                     " drainTicks=" + capture.boostEnergyDrainTicks +
-                    " perTickConsumed=" + capture.boostPerTickEnergyConsumed.ToString("R", CultureInfo.InvariantCulture));
+                    " perTickConsumed=" + capture.boostPerTickEnergyConsumed.ToString("R", CultureInfo.InvariantCulture) +
+                    " windLineProc=" + capture.boostWindLineProcEvents +
+                    " windRingProc=" + capture.boostWindRingProcEvents +
+                    " windProjectiles=" + capture.boostWindProjectileEvents);
             }
             return;
         }

@@ -225,6 +225,15 @@ public class TestPlayController : MonoBehaviour
     public float burnerFadeSpeed = 18f;
     public Color burnerConeColor = new Color(0.35f, 0.85f, 1f, 0.65f);
 
+    [Header("RunProc Wind Preview (Unity approximation)")]
+    [Min(0f)]
+    [Tooltip("原作の描画寿命は未確定です。type 53/54のUnity表示Adapterだけに使います。")]
+    public float windEffectLifeSeconds = 0.3f;
+    [Min(0f)]
+    [Tooltip("type 54リングのUnity表示Adapter用拡大速度です。原作の描画式ではありません。")]
+    public float windRingExpansionPerSecond = 3f;
+    public Color windEffectColor = new Color(0.8f, 0.92f, 1f, 0.55f);
+
     [Header("Transitions")]
     public bool blendActionTransitions = true;
     [Range(0f, 0.5f)]
@@ -337,6 +346,16 @@ public class TestPlayController : MonoBehaviour
     readonly HashSet<int> validBurnerIds = new HashSet<int>();
     readonly Dictionary<int, TestPlayBurnerCone> burnerCones = new Dictionary<int, TestPlayBurnerCone>();
     readonly List<GameObject> spawnedTransientObjects = new List<GameObject>();
+    static readonly Vector3[] DeterministicWindLineOffsets =
+    {
+        new Vector3(-1.2f, 0.45f, -0.75f),
+        new Vector3(0.9f, -0.6f, 0.3f),
+        new Vector3(-0.3f, 1.2f, 0.9f),
+        new Vector3(1.35f, 0.15f, -1.05f),
+        new Vector3(-0.75f, -1.05f, 1.35f),
+        new Vector3(0.45f, 0.75f, -0.15f),
+        new Vector3(0.15f, -0.3f, 0.6f)
+    };
     TestPlayPosePart[] transitionFromPose;
     int transitionTick;
     int transitionTickTotal;
@@ -3703,15 +3722,21 @@ public class TestPlayController : MonoBehaviour
         RaisePresentationEvent(TestPlayPresentationCore.CreateProc(
             extended,
             args,
-            procType == 57
-                ? TestPlayPresentationAdapterKind.CombatOnly
-                : TestPlayPresentationAdapterKind.None));
+            ResolveRunProcPresentationAdapter(extended, procType)));
         // FUN_004b74a0 dispatches proc type 51/52 to FUN_004f97f0/
         // FUN_004f9930. Type 51 is ChangeWeapon(GUN); type 52 is
         // ChangeWeapon(SWORD). Each recursively switches the paired SPT sets.
         if (procType == 51 || procType == 52)
         {
             ApplyOriginalWeaponModelVisibility(procType == 51);
+            return;
+        }
+        // FUN_004b74a0 dispatches RunProc type 53/54 to FUN_004f99f0/
+        // FUN_004f9ba0.  The handlers create BB_WindLine x7 or
+        // BB_WindRing2 x1 and do not receive the proc argument object.
+        if (TestPlayPresentationCore.IsOriginalWindProc(extended, procType))
+        {
+            SpawnOriginalWindProc(procType);
             return;
         }
         if (procType == 55)
@@ -3743,6 +3768,92 @@ public class TestPlayController : MonoBehaviour
             GetCurrentAttackDamage(EstimateDamageForWeapon(procType)), EstimateSpeed(args, defaultProjectileSpeed),
             IsHomingWeapon(procType), textureId, visualSize,
             TestPlayCombatCore.ResolveRunProcCollisionKind(procType));
+    }
+
+    TestPlayPresentationAdapterKind ResolveRunProcPresentationAdapter(bool extended, int procType)
+    {
+        if (procType == 57)
+            return TestPlayPresentationAdapterKind.CombatOnly;
+        if (!TestPlayPresentationCore.IsOriginalWindProc(extended, procType))
+            return TestPlayPresentationAdapterKind.None;
+
+        string key = "RunProc:" + procType;
+        return presentationRuntime != null && presentationRuntime.HasMappedEffect(key)
+            ? TestPlayPresentationAdapterKind.MappedPrefab
+            : TestPlayPresentationAdapterKind.PrimitiveFallback;
+    }
+
+    void SpawnOriginalWindProc(int procType)
+    {
+        if (robo == null || robo.root == null)
+            return;
+
+        Transform root = robo.root.transform;
+        if (procType == TestPlayPresentationCore.WindLineProcType)
+        {
+            Quaternion rotation = Quaternion.LookRotation(-root.forward, root.up);
+            for (int i = 0; i < TestPlayPresentationCore.OriginalWindLineCount; i++)
+            {
+                Vector3 position = root.position + root.rotation * DeterministicWindLineOffsets[i];
+                SpawnOriginalWindVisual(procType, position, rotation, TestPlayWindEffectKind.WindLine);
+            }
+            return;
+        }
+
+        if (procType == TestPlayPresentationCore.WindRingProcType)
+            SpawnOriginalWindVisual(procType, root.position, root.rotation, TestPlayWindEffectKind.WindRing);
+    }
+
+    void SpawnOriginalWindVisual(
+        int procType,
+        Vector3 position,
+        Quaternion rotation,
+        TestPlayWindEffectKind kind)
+    {
+        string key = "RunProc:" + procType;
+        GameObject go = presentationRuntime != null
+            ? presentationRuntime.CreateMappedEffect(key, position, rotation)
+            : null;
+        bool mappedEffect = go != null;
+        if (go == null)
+        {
+            go = new GameObject("TestPlayEffect_" + key);
+            go.transform.SetPositionAndRotation(position, rotation);
+            TestPlayWindEffect effect = go.AddComponent<TestPlayWindEffect>();
+            Shader shader = presentationRuntime != null ? presentationRuntime.originalEffectShader : null;
+            if (kind == TestPlayWindEffectKind.WindLine)
+            {
+                effect.ConfigureWindLine(
+                    TestPlayPresentationCore.OriginalWindLineWidth,
+                    TestPlayPresentationCore.OriginalWindLineLength,
+                    windEffectLifeSeconds,
+                    windEffectColor,
+                    shader);
+            }
+            else
+            {
+                effect.ConfigureWindRing(
+                    TestPlayPresentationCore.OriginalWindRingRadius,
+                    windEffectLifeSeconds,
+                    windRingExpansionPerSecond,
+                    windEffectColor,
+                    shader);
+            }
+        }
+
+        TestPlayPresentationAdapterKind adapter = mappedEffect
+            ? TestPlayPresentationAdapterKind.MappedPrefab
+            : TestPlayPresentationAdapterKind.PrimitiveFallback;
+        RaisePresentationEvent(TestPlayPresentationCore.CreateVisual(
+            key,
+            -1,
+            adapter,
+            TestPlayPresentationEvidence.OriginalExecutableConfirmed,
+            "OriginalCountAndDimensionsWithUnityLifetimeAndDeterministicScatter"));
+        spawnedTransientObjects.Add(go);
+        RaiseRuntimeEvent(TestPlayRuntimeEventType.EffectSpawned, key, null, key, procType, windEffectLifeSeconds);
+        if (mappedEffect && Application.isPlaying && windEffectLifeSeconds > 0f)
+            Destroy(go, windEffectLifeSeconds);
     }
 
     void ApplyOriginalWeaponModelVisibility(bool gunVisible)

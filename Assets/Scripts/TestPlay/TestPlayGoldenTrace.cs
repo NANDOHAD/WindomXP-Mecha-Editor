@@ -92,7 +92,7 @@ public static class TestPlayGoldenScenarioCatalog
             Segment(1, Input(direction: 8)), Segment(2, Idle),
             Segment(45, Input(direction: 8)), Segment(35, Idle)),
         Scenario("GT-006", "Z二度押しブースト", TestPlayGoldenSetupKind.AirborneGun,
-            new[] { 22, 8 }, new[] { "Move" },
+            new[] { 22, 8 }, new[] { "Move", "RunProc" },
             Segment(1, Input(rise: true)), Segment(2, Idle),
             Segment(50, Input(rise: true)), Segment(40, Idle)),
         Scenario("GT-007", "X射撃", TestPlayGoldenSetupKind.GroundedGun,
