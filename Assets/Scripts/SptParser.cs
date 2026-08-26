@@ -63,6 +63,14 @@ public class WeaponPointInfo
         : (Direction == SptDirection.DOWN ? -BoneTr.forward : BoneTr.forward);
 }
 
+/// <summary>SPTでIDとフレーム名を結び付ける機体階層定義。</summary>
+public class SptFrameBindingInfo
+{
+    public int Id;
+    public string FrameName;
+    public Transform BoneTr;
+}
+
 /// <summary>
 /// Script.spt 全体のランタイムデータを保持するコンテナ。
 /// パース後は BindTransforms / BuildBurnerEffects を呼び出して初期化を完了させること。
@@ -71,6 +79,8 @@ public class SptRuntimeData
 {
     public const int OriginalSubLockDistanceCount = 20;
     public const int OriginalWeaponPointCount = 50;
+    public const int OriginalAttackArmCount = 2;
+    public const int OriginalWeaponModelCount = 20;
 
     // ---- BURNERSET ----
     public readonly Dictionary<int, BurnerSetInfo> BurnerSets = new Dictionary<int, BurnerSetInfo>();
@@ -78,8 +88,10 @@ public class SptRuntimeData
     // ---- WEAPONPOINT ----
     public readonly Dictionary<int, WeaponPointInfo> WeaponPoints = new Dictionary<int, WeaponPointInfo>();
 
-    // ---- 今後追加予定 ----
-    // ATTACKARMSET, GUNFILENAME, SWORDFILENAME ... など
+    // ---- ATTACKARMSET / weapon model visibility ----
+    public readonly Dictionary<int, SptFrameBindingInfo> AttackArms = new Dictionary<int, SptFrameBindingInfo>();
+    public readonly Dictionary<int, SptFrameBindingInfo> GunModels = new Dictionary<int, SptFrameBindingInfo>();
+    public readonly Dictionary<int, SptFrameBindingInfo> SwordModels = new Dictionary<int, SptFrameBindingInfo>();
 
     // ---- 基本パラメータ ----
     public string Name;
@@ -121,6 +133,11 @@ public static class SptParser
     // WEAPONPOINT(id, frameName, UP|DOWN)
     static readonly Regex RxWeaponPoint = new Regex(
         @"WEAPONPOINT\s*\(\s*([+-]?\d+)\s*,\s*([^,]+?)\s*,\s*(UP|DOWN)\s*\)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    // ATTACKARMSET(id, frameName), GUNFILENAME(id, frameName), SWORDFILENAME(id, frameName)
+    static readonly Regex RxFrameBinding = new Regex(
+        @"(ATTACKARMSET|GUNFILENAME|SWORDFILENAME)\s*\(\s*([+-]?\d+)\s*,\s*([^,\)]+?)\s*\)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     static readonly Regex RxSimpleKV = new Regex(
@@ -179,6 +196,41 @@ public static class SptParser
                 continue;
             }
 
+            // --- ATTACKARMSET / GUNFILENAME / SWORDFILENAME ---
+            var mFrameBinding = RxFrameBinding.Match(line);
+            if (mFrameBinding.Success &&
+                int.TryParse(mFrameBinding.Groups[2].Value, out int frameBindingId))
+            {
+                string command = mFrameBinding.Groups[1].Value;
+                Dictionary<int, SptFrameBindingInfo> destination = null;
+                int count = 0;
+                if (string.Equals(command, "ATTACKARMSET", StringComparison.OrdinalIgnoreCase))
+                {
+                    destination = data.AttackArms;
+                    count = SptRuntimeData.OriginalAttackArmCount;
+                }
+                else if (string.Equals(command, "GUNFILENAME", StringComparison.OrdinalIgnoreCase))
+                {
+                    destination = data.GunModels;
+                    count = SptRuntimeData.OriginalWeaponModelCount;
+                }
+                else if (string.Equals(command, "SWORDFILENAME", StringComparison.OrdinalIgnoreCase))
+                {
+                    destination = data.SwordModels;
+                    count = SptRuntimeData.OriginalWeaponModelCount;
+                }
+
+                if (destination != null && frameBindingId >= 0 && frameBindingId < count)
+                {
+                    destination[frameBindingId] = new SptFrameBindingInfo
+                    {
+                        Id = frameBindingId,
+                        FrameName = NormalizeFrameName(mFrameBinding.Groups[3].Value)
+                    };
+                }
+                continue;
+            }
+
             // --- SubLockDist(index, distance) ---
             var mSubLock = RxSubLockDist.Match(line);
             if (mSubLock.Success &&
@@ -212,7 +264,7 @@ public static class SptParser
                         break;
                 }
             }
-            // 他の命令 (ATTACKARMSET ...) は今後ここへ追加
+            // 他の未対応命令は既存どおり無視する。
         }
 
         return data;
@@ -234,6 +286,15 @@ public static class SptParser
         {
             info.BoneTr = FindFrame(all, info.FrameName);
         }
+        BindFrameBindings(all, data.AttackArms);
+        BindFrameBindings(all, data.GunModels);
+        BindFrameBindings(all, data.SwordModels);
+    }
+
+    static void BindFrameBindings(Transform[] all, Dictionary<int, SptFrameBindingInfo> bindings)
+    {
+        foreach (var info in bindings.Values)
+            info.BoneTr = FindFrame(all, info.FrameName);
     }
 
     /// <summary>

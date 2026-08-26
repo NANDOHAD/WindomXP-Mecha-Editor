@@ -239,7 +239,12 @@ public static class TestPlayRuntimeVerification
             "SubLockDist=3,45;\n" +
             "WEAPONPOINT(1,Weapon_point2.x,UP);\n" +
             "WEAPONPOINT(49,Foot.x,DOWN);\n" +
-            "WEAPONPOINT(50,Invalid.x,UP);\n");
+            "WEAPONPOINT(50,Invalid.x,UP);\n" +
+            "ATTACKARMSET(0,ArmAim.x);\n" +
+            "ATTACKARMSET(2,InvalidArm.x);\n" +
+            "GUNFILENAME(0,Gun.x);\n" +
+            "GUNFILENAME(20,InvalidGun.x);\n" +
+            "SWORDFILENAME(0,Sword.x);\n");
 
         Require(data.HasHP && data.HP == 5200, "SPT HP is parsed with presence", ref assertions);
         Require(data.HasGenerator && data.Generator == 3600, "SPT Generator is parsed", ref assertions);
@@ -253,6 +258,11 @@ public static class TestPlayRuntimeVerification
                 data.WeaponPoints[1].Direction == SptDirection.UP &&
                 data.WeaponPoints[49].Direction == SptDirection.DOWN,
             "SPT WEAPONPOINT accepts original indices 0..49 and normalizes .x names", ref assertions);
+        Require(data.AttackArms.Count == 1 && data.AttackArms[0].FrameName == "ArmAim" &&
+                data.GunModels.Count == 1 && data.GunModels[0].FrameName == "Gun" &&
+                data.SwordModels.Count == 1 && data.SwordModels[0].FrameName == "Sword",
+            "SPT attack-arm and weapon-model definitions enforce original ranges and normalize .x names",
+            ref assertions);
 
         GameObject sptObject = new GameObject("TestPlayVerification_SPT");
         GameObject controllerObject = new GameObject("TestPlayVerification_SPTController");
@@ -260,10 +270,22 @@ public static class TestPlayRuntimeVerification
         {
             GameObject weaponPointObject = new GameObject("Weapon_point2.x");
             weaponPointObject.transform.SetParent(sptObject.transform, false);
+            GameObject attackArmObject = new GameObject("ArmAim.x");
+            attackArmObject.transform.SetParent(sptObject.transform, false);
+            GameObject gunObject = new GameObject("Gun.x");
+            gunObject.transform.SetParent(sptObject.transform, false);
+            GameObject swordObject = new GameObject("Sword.x");
+            swordObject.transform.SetParent(sptObject.transform, false);
+            GameObject inspectorArmObject = new GameObject("InspectorArm");
+            inspectorArmObject.transform.SetParent(sptObject.transform, false);
             SptParser.BindTransforms(sptObject.transform, data);
             Require(data.WeaponPoints[1].BoneTr == weaponPointObject.transform &&
                     data.WeaponPoints[1].WorldForward == Vector3.forward,
                 "SPT WEAPONPOINT binds the real frame name and UP direction", ref assertions);
+            Require(data.AttackArms[0].BoneTr == attackArmObject.transform &&
+                    data.GunModels[0].BoneTr == gunObject.transform &&
+                    data.SwordModels[0].BoneTr == swordObject.transform,
+                "SPT attack-arm and weapon-model definitions bind real frame transforms", ref assertions);
 
             UI_SPT spt = sptObject.AddComponent<UI_SPT>();
             SetField(spt, "<LastSptData>k__BackingField", data);
@@ -273,6 +295,8 @@ public static class TestPlayRuntimeVerification
 
             MethodInfo initialize = typeof(TestPlayController).GetMethod("InitializeOriginalSptStatus", InstancePrivate);
             MethodInfo energyTick = typeof(TestPlayController).GetMethod("UpdateOriginalMovementEnergy", InstancePrivate);
+            MethodInfo resolveArm = typeof(TestPlayController).GetMethod("ResolveArmAimRoot", InstancePrivate);
+            MethodInfo spawnRunProc = typeof(TestPlayController).GetMethod("SpawnRunProc", InstancePrivate);
             initialize.Invoke(controller, null);
 
             Require(Mathf.Approximately(controller.maximumHP, 5200f) &&
@@ -284,6 +308,18 @@ public static class TestPlayRuntimeVerification
             Require(Mathf.Approximately(controller.maximumAuxiliaryEnergy, 1700f) &&
                     Mathf.Approximately(controller.currentAuxiliaryEnergy, 1700f),
                 "auxiliary gauge is initialized independently from SPT Energy", ref assertions);
+            Require(ReferenceEquals(resolveArm.Invoke(controller, new object[] { 0, null }), attackArmObject.transform) &&
+                    ReferenceEquals(resolveArm.Invoke(controller, new object[] { 0, inspectorArmObject.transform }), inspectorArmObject.transform),
+                "LockArm uses the Inspector reference first and SPT ATTACKARMSET only as fallback", ref assertions);
+
+            gunObject.SetActive(true);
+            swordObject.SetActive(false);
+            spawnRunProc.Invoke(controller, new object[] { Values(0f, 51f), false });
+            Require(!gunObject.activeSelf && swordObject.activeSelf,
+                "original RunProc type 51 hides gun frames and shows sword frames", ref assertions);
+            spawnRunProc.Invoke(controller, new object[] { Values(0f, 52f), false });
+            Require(gunObject.activeSelf && !swordObject.activeSelf,
+                "original RunProc type 52 shows gun frames and hides sword frames", ref assertions);
             Require(controller.state.GetInt(100) == 3600 && controller.state.GetInt(101) == 3600 &&
                     controller.state.GetInt(102) == 1700 && controller.state.GetInt(103) == 1700,
                 "original integer resource slots 100..103 mirror SPT runtime values", ref assertions);

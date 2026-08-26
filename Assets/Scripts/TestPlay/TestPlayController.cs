@@ -3512,9 +3512,24 @@ public class TestPlayController : MonoBehaviour
         if (bodyDownAimRequested)
             RotateAimTransform(bodyDownAimRoot, activeLockTarget);
         if (arm1AimRequested)
-            RotateAimTransform(arm1AimRoot, activeLockTarget);
+            RotateAimTransform(ResolveArmAimRoot(0, arm1AimRoot), activeLockTarget);
         if (arm2AimRequested)
-            RotateAimTransform(arm2AimRoot, activeLockTarget);
+            RotateAimTransform(ResolveArmAimRoot(1, arm2AimRoot), activeLockTarget);
+    }
+
+    Transform ResolveArmAimRoot(int attackArmId, Transform inspectorOverride)
+    {
+        // Preserve explicit scene/Prefab configuration. SPT is the fallback that
+        // mirrors FUN_004cd840's two +0xE28 attack-arm transform slots.
+        if (inspectorOverride != null)
+            return inspectorOverride;
+
+        SptRuntimeData data = sptSource != null ? sptSource.LastSptData : null;
+        if (data != null &&
+            data.AttackArms.TryGetValue(attackArmId, out SptFrameBindingInfo info) &&
+            info != null)
+            return info.BoneTr;
+        return null;
     }
 
     void RotateAimTransform(Transform aimRoot, Transform activeLockTarget)
@@ -3685,6 +3700,13 @@ public class TestPlayController : MonoBehaviour
             procType == 57
                 ? TestPlayPresentationAdapterKind.CombatOnly
                 : TestPlayPresentationAdapterKind.None));
+        // FUN_004b74a0 dispatches proc type 51/52 to FUN_004f97f0/
+        // FUN_004f9930. They recursively switch the SPT gun/sword frame sets.
+        if (procType == 51 || procType == 52)
+        {
+            ApplyOriginalWeaponModelVisibility(procType == 52);
+            return;
+        }
         if (procType == 55)
         {
             if (extended)
@@ -3714,6 +3736,28 @@ public class TestPlayController : MonoBehaviour
             GetCurrentAttackDamage(EstimateDamageForWeapon(procType)), EstimateSpeed(args, defaultProjectileSpeed),
             IsHomingWeapon(procType), textureId, visualSize,
             TestPlayCombatCore.ResolveRunProcCollisionKind(procType));
+    }
+
+    void ApplyOriginalWeaponModelVisibility(bool gunVisible)
+    {
+        SptRuntimeData data = sptSource != null ? sptSource.LastSptData : null;
+        if (data == null)
+            return;
+
+        SetFrameBindingsActive(data.GunModels, gunVisible);
+        SetFrameBindingsActive(data.SwordModels, !gunVisible);
+    }
+
+    static void SetFrameBindingsActive(Dictionary<int, SptFrameBindingInfo> bindings, bool active)
+    {
+        if (bindings == null)
+            return;
+
+        foreach (SptFrameBindingInfo info in bindings.Values)
+        {
+            if (info != null && info.BoneTr != null)
+                info.BoneTr.gameObject.SetActive(active);
+        }
     }
 
     int GetCurrentAttackDamage(float fallback)
