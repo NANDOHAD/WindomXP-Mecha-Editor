@@ -66,6 +66,20 @@ public struct TestPlaySwordBeamParameters
     public int lifetimeTicks;
 }
 
+public struct TestPlayThunderEffectParameters
+{
+    public int weaponPointId;
+    public float width;
+    public int length;
+    public float forwardSpeedPerTick;
+    public int textureId;
+    public float scatterRadius;
+    public int activeTicks;
+    public int unusedP9;
+    public int unusedP10;
+    public int unusedP11;
+}
+
 public static class TestPlayPresentationCore
 {
     public const int MinimumBurnerId = 0;
@@ -80,6 +94,8 @@ public static class TestPlayPresentationCore
     public const float OriginalSwordBeamWidth = 0.075f;
     public const float OriginalSwordBeamGrowthPerTick = 0.2f;
     public const int OriginalSwordBeamInfiniteLifetime = 999999999;
+    public const int ThunderEffectProcType = 60;
+    public const int OriginalThunderFadeTicks = 10;
 
     public static TestPlayPresentationEvent CreateSound(
         IReadOnlyList<TestPlayScriptValue> arguments,
@@ -188,7 +204,9 @@ public static class TestPlayPresentationCore
             TestPlayPresentationEventType.Proc,
             extended ? "RunProc2" : "RunProc",
             arguments,
-            IsOriginalWindProc(extended, procType) || IsOriginalSwordBeamProc(extended, procType)
+            IsOriginalWindProc(extended, procType) ||
+            IsOriginalSwordBeamProc(extended, procType) ||
+            IsOriginalThunderEffectProc(extended, procType)
                 ? TestPlayPresentationEvidence.OriginalExecutableConfirmed
                 : procType == 57
                     ? TestPlayPresentationEvidence.OriginalDataObserved
@@ -260,6 +278,62 @@ public static class TestPlayPresentationCore
             currentLength += OriginalSwordBeamGrowthPerTick;
             if (currentLength > targetLength)
                 currentLength = targetLength;
+        }
+        return true;
+    }
+
+    public static bool IsOriginalThunderEffectProc(bool extended, int procType)
+    {
+        return extended && procType == ThunderEffectProcType;
+    }
+
+    public static bool TryCreateOriginalThunderEffectParameters(
+        bool extended,
+        IReadOnlyList<TestPlayScriptValue> arguments,
+        out TestPlayThunderEffectParameters value)
+    {
+        value = default(TestPlayThunderEffectParameters);
+        if (!IsOriginalThunderEffectProc(extended, GetInt(arguments, 1, -1)) ||
+            arguments == null || arguments.Count < 12)
+            return false;
+
+        // FUN_004fa690 passes p2 as the WEAPONPOINT id, scales p3/p5/p7 by
+        // 1/100, resolves p6 through the loaded texture table, and forwards p8
+        // as the active tick count. p9-p11 are not read by the original handler.
+        value = new TestPlayThunderEffectParameters
+        {
+            weaponPointId = GetInt(arguments, 2, -1),
+            width = arguments[3].AsFloat() / 100f,
+            length = GetInt(arguments, 4, 0),
+            forwardSpeedPerTick = arguments[5].AsFloat() / 100f,
+            textureId = GetInt(arguments, 6, -1),
+            scatterRadius = arguments[7].AsFloat() / 100f,
+            activeTicks = GetInt(arguments, 8, 0),
+            unusedP9 = GetInt(arguments, 9, 0),
+            unusedP10 = GetInt(arguments, 10, 0),
+            unusedP11 = GetInt(arguments, 11, 0)
+        };
+        return true;
+    }
+
+    public static bool AdvanceOriginalThunderEffect(
+        float initialWidth,
+        float forwardSpeedPerTick,
+        ref float currentWidth,
+        ref int remainingActiveTicks,
+        ref float travelDistance)
+    {
+        // LZ_ThunderEffect::Update candidate FUN_0047c380 matches every field
+        // written by FUN_0048c470: movement is applied first, p8 is decremented,
+        // then p3/10 is removed per tick until the scalar drops below 0.001.
+        travelDistance += forwardSpeedPerTick;
+        remainingActiveTicks--;
+        if (remainingActiveTicks < 1)
+        {
+            remainingActiveTicks = 0;
+            currentWidth -= initialWidth / OriginalThunderFadeTicks;
+            if (currentWidth < 0.001f)
+                return false;
         }
         return true;
     }

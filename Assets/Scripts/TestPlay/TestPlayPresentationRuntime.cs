@@ -173,6 +173,27 @@ public class TestPlayPresentationRuntime : MonoBehaviour
         return root;
     }
 
+    public GameObject CreateOriginalThunderEffect(
+        TestPlayThunderEffectParameters parameters,
+        Vector3 position,
+        Quaternion rotation,
+        Vector3 movementDirection,
+        out TestPlayThunderEffect thunderEffect)
+    {
+        thunderEffect = null;
+        GameObject root = new GameObject("TestPlayOriginalThunderEffect");
+        Transform[] planes = CreateThunderPlanes(root.transform, parameters.textureId);
+        if (planes.Length == 0)
+        {
+            DestroyRuntimeObject(root);
+            return null;
+        }
+
+        thunderEffect = root.AddComponent<TestPlayThunderEffect>();
+        thunderEffect.Initialize(parameters, planes, position, rotation, movementDirection);
+        return root;
+    }
+
     GameObject CreateOriginalTextureEffect(TestPlayTextureBinding binding, string missingKey, Vector3 position, Quaternion rotation, Vector2 size, float life, Color tint, bool billboard)
     {
         if (binding == null || binding.texture == null || originalEffectShader == null)
@@ -229,6 +250,40 @@ public class TestPlayPresentationRuntime : MonoBehaviour
             return new[] { first.transform };
 
         second.name = "TestPlaySwordBeam_" + layerName + "_1";
+        second.transform.SetParent(parent, false);
+        return new[] { first.transform, second.transform };
+    }
+
+    Transform[] CreateThunderPlanes(Transform parent, int textureId)
+    {
+        if (parent == null || textureId < 0)
+            return new Transform[0];
+
+        GameObject first = CreateOriginalTextureEffect(
+            textureId,
+            Vector3.zero,
+            Quaternion.identity,
+            Vector2.one,
+            0f,
+            Color.white,
+            false);
+        if (first == null)
+            return new Transform[0];
+
+        GameObject second = CreateOriginalTextureEffect(
+            textureId,
+            Vector3.zero,
+            Quaternion.identity,
+            Vector2.one,
+            0f,
+            Color.white,
+            false);
+        first.name = "TestPlayThunderEffect_0";
+        first.transform.SetParent(parent, false);
+        if (second == null)
+            return new[] { first.transform };
+
+        second.name = "TestPlayThunderEffect_1";
         second.transform.SetParent(parent, false);
         return new[] { first.transform, second.transform };
     }

@@ -513,6 +513,58 @@ public static class TestPlayRuntimeVerification
                     windProc.procType == 53 && windProc.arguments.Length == 3,
                 "RunProc type 53 keeps source arguments while classifying its executable-confirmed visual meaning",
                 ref assertions);
+
+            List<TestPlayScriptValue> thunderArguments = Values(
+                0f, 60f, 4f, 3f, 20f, 25f, 21f, 100f, 10f, 91f, 92f, 93f);
+            TestPlayThunderEffectParameters thunderParameters;
+            bool parsedThunderParameters = TestPlayPresentationCore.TryCreateOriginalThunderEffectParameters(
+                true,
+                thunderArguments,
+                out thunderParameters);
+            Require(TestPlayPresentationCore.IsOriginalThunderEffectProc(true, 60) &&
+                    !TestPlayPresentationCore.IsOriginalThunderEffectProc(false, 60) &&
+                    parsedThunderParameters &&
+                    thunderParameters.weaponPointId == 4 &&
+                    Mathf.Approximately(thunderParameters.width, 0.03f) &&
+                    thunderParameters.length == 20 &&
+                    Mathf.Approximately(thunderParameters.forwardSpeedPerTick, 0.25f) &&
+                    thunderParameters.textureId == 21 &&
+                    Mathf.Approximately(thunderParameters.scatterRadius, 1f) &&
+                    thunderParameters.activeTicks == 10 &&
+                    thunderParameters.unusedP9 == 91 &&
+                    thunderParameters.unusedP10 == 92 &&
+                    thunderParameters.unusedP11 == 93,
+                "RunProc2 type 60 maps the executable-confirmed WEAPONPOINT, scaled fields, texture, lifetime, and unused tail",
+                ref assertions);
+            float thunderWidth = thunderParameters.width;
+            int thunderRemaining = thunderParameters.activeTicks;
+            float thunderTravel = 0f;
+            int thunderTicks = 0;
+            bool thunderAlive = true;
+            while (thunderAlive && thunderTicks < 30)
+            {
+                thunderAlive = TestPlayPresentationCore.AdvanceOriginalThunderEffect(
+                    thunderParameters.width,
+                    thunderParameters.forwardSpeedPerTick,
+                    ref thunderWidth,
+                    ref thunderRemaining,
+                    ref thunderTravel);
+                thunderTicks++;
+            }
+            Require(!thunderAlive &&
+                    thunderTicks == thunderParameters.activeTicks + TestPlayPresentationCore.OriginalThunderFadeTicks - 1 &&
+                    thunderRemaining == 0 &&
+                    Mathf.Approximately(thunderTravel, thunderTicks * thunderParameters.forwardSpeedPerTick),
+                "RunProc2 type 60 applies movement before p8 countdown and the original ten-step p3 fade",
+                ref assertions);
+            TestPlayPresentationEvent thunderProc = TestPlayPresentationCore.CreateProc(
+                true,
+                thunderArguments,
+                TestPlayPresentationAdapterKind.OriginalTextureQuad);
+            Require(thunderProc.evidence == TestPlayPresentationEvidence.OriginalExecutableConfirmed &&
+                    thunderProc.procType == 60 && thunderProc.arguments.Length == 12,
+                "RunProc2 type 60 keeps all source arguments while classifying confirmed LZ_ThunderEffect semantics",
+                ref assertions);
         }
         finally
         {
@@ -624,6 +676,8 @@ public static class TestPlayRuntimeVerification
                 "Assets/Generated/TestPlay/OriginalTextures/11_sabel.png");
             Texture2D swordLineTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(
                 "Assets/Generated/TestPlay/OriginalTextures/12_sabel_line.png");
+            Texture2D thunderTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(
+                "Assets/Generated/TestPlay/OriginalTextures/06_laser2.bmp");
             presentation.originalTextures.Add(new TestPlayTextureBinding
             {
                 loadSequence = 11,
@@ -637,6 +691,13 @@ public static class TestPlayRuntimeVerification
                 scriptTextureId = 13,
                 originalFileName = "sabel_line.png",
                 texture = swordLineTexture
+            });
+            presentation.originalTextures.Add(new TestPlayTextureBinding
+            {
+                loadSequence = 6,
+                scriptTextureId = 7,
+                originalFileName = "laser2.bmp",
+                texture = thunderTexture
             });
             controller.presentationRuntime = presentation;
             UI_SPT spt = controllerObject.AddComponent<UI_SPT>();
@@ -660,6 +721,7 @@ public static class TestPlayRuntimeVerification
             MethodInfo spawnRunProc = typeof(TestPlayController).GetMethod("SpawnRunProc", InstancePrivate);
             MethodInfo tickMeleeAttacks = typeof(TestPlayController).GetMethod("TickActiveMeleeAttacks", InstancePrivate);
             MethodInfo tickSwordBeams = typeof(TestPlayController).GetMethod("TickActiveSwordBeams", InstancePrivate);
+            MethodInfo tickThunderEffects = typeof(TestPlayController).GetMethod("TickActiveThunderEffects", InstancePrivate);
             MethodInfo updateCombatTimers = typeof(TestPlayController).GetMethod("UpdateOriginalCombatTimers", InstancePrivate);
             MethodInfo updateCooldowns = typeof(TestPlayController).GetMethod("UpdateOriginalAttackCooldowns", InstancePrivate);
             MethodInfo updateAttack = typeof(TestPlayController).GetMethod("TryUpdateNormalAttackSequence", InstancePrivate);
@@ -680,7 +742,7 @@ public static class TestPlayRuntimeVerification
             Require(setWeapon != null && resolveShot != null && resolveShotSelection != null &&
                     resolveMelee != null && resolveWeaponAction != null &&
                     handle != null && handleAssignment != null && spawnRunProc != null && tickMeleeAttacks != null &&
-                    tickSwordBeams != null &&
+                    tickSwordBeams != null && tickThunderEffects != null &&
                     updateCombatTimers != null &&
                     updateCooldowns != null && updateAttack != null &&
                     updateInput != null && awake != null && tickAnimation != null && startGroundRecovery != null &&
@@ -688,8 +750,9 @@ public static class TestPlayRuntimeVerification
                     energyTick != null && spawnProjectile != null,
                 "original normal-attack runtime helpers are available", ref assertions);
 
-            Require(presentation.originalEffectShader != null && swordTexture != null && swordLineTexture != null,
-                "original sword-beam shader and sabel texture pair are available", ref assertions);
+            Require(presentation.originalEffectShader != null && swordTexture != null && swordLineTexture != null &&
+                    thunderTexture != null,
+                "original sword-beam and thunder textures are available", ref assertions);
             awake.Invoke(controller, null);
             controller.SetAirborneFlag(false);
             Require(controller.state.GetInt(150) == 0,
@@ -982,6 +1045,77 @@ public static class TestPlayRuntimeVerification
                 "RunProc2 type 55 p10 replaces only the previously managed sword beam",
                 ref assertions);
             meleeSptData.WeaponPoints[1].Direction = SptDirection.UP;
+
+            weaponPointObject.transform.SetPositionAndRotation(
+                new Vector3(2f, 3f, 4f),
+                Quaternion.Euler(0f, 45f, 0f));
+            int thunderStart = windTransients.Count;
+            spawnRunProc.Invoke(controller, new object[]
+            {
+                Values(0f, 60f, 1f, 1f, 4f, 0f, 7f, 10f, 10f, 0f, 0f, 0f), true
+            });
+            GameObject thunderObject = windTransients.Count == thunderStart + 1
+                ? windTransients[thunderStart]
+                : null;
+            TestPlayThunderEffect thunderEffect = thunderObject != null
+                ? thunderObject.GetComponent<TestPlayThunderEffect>()
+                : null;
+            Require(thunderEffect != null && thunderEffect.HasTextureLayer &&
+                    thunderEffect.WeaponPointId == 1 && thunderEffect.TextureId == 7 &&
+                    thunderEffect.OriginalLength == 4 &&
+                    Mathf.Approximately(thunderEffect.InitialWidth, 0.01f) &&
+                    Mathf.Approximately(thunderEffect.ScatterRadius, 0.1f) &&
+                    thunderEffect.SpawnPosition == new Vector3(2f, 3f, 4f) &&
+                    thunderObject.transform.parent == null &&
+                    thunderObject.GetComponent<TestPlayProjectile>() == null &&
+                    Mathf.Approximately(target.hp, 1000f),
+                "RunProc2 type 60 creates a snapshot-positioned non-combat LZ_ThunderEffect with the real texture",
+                ref assertions);
+            weaponPointObject.transform.position = new Vector3(20f, 30f, 40f);
+            tickThunderEffects.Invoke(controller, null);
+            Require(thunderEffect != null && thunderEffect.AppliedTicks == 1 &&
+                    Vector3.Distance(thunderEffect.transform.position, weaponPointObject.transform.position) > 1f &&
+                    ((System.Collections.ICollection)GetField(controller, "activeThunderEffects")).Count == 1,
+                "RunProc2 type 60 copies the WEAPONPOINT matrix at spawn and advances independently",
+                ref assertions);
+
+            int proc60Events = 0;
+            int visual60Events = 0;
+            for (int i = 0; i < windPresentationEvents.Count; i++)
+            {
+                TestPlayPresentationEvent presentationEvent = windPresentationEvents[i];
+                if (presentationEvent.type == TestPlayPresentationEventType.Proc &&
+                    presentationEvent.procType == 60 &&
+                    presentationEvent.evidence == TestPlayPresentationEvidence.OriginalExecutableConfirmed)
+                    proc60Events++;
+                if (presentationEvent.type == TestPlayPresentationEventType.Visual &&
+                    presentationEvent.source == "RunProc2:60" &&
+                    presentationEvent.textureId == 7 &&
+                    presentationEvent.adapter == TestPlayPresentationAdapterKind.OriginalTextureQuad)
+                    visual60Events++;
+            }
+            Require(proc60Events == 1 && visual60Events == 1,
+                "RunProc2 type 60 trace records confirmed Proc semantics and its texture Adapter",
+                ref assertions);
+
+            for (int i = 1; i < 19; i++)
+                tickThunderEffects.Invoke(controller, null);
+            Require(thunderObject == null &&
+                    ((System.Collections.ICollection)GetField(controller, "activeThunderEffects")).Count == 0 &&
+                    windTransients.Count == thunderStart,
+                "RunProc2 type 60 p8=10 expires after the active phase and ten-step scalar fade",
+                ref assertions);
+
+            int missingThunderTransientCount = windTransients.Count;
+            spawnRunProc.Invoke(controller, new object[]
+            {
+                Values(0f, 60f, 49f, 1f, 4f, 0f, 7f, 10f, 10f, 0f, 0f, 0f), true
+            });
+            Require(windTransients.Count == missingThunderTransientCount &&
+                    ((System.Collections.ICollection)GetField(controller, "activeThunderEffects")).Count == 0,
+                "RunProc2 type 60 creates nothing when its WEAPONPOINT is unavailable",
+                ref assertions);
+
             weaponPointObject.transform.localPosition = Vector3.zero;
             weaponPointObject.transform.localRotation = Quaternion.identity;
             spawnRunProc.Invoke(controller, new object[]

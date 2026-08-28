@@ -396,6 +396,7 @@ public class TestPlayController : MonoBehaviour
     readonly int[] attackCooldownTicks = new int[5];
     readonly List<TestPlayMeleeAttackState> activeMeleeAttacks = new List<TestPlayMeleeAttackState>();
     readonly List<ActiveSwordBeam> activeSwordBeams = new List<ActiveSwordBeam>();
+    readonly List<ActiveThunderEffect> activeThunderEffects = new List<ActiveThunderEffect>();
     ActiveSwordBeam managedSwordBeam;
     bool attackSequenceActive;
     bool meleeApproachActive;
@@ -422,6 +423,17 @@ public class TestPlayController : MonoBehaviour
         public TestPlaySwordBeamEffect visual;
         public float currentLength;
         public int remainingTicks;
+    }
+
+    sealed class ActiveThunderEffect
+    {
+        public TestPlayThunderEffectParameters parameters;
+        public GameObject visualRoot;
+        public TestPlayThunderEffect visual;
+        public float currentWidth;
+        public int remainingActiveTicks;
+        public float travelDistance;
+        public int elapsedTicks;
     }
 
     void Awake()
@@ -495,6 +507,7 @@ public class TestPlayController : MonoBehaviour
             TickAnimation();
         TickActiveMeleeAttacks();
         TickActiveSwordBeams();
+        TickActiveThunderEffects();
         ApplyQueuedAimCommands();
         ApplyRootMotion();
         ConsumeLatchedInput();
@@ -3757,6 +3770,11 @@ public class TestPlayController : MonoBehaviour
             SpawnOriginalSwordEffect(args, "RunProc2:55");
             return;
         }
+        if (TestPlayPresentationCore.IsOriginalThunderEffectProc(extended, procType))
+        {
+            SpawnOriginalThunderEffect(args, "RunProc2:60");
+            return;
+        }
         if (procType == TestPlayPresentationCore.SwordBeamProcType)
         {
             return;
@@ -3803,6 +3821,18 @@ public class TestPlayController : MonoBehaviour
                 return TestPlayPresentationAdapterKind.None;
             return presentationRuntime.HasOriginalTexture(parameters.primaryTextureId) ||
                    presentationRuntime.HasOriginalTexture(parameters.lineTextureId)
+                ? TestPlayPresentationAdapterKind.OriginalTextureQuad
+                : TestPlayPresentationAdapterKind.None;
+        }
+        if (TestPlayPresentationCore.IsOriginalThunderEffectProc(extended, procType))
+        {
+            if (!TestPlayPresentationCore.TryCreateOriginalThunderEffectParameters(
+                    extended,
+                    args,
+                    out TestPlayThunderEffectParameters parameters) ||
+                presentationRuntime == null)
+                return TestPlayPresentationAdapterKind.None;
+            return presentationRuntime.HasOriginalTexture(parameters.textureId)
                 ? TestPlayPresentationAdapterKind.OriginalTextureQuad
                 : TestPlayPresentationAdapterKind.None;
         }
@@ -4268,6 +4298,117 @@ public class TestPlayController : MonoBehaviour
         }
     }
 
+    void SpawnOriginalThunderEffect(List<TestPlayScriptValue> args, string key)
+    {
+        if (!TestPlayPresentationCore.TryCreateOriginalThunderEffectParameters(
+                true,
+                args,
+                out TestPlayThunderEffectParameters parameters))
+        {
+            LogUnhandled(key + " requires the original 12 arguments.");
+            return;
+        }
+
+        SptRuntimeData sptData = sptSource != null ? sptSource.LastSptData : null;
+        if (sptData == null ||
+            !sptData.WeaponPoints.TryGetValue(parameters.weaponPointId, out WeaponPointInfo weaponPoint) ||
+            weaponPoint == null || weaponPoint.BoneTr == null)
+        {
+            LogUnhandled(key + " WEAPONPOINT " + parameters.weaponPointId +
+                " is not bound; original LZ_ThunderEffect is not created.");
+            return;
+        }
+
+        GameObject visualRoot = null;
+        TestPlayThunderEffect visual = null;
+        if (presentationRuntime != null)
+        {
+            visualRoot = presentationRuntime.CreateOriginalThunderEffect(
+                parameters,
+                weaponPoint.BoneTr.position,
+                weaponPoint.BoneTr.rotation,
+                weaponPoint.WorldForward,
+                out visual);
+        }
+
+        ActiveThunderEffect active = new ActiveThunderEffect
+        {
+            parameters = parameters,
+            visualRoot = visualRoot,
+            visual = visual,
+            currentWidth = parameters.width,
+            remainingActiveTicks = parameters.activeTicks,
+            travelDistance = 0f,
+            elapsedTicks = 0
+        };
+        activeThunderEffects.Add(active);
+        if (visualRoot != null)
+        {
+            visualRoot.name = "TestPlayEffect_" + key + "_WEAPONPOINT" + parameters.weaponPointId;
+            spawnedTransientObjects.Add(visualRoot);
+            RaiseRuntimeEvent(TestPlayRuntimeEventType.EffectSpawned, key, null, key, 0, parameters.activeTicks);
+        }
+
+        RaisePresentationEvent(TestPlayPresentationCore.CreateVisual(
+            key,
+            parameters.textureId,
+            visual != null
+                ? TestPlayPresentationAdapterKind.OriginalTextureQuad
+                : TestPlayPresentationAdapterKind.None,
+            TestPlayPresentationEvidence.OriginalExecutableConfirmed,
+            visual != null
+                ? "OriginalParametersAndTimingWithDeterministicUnityScatter"
+                : "OriginalThunderTextureUnavailable"));
+    }
+
+    void TickActiveThunderEffects()
+    {
+        for (int i = activeThunderEffects.Count - 1; i >= 0; i--)
+        {
+            ActiveThunderEffect active = activeThunderEffects[i];
+            if (active == null)
+            {
+                RemoveActiveThunderEffectAt(i);
+                continue;
+            }
+
+            active.elapsedTicks++;
+            if (!TestPlayPresentationCore.AdvanceOriginalThunderEffect(
+                    active.parameters.width,
+                    active.parameters.forwardSpeedPerTick,
+                    ref active.currentWidth,
+                    ref active.remainingActiveTicks,
+                    ref active.travelDistance))
+            {
+                RemoveActiveThunderEffectAt(i);
+                continue;
+            }
+
+            if (active.visual != null)
+            {
+                active.visual.ApplyOriginalTickState(
+                    active.currentWidth,
+                    active.travelDistance,
+                    active.elapsedTicks);
+            }
+        }
+    }
+
+    void RemoveActiveThunderEffectAt(int index)
+    {
+        ActiveThunderEffect active = activeThunderEffects[index];
+        activeThunderEffects.RemoveAt(index);
+        GameObject visualRoot = active != null ? active.visualRoot : null;
+        if (visualRoot == null)
+            return;
+
+        spawnedTransientObjects.Remove(visualRoot);
+        if (Application.isPlaying)
+            Destroy(visualRoot);
+        else
+            DestroyImmediate(visualRoot);
+    }
+
     void RemoveActiveSwordBeam(ActiveSwordBeam active)
     {
         int index = activeSwordBeams.IndexOf(active);
@@ -4348,7 +4489,6 @@ public class TestPlayController : MonoBehaviour
             case 24:
             case 25:
             case 28: return Mathf.RoundToInt(GetArg(args, 7, -1f));
-            case 60: return Mathf.RoundToInt(GetArg(args, 6, -1f));
             default: return -1;
         }
     }
@@ -4371,10 +4511,6 @@ public class TestPlayController : MonoBehaviour
             case 28:
                 thickness = Mathf.Abs(GetArg(args, 4, 80f)) * 0.01f;
                 length = Mathf.Abs(GetArg(args, 5, 80f)) * 0.01f;
-                break;
-            case 60:
-                length = Mathf.Abs(GetArg(args, 4, 4f)) * 0.1f;
-                thickness = 0.25f;
                 break;
         }
         return new Vector2(Mathf.Clamp(thickness, 0.05f, 5f), Mathf.Clamp(length, 0.1f, 12f));
@@ -4817,6 +4953,7 @@ public class TestPlayController : MonoBehaviour
     {
         activeSwordBeams.Clear();
         managedSwordBeam = null;
+        activeThunderEffects.Clear();
         for (int i = 0; i < spawnedTransientObjects.Count; i++)
         {
             GameObject transient = spawnedTransientObjects[i];
