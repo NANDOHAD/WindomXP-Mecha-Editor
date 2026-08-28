@@ -55,6 +55,17 @@ public struct TestPlayPresentationEvent
     public TestPlayScriptValue[] arguments;
 }
 
+public struct TestPlaySwordBeamParameters
+{
+    public int weaponPointId;
+    public float targetLength;
+    public int primaryTextureId;
+    public int lineTextureId;
+    public float initialLength;
+    public bool replaceManagedBeam;
+    public int lifetimeTicks;
+}
+
 public static class TestPlayPresentationCore
 {
     public const int MinimumBurnerId = 0;
@@ -65,6 +76,10 @@ public static class TestPlayPresentationCore
     public const float OriginalWindLineWidth = 0.07f;
     public const float OriginalWindLineLength = 3f;
     public const float OriginalWindRingRadius = 1f;
+    public const int SwordBeamProcType = 55;
+    public const float OriginalSwordBeamWidth = 0.075f;
+    public const float OriginalSwordBeamGrowthPerTick = 0.2f;
+    public const int OriginalSwordBeamInfiniteLifetime = 999999999;
 
     public static TestPlayPresentationEvent CreateSound(
         IReadOnlyList<TestPlayScriptValue> arguments,
@@ -173,9 +188,9 @@ public static class TestPlayPresentationCore
             TestPlayPresentationEventType.Proc,
             extended ? "RunProc2" : "RunProc",
             arguments,
-            IsOriginalWindProc(extended, procType)
+            IsOriginalWindProc(extended, procType) || IsOriginalSwordBeamProc(extended, procType)
                 ? TestPlayPresentationEvidence.OriginalExecutableConfirmed
-                : procType == 55 || procType == 57
+                : procType == 57
                     ? TestPlayPresentationEvidence.OriginalDataObserved
                     : TestPlayPresentationEvidence.IncompleteInference,
             adapter);
@@ -195,6 +210,58 @@ public static class TestPlayPresentationCore
         if (!IsOriginalWindProc(extended, procType))
             return 0;
         return procType == WindLineProcType ? OriginalWindLineCount : 1;
+    }
+
+    public static bool IsOriginalSwordBeamProc(bool extended, int procType)
+    {
+        return extended && procType == SwordBeamProcType;
+    }
+
+    public static bool TryCreateOriginalSwordBeamParameters(
+        bool extended,
+        IReadOnlyList<TestPlayScriptValue> arguments,
+        out TestPlaySwordBeamParameters value)
+    {
+        value = default(TestPlaySwordBeamParameters);
+        if (!IsOriginalSwordBeamProc(extended, GetInt(arguments, 1, -1)) ||
+            arguments == null || arguments.Count < 12)
+            return false;
+
+        int scriptedLifetime = GetInt(arguments, 11, 0);
+        value = new TestPlaySwordBeamParameters
+        {
+            weaponPointId = GetInt(arguments, 2, -1),
+            targetLength = arguments[3].AsFloat() / 100f,
+            primaryTextureId = GetInt(arguments, 4, -1),
+            lineTextureId = GetInt(arguments, 5, -1),
+            initialLength = arguments[6].AsFloat() / 100f,
+            replaceManagedBeam = GetInt(arguments, 10, 0) != 0,
+            lifetimeTicks = scriptedLifetime == 0
+                ? OriginalSwordBeamInfiniteLifetime
+                : scriptedLifetime
+        };
+        return true;
+    }
+
+    public static bool AdvanceOriginalSwordBeam(
+        ref float currentLength,
+        float targetLength,
+        ref int remainingTicks)
+    {
+        // BB_SwordBeam::Update (FUN_00497cd0) keeps the sentinel unchanged,
+        // otherwise decrements before checking the expiry boundary.
+        if (remainingTicks < OriginalSwordBeamInfiniteLifetime)
+            remainingTicks--;
+        if (remainingTicks < 1)
+            return false;
+
+        if (currentLength < targetLength)
+        {
+            currentLength += OriginalSwordBeamGrowthPerTick;
+            if (currentLength > targetLength)
+                currentLength = targetLength;
+        }
+        return true;
     }
 
     public static TestPlayPresentationEvent CreateTexture(

@@ -395,6 +395,8 @@ public class TestPlayController : MonoBehaviour
     float lastSyncedAuxiliaryEnergyFloat;
     readonly int[] attackCooldownTicks = new int[5];
     readonly List<TestPlayMeleeAttackState> activeMeleeAttacks = new List<TestPlayMeleeAttackState>();
+    readonly List<ActiveSwordBeam> activeSwordBeams = new List<ActiveSwordBeam>();
+    ActiveSwordBeam managedSwordBeam;
     bool attackSequenceActive;
     bool meleeApproachActive;
     bool meleeComboInputPending;
@@ -410,6 +412,16 @@ public class TestPlayController : MonoBehaviour
         public Vector3 position;
         public Quaternion rotation;
         public Vector3 scale;
+    }
+
+    sealed class ActiveSwordBeam
+    {
+        public TestPlaySwordBeamParameters parameters;
+        public Transform anchor;
+        public GameObject visualRoot;
+        public TestPlaySwordBeamEffect visual;
+        public float currentLength;
+        public int remainingTicks;
     }
 
     void Awake()
@@ -482,6 +494,7 @@ public class TestPlayController : MonoBehaviour
         if (!animationHitStopped)
             TickAnimation();
         TickActiveMeleeAttacks();
+        TickActiveSwordBeams();
         ApplyQueuedAimCommands();
         ApplyRootMotion();
         ConsumeLatchedInput();
@@ -3722,7 +3735,7 @@ public class TestPlayController : MonoBehaviour
         RaisePresentationEvent(TestPlayPresentationCore.CreateProc(
             extended,
             args,
-            ResolveRunProcPresentationAdapter(extended, procType)));
+            ResolveRunProcPresentationAdapter(extended, args, procType)));
         // FUN_004b74a0 dispatches proc type 51/52 to FUN_004f97f0/
         // FUN_004f9930. Type 51 is ChangeWeapon(GUN); type 52 is
         // ChangeWeapon(SWORD). Each recursively switches the paired SPT sets.
@@ -3739,10 +3752,13 @@ public class TestPlayController : MonoBehaviour
             SpawnOriginalWindProc(procType);
             return;
         }
-        if (procType == 55)
+        if (TestPlayPresentationCore.IsOriginalSwordBeamProc(extended, procType))
         {
-            if (extended)
-                SpawnOriginalSwordEffect(args, extended ? "RunProc2:55" : "RunProc:55");
+            SpawnOriginalSwordEffect(args, "RunProc2:55");
+            return;
+        }
+        if (procType == TestPlayPresentationCore.SwordBeamProcType)
+        {
             return;
         }
 
@@ -3770,10 +3786,26 @@ public class TestPlayController : MonoBehaviour
             TestPlayCombatCore.ResolveRunProcCollisionKind(procType));
     }
 
-    TestPlayPresentationAdapterKind ResolveRunProcPresentationAdapter(bool extended, int procType)
+    TestPlayPresentationAdapterKind ResolveRunProcPresentationAdapter(
+        bool extended,
+        List<TestPlayScriptValue> args,
+        int procType)
     {
         if (procType == 57)
             return TestPlayPresentationAdapterKind.CombatOnly;
+        if (TestPlayPresentationCore.IsOriginalSwordBeamProc(extended, procType))
+        {
+            if (!TestPlayPresentationCore.TryCreateOriginalSwordBeamParameters(
+                    extended,
+                    args,
+                    out TestPlaySwordBeamParameters parameters) ||
+                presentationRuntime == null)
+                return TestPlayPresentationAdapterKind.None;
+            return presentationRuntime.HasOriginalTexture(parameters.primaryTextureId) ||
+                   presentationRuntime.HasOriginalTexture(parameters.lineTextureId)
+                ? TestPlayPresentationAdapterKind.OriginalTextureQuad
+                : TestPlayPresentationAdapterKind.None;
+        }
         if (!TestPlayPresentationCore.IsOriginalWindProc(extended, procType))
             return TestPlayPresentationAdapterKind.None;
 
@@ -4139,18 +4171,125 @@ public class TestPlayController : MonoBehaviour
 
     void SpawnOriginalSwordEffect(List<TestPlayScriptValue> args, string key)
     {
-        if (robo == null || robo.root == null)
+        if (!TestPlayPresentationCore.TryCreateOriginalSwordBeamParameters(
+                true,
+                args,
+                out TestPlaySwordBeamParameters parameters))
+        {
+            LogUnhandled(key + " requires the original 12 arguments.");
             return;
+        }
 
-        int primaryTextureId = Mathf.RoundToInt(GetArg(args, 4, -1f));
-        int lineTextureId = Mathf.RoundToInt(GetArg(args, 5, 13f));
-        int textureId = presentationRuntime != null && presentationRuntime.HasOriginalTexture(primaryTextureId)
-            ? primaryTextureId
-            : lineTextureId;
-        float length = Mathf.Clamp(Mathf.Abs(GetArg(args, 3, 150f)) * 0.01f, 0.3f, 12f);
-        float life = Mathf.Clamp(Mathf.Abs(GetArg(args, 11, 18f)) * 0.02f, 0.15f, 2f);
-        Vector3 position = robo.root.transform.position + robo.root.transform.forward * (length * 0.5f) + Vector3.up * 1.2f;
-        SpawnOriginalTextureEffect(key, textureId, position, new Vector2(0.25f, length), life);
+        SptRuntimeData sptData = sptSource != null ? sptSource.LastSptData : null;
+        if (sptData == null ||
+            !sptData.WeaponPoints.TryGetValue(parameters.weaponPointId, out WeaponPointInfo weaponPoint) ||
+            weaponPoint == null || weaponPoint.BoneTr == null)
+        {
+            LogUnhandled(key + " WEAPONPOINT " + parameters.weaponPointId +
+                " is not bound; original BB_SwordBeam is not created.");
+            return;
+        }
+
+        if (parameters.replaceManagedBeam && managedSwordBeam != null)
+            RemoveActiveSwordBeam(managedSwordBeam);
+
+        GameObject visualRoot = null;
+        TestPlaySwordBeamEffect visual = null;
+        bool primaryLayerCreated = false;
+        bool lineLayerCreated = false;
+        if (presentationRuntime != null)
+        {
+            visualRoot = presentationRuntime.CreateOriginalSwordBeamEffect(
+                parameters,
+                weaponPoint.BoneTr,
+                weaponPoint.Direction == SptDirection.DOWN,
+                out visual,
+                out primaryLayerCreated,
+                out lineLayerCreated);
+        }
+
+        ActiveSwordBeam active = new ActiveSwordBeam
+        {
+            parameters = parameters,
+            anchor = weaponPoint.BoneTr,
+            visualRoot = visualRoot,
+            visual = visual,
+            currentLength = parameters.initialLength,
+            remainingTicks = parameters.lifetimeTicks
+        };
+        activeSwordBeams.Add(active);
+        if (parameters.replaceManagedBeam)
+            managedSwordBeam = active;
+        if (visualRoot != null)
+        {
+            visualRoot.name = "TestPlayEffect_" + key + "_WEAPONPOINT" + parameters.weaponPointId;
+            spawnedTransientObjects.Add(visualRoot);
+            RaiseRuntimeEvent(TestPlayRuntimeEventType.EffectSpawned, key, null, key, 0, parameters.lifetimeTicks);
+        }
+
+        if (parameters.primaryTextureId >= 0)
+        {
+            RaisePresentationEvent(TestPlayPresentationCore.CreateVisual(
+                key + ":Primary",
+                parameters.primaryTextureId,
+                primaryLayerCreated
+                    ? TestPlayPresentationAdapterKind.OriginalTextureQuad
+                    : TestPlayPresentationAdapterKind.None,
+                TestPlayPresentationEvidence.OriginalExecutableConfirmed,
+                primaryLayerCreated ? "" : "OriginalPrimaryTextureUnavailable"));
+        }
+        RaisePresentationEvent(TestPlayPresentationCore.CreateVisual(
+            key + ":Line",
+            parameters.lineTextureId,
+            lineLayerCreated
+                ? TestPlayPresentationAdapterKind.OriginalTextureQuad
+                : TestPlayPresentationAdapterKind.None,
+            TestPlayPresentationEvidence.OriginalExecutableConfirmed,
+            lineLayerCreated ? "" : "OriginalLineTextureUnavailable"));
+    }
+
+    void TickActiveSwordBeams()
+    {
+        for (int i = activeSwordBeams.Count - 1; i >= 0; i--)
+        {
+            ActiveSwordBeam active = activeSwordBeams[i];
+            if (active == null || active.anchor == null ||
+                !TestPlayPresentationCore.AdvanceOriginalSwordBeam(
+                    ref active.currentLength,
+                    active.parameters.targetLength,
+                    ref active.remainingTicks))
+            {
+                RemoveActiveSwordBeamAt(i);
+                continue;
+            }
+
+            if (active.visual != null)
+                active.visual.SetLength(active.currentLength);
+        }
+    }
+
+    void RemoveActiveSwordBeam(ActiveSwordBeam active)
+    {
+        int index = activeSwordBeams.IndexOf(active);
+        if (index >= 0)
+            RemoveActiveSwordBeamAt(index);
+    }
+
+    void RemoveActiveSwordBeamAt(int index)
+    {
+        ActiveSwordBeam active = activeSwordBeams[index];
+        if (ReferenceEquals(managedSwordBeam, active))
+            managedSwordBeam = null;
+        activeSwordBeams.RemoveAt(index);
+
+        GameObject visualRoot = active != null ? active.visualRoot : null;
+        if (visualRoot == null)
+            return;
+        spawnedTransientObjects.Remove(visualRoot);
+        if (Application.isPlaying)
+            Destroy(visualRoot);
+        else
+            DestroyImmediate(visualRoot);
     }
 
     bool SpawnOriginalTextureEffect(string key, int textureId, Vector3 position, Vector2 size, float life)
@@ -4676,6 +4815,8 @@ public class TestPlayController : MonoBehaviour
 
     void DestroyTransientObjects()
     {
+        activeSwordBeams.Clear();
+        managedSwordBeam = null;
         for (int i = 0; i < spawnedTransientObjects.Count; i++)
         {
             GameObject transient = spawnedTransientObjects[i];

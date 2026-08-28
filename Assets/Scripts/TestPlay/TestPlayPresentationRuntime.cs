@@ -129,6 +129,50 @@ public class TestPlayPresentationRuntime : MonoBehaviour
         return CreateOriginalTextureEffect(binding, fileName, position, rotation, size, life, tint, billboard);
     }
 
+    public GameObject CreateOriginalSwordBeamEffect(
+        TestPlaySwordBeamParameters parameters,
+        Transform anchor,
+        bool reverseDirection,
+        out TestPlaySwordBeamEffect swordBeam,
+        out bool primaryLayerCreated,
+        out bool lineLayerCreated)
+    {
+        swordBeam = null;
+        primaryLayerCreated = false;
+        lineLayerCreated = false;
+        if (anchor == null)
+            return null;
+
+        GameObject root = new GameObject("TestPlayOriginalSwordBeam");
+        Transform[] primaryPlanes = CreateSwordBeamPlanes(
+            root.transform,
+            parameters.primaryTextureId,
+            "Primary");
+        Transform[] linePlanes = CreateSwordBeamPlanes(
+            root.transform,
+            parameters.lineTextureId,
+            "Line");
+        primaryLayerCreated = primaryPlanes.Length > 0;
+        lineLayerCreated = linePlanes.Length > 0;
+        if (!primaryLayerCreated && !lineLayerCreated)
+        {
+            DestroyRuntimeObject(root);
+            return null;
+        }
+
+        swordBeam = root.AddComponent<TestPlaySwordBeamEffect>();
+        swordBeam.Initialize(
+            anchor,
+            primaryPlanes,
+            linePlanes,
+            parameters.primaryTextureId,
+            parameters.lineTextureId,
+            reverseDirection,
+            parameters.initialLength,
+            parameters.targetLength);
+        return root;
+    }
+
     GameObject CreateOriginalTextureEffect(TestPlayTextureBinding binding, string missingKey, Vector3 position, Quaternion rotation, Vector2 size, float life, Color tint, bool billboard)
     {
         if (binding == null || binding.texture == null || originalEffectShader == null)
@@ -153,6 +197,50 @@ public class TestPlayPresentationRuntime : MonoBehaviour
         TestPlayOriginalEffect effect = effectObject.AddComponent<TestPlayOriginalEffect>();
         effect.Initialize(binding.texture, originalEffectShader, size, life, tint, billboard);
         return effectObject;
+    }
+
+    Transform[] CreateSwordBeamPlanes(Transform parent, int textureId, string layerName)
+    {
+        if (parent == null || textureId < 0)
+            return new Transform[0];
+
+        GameObject first = CreateOriginalTextureEffect(
+            textureId,
+            Vector3.zero,
+            Quaternion.identity,
+            Vector2.one,
+            0f,
+            Color.white,
+            false);
+        if (first == null)
+            return new Transform[0];
+
+        GameObject second = CreateOriginalTextureEffect(
+            textureId,
+            Vector3.zero,
+            Quaternion.identity,
+            Vector2.one,
+            0f,
+            Color.white,
+            false);
+        first.name = "TestPlaySwordBeam_" + layerName + "_0";
+        first.transform.SetParent(parent, false);
+        if (second == null)
+            return new[] { first.transform };
+
+        second.name = "TestPlaySwordBeam_" + layerName + "_1";
+        second.transform.SetParent(parent, false);
+        return new[] { first.transform, second.transform };
+    }
+
+    static void DestroyRuntimeObject(GameObject target)
+    {
+        if (target == null)
+            return;
+        if (Application.isPlaying)
+            Destroy(target);
+        else
+            DestroyImmediate(target);
     }
 
     public bool HasOriginalTexture(int textureId)

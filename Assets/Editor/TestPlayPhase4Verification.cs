@@ -94,11 +94,45 @@ public static class TestPlayPhase4Verification
     static void VerifyProcAndVisualEvidence(ref int assertions)
     {
         TestPlayPresentationEvent sword = TestPlayPresentationCore.CreateProc(
-            true, Values(1f, 55f, 1f, 200f, 12f, 13f), TestPlayPresentationAdapterKind.None);
+            true,
+            Values(1f, 55f, 1f, 200f, 12f, 13f, 0f, 0f, 0f, 0f, 0f, 35f),
+            TestPlayPresentationAdapterKind.None);
         Require(sword.command == "RunProc2" && sword.originalId == 1 && sword.procType == 55,
             "RunProc2 keeps order and proc type", ref assertions);
-        Require(sword.subtype == -1 && sword.evidence == TestPlayPresentationEvidence.OriginalDataObserved,
-            "type 55 is classified from observed original data", ref assertions);
+        Require(sword.subtype == -1 && sword.evidence == TestPlayPresentationEvidence.OriginalExecutableConfirmed,
+            "type 55 is classified from the executable BB_SwordBeam handler", ref assertions);
+
+        Require(TestPlayPresentationCore.TryCreateOriginalSwordBeamParameters(
+                true,
+                sword.arguments,
+                out TestPlaySwordBeamParameters swordParameters) &&
+                swordParameters.weaponPointId == 1 &&
+                Mathf.Approximately(swordParameters.targetLength, 2f) &&
+                swordParameters.primaryTextureId == 12 && swordParameters.lineTextureId == 13 &&
+                Mathf.Approximately(swordParameters.initialLength, 0f) &&
+                !swordParameters.replaceManagedBeam && swordParameters.lifetimeTicks == 35,
+            "type 55 preserves the confirmed WEAPONPOINT, two textures, lengths, slot flag, and lifetime",
+            ref assertions);
+
+        float swordLength = swordParameters.initialLength;
+        int swordLifetime = swordParameters.lifetimeTicks;
+        Require(TestPlayPresentationCore.AdvanceOriginalSwordBeam(
+                    ref swordLength, swordParameters.targetLength, ref swordLifetime) &&
+                Mathf.Approximately(swordLength, 0.2f) && swordLifetime == 34,
+            "BB_SwordBeam grows by 0.2 and decrements its finite lifetime once per original tick",
+            ref assertions);
+
+        TestPlayPresentationCore.TryCreateOriginalSwordBeamParameters(
+            true,
+            Values(1f, 55f, 1f, 200f, -1f, 30f, 0f, 0f, 0f, 0f, 0f, 0f),
+            out TestPlaySwordBeamParameters persistentSword);
+        float persistentLength = persistentSword.initialLength;
+        int persistentLifetime = persistentSword.lifetimeTicks;
+        Require(TestPlayPresentationCore.AdvanceOriginalSwordBeam(
+                    ref persistentLength, persistentSword.targetLength, ref persistentLifetime) &&
+                persistentLifetime == TestPlayPresentationCore.OriginalSwordBeamInfiniteLifetime,
+            "a zero type 55 lifetime uses the original 999999999 non-decrementing sentinel",
+            ref assertions);
 
         TestPlayPresentationEvent melee = TestPlayPresentationCore.CreateProc(
             true, Values(1f, 57f, 1f), TestPlayPresentationAdapterKind.CombatOnly);

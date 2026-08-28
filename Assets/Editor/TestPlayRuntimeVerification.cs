@@ -616,6 +616,29 @@ public static class TestPlayRuntimeVerification
 
             controller.robo = robo;
             controller.target = target;
+            TestPlayPresentationRuntime presentation = controllerObject.AddComponent<TestPlayPresentationRuntime>();
+            presentation.controller = controller;
+            presentation.originalEffectShader = AssetDatabase.LoadAssetAtPath<Shader>(
+                "Assets/TestPlayOriginalEffect.shader");
+            Texture2D swordTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(
+                "Assets/Generated/TestPlay/OriginalTextures/11_sabel.png");
+            Texture2D swordLineTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(
+                "Assets/Generated/TestPlay/OriginalTextures/12_sabel_line.png");
+            presentation.originalTextures.Add(new TestPlayTextureBinding
+            {
+                loadSequence = 11,
+                scriptTextureId = 12,
+                originalFileName = "sabel.png",
+                texture = swordTexture
+            });
+            presentation.originalTextures.Add(new TestPlayTextureBinding
+            {
+                loadSequence = 12,
+                scriptTextureId = 13,
+                originalFileName = "sabel_line.png",
+                texture = swordLineTexture
+            });
+            controller.presentationRuntime = presentation;
             UI_SPT spt = controllerObject.AddComponent<UI_SPT>();
             SptRuntimeData meleeSptData = SptParser.Parse("WEAPONPOINT(1,Weapon_point2.x,UP);");
             SptParser.BindTransforms(rootObject.transform, meleeSptData);
@@ -636,6 +659,7 @@ public static class TestPlayRuntimeVerification
             MethodInfo handleAssignment = typeof(TestPlayController).GetMethod("HandleAssignment", InstancePrivate);
             MethodInfo spawnRunProc = typeof(TestPlayController).GetMethod("SpawnRunProc", InstancePrivate);
             MethodInfo tickMeleeAttacks = typeof(TestPlayController).GetMethod("TickActiveMeleeAttacks", InstancePrivate);
+            MethodInfo tickSwordBeams = typeof(TestPlayController).GetMethod("TickActiveSwordBeams", InstancePrivate);
             MethodInfo updateCombatTimers = typeof(TestPlayController).GetMethod("UpdateOriginalCombatTimers", InstancePrivate);
             MethodInfo updateCooldowns = typeof(TestPlayController).GetMethod("UpdateOriginalAttackCooldowns", InstancePrivate);
             MethodInfo updateAttack = typeof(TestPlayController).GetMethod("TryUpdateNormalAttackSequence", InstancePrivate);
@@ -656,6 +680,7 @@ public static class TestPlayRuntimeVerification
             Require(setWeapon != null && resolveShot != null && resolveShotSelection != null &&
                     resolveMelee != null && resolveWeaponAction != null &&
                     handle != null && handleAssignment != null && spawnRunProc != null && tickMeleeAttacks != null &&
+                    tickSwordBeams != null &&
                     updateCombatTimers != null &&
                     updateCooldowns != null && updateAttack != null &&
                     updateInput != null && awake != null && tickAnimation != null && startGroundRecovery != null &&
@@ -663,6 +688,8 @@ public static class TestPlayRuntimeVerification
                     energyTick != null && spawnProjectile != null,
                 "original normal-attack runtime helpers are available", ref assertions);
 
+            Require(presentation.originalEffectShader != null && swordTexture != null && swordLineTexture != null,
+                "original sword-beam shader and sabel texture pair are available", ref assertions);
             awake.Invoke(controller, null);
             controller.SetAirborneFlag(false);
             Require(controller.state.GetInt(150) == 0,
@@ -880,9 +907,83 @@ public static class TestPlayRuntimeVerification
                     UnityEngine.Object.DestroyImmediate(windTransients[i]);
             }
 
-            spawnRunProc.Invoke(controller, new object[] { Values(1f, 55f), true });
-            Require(Mathf.Approximately(target.hp, 1000f),
-                "RunProc2 type 55 is a sword visual and does not damage", ref assertions);
+            int swordBeamStart = windTransients.Count;
+            spawnRunProc.Invoke(controller, new object[]
+            {
+                Values(1f, 55f, 1f, 200f, 12f, 13f, 0f, 0f, 0f, 0f, 0f, 35f), true
+            });
+            GameObject swordBeamObject = windTransients.Count == swordBeamStart + 1
+                ? windTransients[swordBeamStart]
+                : null;
+            TestPlaySwordBeamEffect swordBeam = swordBeamObject != null
+                ? swordBeamObject.GetComponent<TestPlaySwordBeamEffect>()
+                : null;
+            Require(swordBeam != null && swordBeam.Anchor == weaponPointObject.transform &&
+                    swordBeam.PrimaryTextureId == 12 && swordBeam.LineTextureId == 13 &&
+                    swordBeam.HasPrimaryLayer && swordBeam.HasLineLayer &&
+                    Mathf.Approximately(swordBeam.CurrentLength, 0f) &&
+                    Mathf.Approximately(swordBeam.TargetLength, 2f) &&
+                    swordBeamObject.GetComponent<TestPlayProjectile>() == null &&
+                    Mathf.Approximately(target.hp, 1000f),
+                "RunProc2 type 55 creates the two-layer non-combat sword beam on WEAPONPOINT p2",
+                ref assertions);
+            weaponPointObject.transform.SetPositionAndRotation(
+                new Vector3(1f, 2f, 3f),
+                Quaternion.Euler(0f, 30f, 0f));
+            tickSwordBeams.Invoke(controller, null);
+            Require(swordBeam != null && Mathf.Approximately(swordBeam.CurrentLength, 0.2f) &&
+                    swordBeam.transform.parent == weaponPointObject.transform &&
+                    swordBeam.transform.localPosition == Vector3.zero &&
+                    swordBeam.transform.localRotation == Quaternion.identity,
+                "RunProc2 type 55 grows by 0.2 per tick while following its WEAPONPOINT anchor",
+                ref assertions);
+
+            int proc55Events = 0;
+            int primary55Events = 0;
+            int line55Events = 0;
+            for (int i = 0; i < windPresentationEvents.Count; i++)
+            {
+                TestPlayPresentationEvent presentationEvent = windPresentationEvents[i];
+                if (presentationEvent.type == TestPlayPresentationEventType.Proc &&
+                    presentationEvent.procType == 55 &&
+                    presentationEvent.evidence == TestPlayPresentationEvidence.OriginalExecutableConfirmed)
+                    proc55Events++;
+                if (presentationEvent.type == TestPlayPresentationEventType.Visual &&
+                    presentationEvent.source == "RunProc2:55:Primary" &&
+                    presentationEvent.textureId == 12)
+                    primary55Events++;
+                if (presentationEvent.type == TestPlayPresentationEventType.Visual &&
+                    presentationEvent.source == "RunProc2:55:Line" &&
+                    presentationEvent.textureId == 13)
+                    line55Events++;
+            }
+            Require(proc55Events == 1 && primary55Events == 1 && line55Events == 1,
+                "RunProc2 type 55 trace records confirmed Proc semantics and both texture-layer adapters",
+                ref assertions);
+
+            meleeSptData.WeaponPoints[1].Direction = SptDirection.DOWN;
+            int managedSwordStart = windTransients.Count;
+            spawnRunProc.Invoke(controller, new object[]
+            {
+                Values(1f, 55f, 1f, 200f, 12f, 13f, 0f, 0f, 0f, 0f, 1f, 35f), true
+            });
+            GameObject firstManagedSword = windTransients.Count == managedSwordStart + 1
+                ? windTransients[managedSwordStart]
+                : null;
+            Require(firstManagedSword != null &&
+                    Vector3.Dot(firstManagedSword.transform.forward, weaponPointObject.transform.forward) < -0.999f,
+                "RunProc2 type 55 respects the Script.spt WEAPONPOINT DOWN direction",
+                ref assertions);
+            spawnRunProc.Invoke(controller, new object[]
+            {
+                Values(1f, 55f, 1f, 200f, 12f, 13f, 0f, 0f, 0f, 0f, 1f, 35f), true
+            });
+            Require(firstManagedSword == null && windTransients.Count == managedSwordStart + 1,
+                "RunProc2 type 55 p10 replaces only the previously managed sword beam",
+                ref assertions);
+            meleeSptData.WeaponPoints[1].Direction = SptDirection.UP;
+            weaponPointObject.transform.localPosition = Vector3.zero;
+            weaponPointObject.transform.localRotation = Quaternion.identity;
             spawnRunProc.Invoke(controller, new object[]
             {
                 Values(1f, 57f, 1f, 200f, 0f, 5f, 5f, 0f, 0f, 0f, 0f, 9f), true
