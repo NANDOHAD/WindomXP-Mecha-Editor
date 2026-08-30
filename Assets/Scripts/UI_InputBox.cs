@@ -27,8 +27,10 @@ public class UI_InputBox : MonoBehaviour
         text.text = message;
         input.text = defaultText;
         _callBack = callback;
-        //input.gameObject.SetActive(true);
-        //addPartsList.gameObject.SetActive(false);
+        if (input != null)
+            input.gameObject.SetActive(true);
+        if (addPartsList != null)
+            addPartsList.gameObject.SetActive(false);
         gameObject.SetActive(true);
     }
 
@@ -58,6 +60,12 @@ public class UI_InputBox : MonoBehaviour
         isDropdownMode = true;
         optionValues = values ?? new List<string>();
         text.text = message;
+        if (addPartsList == null)
+        {
+            Debug.LogError("[UI_InputBox] 選択ダイアログ用Dropdownが設定されていません。");
+            cancelCallback?.Invoke("");
+            return;
+        }
         addPartsList.ClearOptions();
         addPartsList.AddOptions(displayOptions ?? optionValues);
         addPartsList.value = 0;
@@ -74,11 +82,20 @@ public class UI_InputBox : MonoBehaviour
 
     public void openNoTextBoxDialog(string message, call callback)
     {
-        _cancelCallback = null;
+        openNoTextBoxDialog(message, callback, null);
+    }
+
+    public void openNoTextBoxDialog(string message, call callback, call cancelCallback)
+    {
+        _cancelCallback = cancelCallback;
         isDropdownMode = false;
         optionValues = null;
         text.text = message;
         _callBack = callback;
+        if (input != null)
+            input.gameObject.SetActive(false);
+        if (addPartsList != null)
+            addPartsList.gameObject.SetActive(false);
         gameObject.SetActive(true);
     }
 

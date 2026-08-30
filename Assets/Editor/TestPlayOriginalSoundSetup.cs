@@ -8,6 +8,8 @@ using UnityEngine;
 public static class TestPlayOriginalSoundSetup
 {
     const string SoundFolder = "Assets/SND_SE";
+    const string PropulsionStartFileName = "burner.wav";
+    const string PropulsionLoopFileName = "burner_f15.wav";
 
     struct OriginalSndSpec
     {
@@ -65,7 +67,8 @@ public static class TestPlayOriginalSoundSetup
             EditorSceneManager.SaveScene(presentation.gameObject.scene);
         }
 
-        Debug.Log("[TestPlay][Audio] Rebuilt " + mapped + " original-confirmed Snd mappings from " + SoundFolder + ".");
+        Debug.Log("[TestPlay][Audio] Rebuilt " + mapped +
+            " original-confirmed Snd mappings and the propulsion Unity adapter from " + SoundFolder + ".");
     }
 
     public static int ApplyMappings(TestPlayPresentationRuntime presentation)
@@ -88,6 +91,11 @@ public static class TestPlayOriginalSoundSetup
             rebuilt.Add(new TestPlayAudioBinding { key = key, clip = clip, volume = 1f });
         }
 
+        if (!clipsByFileName.TryGetValue(PropulsionStartFileName, out AudioClip propulsionStartClip) || propulsionStartClip == null)
+            throw new FileNotFoundException("Propulsion start resource was not found: " + PropulsionStartFileName, SoundFolder);
+        if (!clipsByFileName.TryGetValue(PropulsionLoopFileName, out AudioClip propulsionLoopClip) || propulsionLoopClip == null)
+            throw new FileNotFoundException("Propulsion loop resource was not found: " + PropulsionLoopFileName, SoundFolder);
+
         if (presentation.sounds != null)
         {
             for (int i = 0; i < presentation.sounds.Count; i++)
@@ -100,6 +108,8 @@ public static class TestPlayOriginalSoundSetup
 
         Undo.RecordObject(presentation, "Rebuild original SND_SE mappings");
         presentation.sounds = rebuilt;
+        presentation.propulsionStartClip = propulsionStartClip;
+        presentation.propulsionLoopClip = propulsionLoopClip;
         EditorUtility.SetDirty(presentation);
         return OriginalSnd.Length;
     }
@@ -117,6 +127,19 @@ public static class TestPlayOriginalSoundSetup
 
         fileName = null;
         return false;
+    }
+
+    public static bool TryGetPropulsionAdapterFileName(out string fileName)
+    {
+        fileName = PropulsionStartFileName;
+        return true;
+    }
+
+    public static bool TryGetPropulsionAdapterFileNames(out string startFileName, out string loopFileName)
+    {
+        startFileName = PropulsionStartFileName;
+        loopFileName = PropulsionLoopFileName;
+        return true;
     }
 
     static Dictionary<string, AudioClip> LoadClipsByFileName()

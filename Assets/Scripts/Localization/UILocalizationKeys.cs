@@ -18,6 +18,7 @@ public static class UILocalizationKeys
     public const string HodRename = "dialog.hod_rename";
 
     public const string AnimationNewName = "dialog.animation_new_name";
+    public const string AniSaveFailed = "dialog.ani_save_failed";
     public const string ApplySelectedPartAllHods = "dialog.apply_selected_part_all_hods";
     public const string ApplySelectedValueAllHods = "dialog.apply_selected_value_all_hods";
     public const string AnimationSyncRange = "dialog.animation_sync_range";

@@ -10444,8 +10444,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 106.68768, y: -189.73193}
-  m_SizeDelta: {x: 160, y: 30}
+  m_AnchoredPosition: {x: 390, y: -160}
+  m_SizeDelta: {x: 230, y: 30}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &417155442
 MonoBehaviour:
@@ -14114,7 +14114,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 53cbb6163e5dddb45a484daa8f437ff3, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::UILocalizedText
-  entryKey: fixed.d0f8e3ef5ff77524
+  entryKey: fixed.e0d864c56160c9f8
 --- !u!1 &540989828
 GameObject:
   m_ObjectHideFlags: 0
@@ -25563,7 +25563,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 53cbb6163e5dddb45a484daa8f437ff3, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::UILocalizedText
-  entryKey: fixed.d0f8e3ef5ff77524
+  entryKey: fixed.e0d864c56160c9f8
 --- !u!114 &915838461
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -46647,8 +46647,16 @@ MonoBehaviour:
   hitRadius: 1.5
   stateId: 1
   logHits: 1
+  shildGuard: 0
+  guardHitTimerTicks: 0
+  hitAcceptanceBlockTicks: 0
+  hitStopTicks: 0
   lastImpactForce: {x: 0, y: 0, z: 0}
   lastDownValue: 0
+  lastAttackFlag: 0
+  lastHitDecision: 0
+  linkedTargetClearedByAttack: 0
+  facingForcedByAttack: 0
 --- !u!4 &1725365348
 Transform:
   m_ObjectHideFlags: 0
@@ -46948,6 +46956,10 @@ MonoBehaviour:
   riseVerticalVelocityLimit: 0.15
   airborneHorizontalForceRetention: 0.95
   groundedHorizontalForceRetention: 0.9
+  idleMoveRetention: 0.8
+  moveActionRetention: 1
+  airIdleMoveRetention: 0.99
+  defaultMoveRetention: 1
   aimTurnSpeed: 540
   doubleTapStepSeconds: 0.3
   inputMoveMagnitude: 0.08
@@ -46959,6 +46971,9 @@ MonoBehaviour:
   riseMinimumReleaseTicks: 5
   riseMaximumTicks: 12
   airRiseMinimumIdleTicks: 11
+  airIdleVerticalBrakePerTick: 0.012
+  airIdleVerticalBrakeVelocityThreshold: 0.05
+  airIdleVerticalBrakeTicks: 31
   boostMinimumReleaseTicks: 31
   doubleTapBoostSeconds: 0.3
   stepFallbackMoveMagnitude: 0.51
@@ -47011,6 +47026,9 @@ MonoBehaviour:
   burnerRadiusRatio: 0.25
   burnerFadeSpeed: 18
   burnerConeColor: {r: 0.35, g: 0.85, b: 1, a: 0.65}
+  windEffectLifeSeconds: 0.3
+  windRingExpansionPerSecond: 3
+  windEffectColor: {r: 0.8, g: 0.92, b: 1, a: 0.55}
   blendActionTransitions: 1
   actionTransitionSeconds: 0.12
   heldReleaseTransitionSeconds: 0.08
@@ -47316,6 +47334,8 @@ MonoBehaviour:
   controller: {fileID: 1726638251}
   soundSource: {fileID: 0}
   voiceSource: {fileID: 0}
+  propulsionStartSource: {fileID: 0}
+  propulsionSource: {fileID: 0}
   sounds:
   - key: 0
     clip: {fileID: 8300000, guid: b590d3a54031563498aa48260b15e196, type: 3}
@@ -47333,7 +47353,7 @@ MonoBehaviour:
     clip: {fileID: 8300000, guid: 0e617b783bc60294d9c7bfe40fb2cbee, type: 3}
     volume: 1
   - key: 5
-    clip: {fileID: 8300000, guid: 426d3488eb0576740bee97692d8bbfee, type: 3}
+    clip: {fileID: 8300000, guid: 6b947df89c0a30540b3f61da6404f3f5, type: 3}
     volume: 1
   - key: 6
     clip: {fileID: 8300000, guid: f8fa14752c13d17419b8bc13c44382b7, type: 3}
@@ -47574,6 +47594,11 @@ MonoBehaviour:
   preloadMappedAudio: 1
   useSpatialAudio: 1
   audioMaxDistance: 40
+  propulsionStartClip: {fileID: 8300000, guid: f1ff456c8835a404caeb1deb32742520, type: 3}
+  propulsionStartVolume: 1
+  propulsionLoopClip: {fileID: 8300000, guid: 6b947df89c0a30540b3f61da6404f3f5, type: 3}
+  propulsionLoopVolume: 1
+  propulsionFadeSeconds: 0.05
 --- !u!1 &1730576920
 GameObject:
   m_ObjectHideFlags: 0

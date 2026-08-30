@@ -24,6 +24,7 @@ public class RoboStructure : MonoBehaviour
     public CypherTranscoder transcoder;
     public bool structureEditingAllowed { get; private set; } = true;
     public string structureValidationWarning { get; private set; } = "";
+    string structureEditingBlockReason = "";
     
     // Start is called before the first frame update
     void Start()
@@ -53,12 +54,7 @@ public class RoboStructure : MonoBehaviour
 
         hod = Robo;
         ValidateStructureForEditing(Robo, true);
-        if (root != null)
-            GameObject.Destroy(root);
-
-        //build Ani
-
-        parts.Clear();
+        DestroyExistingStructureObjects();
 
         for (int i = 0; i < Robo.parts.Count; i++)
         {
@@ -126,10 +122,7 @@ public class RoboStructure : MonoBehaviour
 
         folder = source.folder;
         hod = Robo;
-        if (root != null)
-            GameObject.Destroy(root);
-
-        parts.Clear();
+        DestroyExistingStructureObjects();
 
         for (int i = 0; i < Robo.parts.Count; i++)
         {
@@ -669,15 +662,23 @@ public class RoboStructure : MonoBehaviour
     }
     public void addPart(string partName, int parent)
     {
+        string error;
+        if (!TryAddPart(partName, parent, out error))
+            ReportBlockedStructureEdit(error);
+    }
+
+    public bool TryAddPart(string partName, int parent, out string error)
+    {
         string warning;
         if (!CanEditStructure(out warning))
         {
-            ReportBlockedStructureEdit(warning);
-            return;
+            error = warning;
+            return false;
         }
         if (ani != null)
         {
-            ani.addPart(partName, parent);
+            if (!ani.TryAddPart(partName, parent, out error))
+                return false;
             buildStructure(ani.structure);
         }
         else
@@ -714,36 +715,63 @@ public class RoboStructure : MonoBehaviour
             buildStructure(hod);
         }
 
+        error = "";
+        return true;
     }
 
     public bool removePart(int index)
     {
+        string error;
+        bool result = TryRemovePart(index, out error);
+        if (!result && !string.IsNullOrEmpty(error))
+            ReportBlockedStructureEdit(error);
+        return result;
+    }
+
+    public bool TryRemovePart(int index, out string error)
+    {
         string warning;
         if (!CanEditStructure(out warning))
         {
-            ReportBlockedStructureEdit(warning);
+            error = warning;
             return false;
         }
         if (hod == null || hod.parts == null || index <= 0 || index >= hod.parts.Count)
+        {
+            error = UILocalization.Get(
+                UILocalizationKeys.PartDataInvalidDelete,
+                "パーツ情報の整合性を確認できないため削除できません。");
             return false;
+        }
 
         if (ani != null)
         {
-            if (ani.removePart(index))
+            if (ani.TryRemovePart(index, out error))
                 buildStructure(ani.structure);
             else
                 return false;
 
+            error = "";
             return true;
         }
 
         int parentIndex = FindParentIndex(hod.parts, index);
         if (parentIndex < 0)
+        {
+            error = UILocalization.Get(
+                UILocalizationKeys.PartDataInvalidDelete,
+                "パーツ情報の整合性を確認できないため削除できません。");
             return false;
+        }
 
         int removeCount = GetSubtreeEndIndex(hod.parts, index) - index;
         if (removeCount <= 0)
+        {
+            error = UILocalization.Get(
+                UILocalizationKeys.PartDataInvalidDelete,
+                "パーツ情報の整合性を確認できないため削除できません。");
             return false;
+        }
 
         int transformCount = Math.Min(hod.parts.Count, parts.Count);
         for (int i = 0; i < transformCount; i++)
@@ -761,6 +789,7 @@ public class RoboStructure : MonoBehaviour
         hod.parts.RemoveRange(index, removeCount);
 
         buildStructure(hod);
+        error = "";
         return true;
     }
 
@@ -771,8 +800,58 @@ public class RoboStructure : MonoBehaviour
         return structureEditingAllowed;
     }
 
+    public bool TryCreateLegacyStructureEditPlan(
+        out LegacyAniStructureEditPlan plan,
+        out string error)
+    {
+        return LegacyAniStructureEditPlan.TryCreate(ani, out plan, out error);
+    }
+
+    public bool TryApplyLegacyStructureEditPlan(
+        LegacyAniStructureEditPlan plan,
+        LegacyAniHierarchyAuthority authority,
+        out string error)
+    {
+        if (plan == null)
+        {
+            error = UILocalization.Get(
+                "hod.legacy_edit.no_plan",
+                "旧ANIの構造編集準備がありません。");
+            return false;
+        }
+
+        if (!plan.TryApply(ani, authority, out error))
+            return false;
+
+        structureEditingBlockReason = "";
+        ValidateStructureForEditing(ani.structure, false);
+        if (!structureEditingAllowed)
+        {
+            error = structureValidationWarning;
+            return false;
+        }
+
+        hod = ani.structure;
+        error = "";
+        return true;
+    }
+
+    public void SetStructureEditingBlockReason(string reason)
+    {
+        structureEditingBlockReason = reason ?? "";
+    }
+
     void ValidateStructureForEditing(hod2v0 structure, bool reportWarning)
     {
+        if (!string.IsNullOrEmpty(structureEditingBlockReason))
+        {
+            structureEditingAllowed = false;
+            structureValidationWarning = structureEditingBlockReason;
+            if (reportWarning)
+                ReportBlockedStructureEdit(structureValidationWarning);
+            return;
+        }
+
         string details = "";
         structureEditingAllowed = structure != null &&
             HodHierarchyValidator.TryValidate(structure.parts, out details);
@@ -799,6 +878,45 @@ public class RoboStructure : MonoBehaviour
         Debug.LogWarning("[RoboStructure] " + warning);
         if (statusMessege != null)
             statusMessege.text = warning;
+    }
+
+    void DestroyExistingStructureObjects()
+    {
+        if (parts == null || parts.Count == 0)
+        {
+            if (root != null)
+                GameObject.Destroy(root);
+            root = null;
+            return;
+        }
+
+        HashSet<Transform> knownTransforms = new HashSet<Transform>();
+        for (int i = 0; i < parts.Count; i++)
+        {
+            if (parts[i] != null)
+                knownTransforms.Add(parts[i].transform);
+        }
+
+        HashSet<GameObject> destroyedRoots = new HashSet<GameObject>();
+        for (int i = 0; i < parts.Count; i++)
+        {
+            GameObject part = parts[i];
+            if (part == null)
+                continue;
+
+            Transform parent = part.transform.parent;
+            if ((parent == null || !knownTransforms.Contains(parent))
+                && destroyedRoots.Add(part))
+            {
+                GameObject.Destroy(part);
+            }
+        }
+
+        if (root != null && destroyedRoots.Add(root))
+            GameObject.Destroy(root);
+
+        root = null;
+        parts.Clear();
     }
 
     public void renamePart(int index, string name)

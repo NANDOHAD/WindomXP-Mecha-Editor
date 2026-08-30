@@ -199,6 +199,8 @@ public static class TestPlayPhase4Verification
     {
         GameObject go = new GameObject("TestPlayPhase4Verification_Controller");
         AudioClip clip = null;
+        AudioClip propulsionStartClip = null;
+        AudioClip propulsionLoopClip = null;
         try
         {
             TestPlayController controller = go.AddComponent<TestPlayController>();
@@ -206,12 +208,18 @@ public static class TestPlayPhase4Verification
             TestPlayPresentationRuntime presentation = go.AddComponent<TestPlayPresentationRuntime>();
             presentation.enabled = false;
             clip = AudioClip.Create("Phase4Snd", 64, 1, 8000, false);
+            propulsionStartClip = AudioClip.Create("Phase4PropulsionStart", 64, 1, 8000, false);
+            propulsionLoopClip = AudioClip.Create("Phase4PropulsionLoop", 64, 1, 8000, false);
             presentation.sounds.Add(new TestPlayAudioBinding { key = "9", clip = clip });
+            presentation.propulsionStartClip = propulsionStartClip;
+            presentation.propulsionLoopClip = propulsionLoopClip;
             controller.presentationRuntime = presentation;
 
             MethodInfo beginTrace = typeof(TestPlayController).GetMethod("BeginPresentationTraceTick", InstancePrivate);
             MethodInfo handle = typeof(TestPlayController).GetMethod("HandleCommand", InstancePrivate);
-            Require(beginTrace != null && handle != null,
+            MethodInfo applyBurners = typeof(TestPlayController).GetMethod("ApplyBurners", InstancePrivate);
+            MethodInfo stopBurners = typeof(TestPlayController).GetMethod("StopAllBurnerEffects", InstancePrivate);
+            Require(beginTrace != null && handle != null && applyBurners != null && stopBurners != null,
                 "controller presentation adapter helpers are available", ref assertions);
 
             List<TestPlayPresentationEvent> raised = new List<TestPlayPresentationEvent>();
@@ -229,6 +237,25 @@ public static class TestPlayPhase4Verification
                 TestPlayScriptValue.Symbol("Damage")
             });
             InvokeCommand(handle, controller, "BURNER", Values(3f, 0.75f));
+            applyBurners.Invoke(controller, null);
+            Require(presentation.PropulsionActiveRequested && presentation.PropulsionLoopRequested &&
+                    presentation.propulsionStartSource != null &&
+                    presentation.propulsionStartSource.clip == propulsionStartClip &&
+                    !presentation.propulsionStartSource.loop &&
+                    presentation.propulsionSource != null &&
+                    presentation.propulsionSource.clip == propulsionLoopClip &&
+                    presentation.propulsionSource.loop,
+                "aggregate positive BURNER output configures simultaneous start and loop propulsion audio",
+                ref assertions);
+            applyBurners.Invoke(controller, null);
+            Require(presentation.PropulsionActivationCount == 1,
+                "continuous positive BURNER output does not restart propulsion audio every tick",
+                ref assertions);
+            stopBurners.Invoke(controller, null);
+            Require(!presentation.PropulsionActiveRequested && !presentation.PropulsionLoopRequested &&
+                    presentation.propulsionSource != null && !presentation.propulsionSource.isPlaying,
+                "clearing BURNER output stops only the loop adapter immediately outside Play Mode",
+                ref assertions);
             InvokeCommand(handle, controller, "CamEffect", Values(2f));
             InvokeCommand(handle, controller, "RunProc2", Values(0f, 57f, 1f));
             InvokeCommand(handle, controller, "BURNER2", Values(1f));
@@ -270,6 +297,10 @@ public static class TestPlayPhase4Verification
         {
             if (clip != null)
                 UnityEngine.Object.DestroyImmediate(clip);
+            if (propulsionStartClip != null)
+                UnityEngine.Object.DestroyImmediate(propulsionStartClip);
+            if (propulsionLoopClip != null)
+                UnityEngine.Object.DestroyImmediate(propulsionLoopClip);
             UnityEngine.Object.DestroyImmediate(go);
         }
     }

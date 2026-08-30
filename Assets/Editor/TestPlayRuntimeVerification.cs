@@ -981,6 +981,9 @@ public static class TestPlayRuntimeVerification
             TestPlaySwordBeamEffect swordBeam = swordBeamObject != null
                 ? swordBeamObject.GetComponent<TestPlaySwordBeamEffect>()
                 : null;
+            MethodInfo updateSwordMotionBlur = typeof(TestPlaySwordBeamEffect).GetMethod(
+                "UpdateMotionBlur",
+                InstancePrivate);
             Require(swordBeam != null && swordBeam.Anchor == weaponPointObject.transform &&
                     swordBeam.PrimaryTextureId == 12 && swordBeam.LineTextureId == 13 &&
                     swordBeam.HasPrimaryLayer && swordBeam.HasLineLayer &&
@@ -989,6 +992,18 @@ public static class TestPlayRuntimeVerification
                     swordBeamObject.GetComponent<TestPlayProjectile>() == null &&
                     Mathf.Approximately(target.hp, 1000f),
                 "RunProc2 type 55 creates the two-layer non-combat sword beam on WEAPONPOINT p2",
+                ref assertions);
+            Transform primaryPlane0 = swordBeam != null ? swordBeam.GetPrimaryPlane(0) : null;
+            Transform primaryPlane1 = swordBeam != null ? swordBeam.GetPrimaryPlane(1) : null;
+            Require(updateSwordMotionBlur != null && primaryPlane0 != null && primaryPlane1 != null &&
+                    swordBeam.PrimaryPlaneCount == 2 && swordBeam.LinePlaneCount == 2 &&
+                    Vector3.Dot(primaryPlane0.TransformDirection(Vector3.up).normalized,
+                        swordBeam.transform.forward) > 0.999f &&
+                    Vector3.Dot(primaryPlane1.TransformDirection(Vector3.up).normalized,
+                        swordBeam.transform.forward) > 0.999f &&
+                    Mathf.Abs(Vector3.Dot(primaryPlane0.forward, primaryPlane1.forward)) < 0.001f &&
+                    !swordBeam.IsLineBlurVisible,
+                "both vertical saber textures follow local Z+ while crossed, and Beam_Line starts hidden",
                 ref assertions);
             weaponPointObject.transform.SetPositionAndRotation(
                 new Vector3(1f, 2f, 3f),
@@ -999,6 +1014,18 @@ public static class TestPlayRuntimeVerification
                     swordBeam.transform.localPosition == Vector3.zero &&
                     swordBeam.transform.localRotation == Quaternion.identity,
                 "RunProc2 type 55 grows by 0.2 per tick while following its WEAPONPOINT anchor",
+                ref assertions);
+            updateSwordMotionBlur.Invoke(swordBeam, null);
+            Transform linePlane0 = swordBeam.GetLinePlane(0);
+            Transform linePlane1 = swordBeam.GetLinePlane(1);
+            Require(swordBeam.IsLineBlurVisible && linePlane0 != null && linePlane1 != null &&
+                    linePlane0.GetComponent<Renderer>().enabled && linePlane1.GetComponent<Renderer>().enabled,
+                "Beam_Line appears as a motion blur only after the saber root or tip moves",
+                ref assertions);
+            updateSwordMotionBlur.Invoke(swordBeam, null);
+            Require(!swordBeam.IsLineBlurVisible &&
+                    !linePlane0.GetComponent<Renderer>().enabled && !linePlane1.GetComponent<Renderer>().enabled,
+                "Beam_Line hides again on the next stationary presentation frame",
                 ref assertions);
 
             int proc55Events = 0;
@@ -1034,8 +1061,8 @@ public static class TestPlayRuntimeVerification
                 ? windTransients[managedSwordStart]
                 : null;
             Require(firstManagedSword != null &&
-                    Vector3.Dot(firstManagedSword.transform.forward, weaponPointObject.transform.forward) < -0.999f,
-                "RunProc2 type 55 respects the Script.spt WEAPONPOINT DOWN direction",
+                    Vector3.Dot(firstManagedSword.transform.forward, weaponPointObject.transform.forward) > 0.999f,
+                "RunProc2 type 55 keeps the real WEAPONPOINT bone local Z+ for DOWN presentation",
                 ref assertions);
             spawnRunProc.Invoke(controller, new object[]
             {
@@ -1466,6 +1493,17 @@ public static class TestPlayRuntimeVerification
         RequireSound(99, "cursor27.wav", ref assertions);
 
         Require(!TestPlayOriginalSoundSetup.TryGetFileName(21, out _), "unconfirmed Snd IDs stay unmapped", ref assertions);
+        Require(TestPlayOriginalSoundSetup.TryGetPropulsionAdapterFileName(out string propulsionFileName) &&
+                string.Equals(propulsionFileName, "burner.wav", StringComparison.OrdinalIgnoreCase),
+            "the compatibility propulsion adapter filename remains burner.wav",
+            ref assertions);
+        Require(TestPlayOriginalSoundSetup.TryGetPropulsionAdapterFileNames(
+                    out string propulsionStartFileName,
+                    out string propulsionLoopFileName) &&
+                string.Equals(propulsionStartFileName, "burner.wav", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(propulsionLoopFileName, "burner_f15.wav", StringComparison.OrdinalIgnoreCase),
+            "BURNER output starts burner.wav once and loops burner_f15.wav through the Unity adapter",
+            ref assertions);
     }
 
     static void RequireSound(int id, string expectedFileName, ref int assertions)
@@ -2372,22 +2410,42 @@ public static class TestPlayRuntimeVerification
 
             controller.currentAnimationIndex = controller.airMoveAction;
             SetField(controller, "riseSequenceActive", false);
-            SetField(controller, "velocity", Vector3.up * 70f);
+            controller.SetAirborneFlag(true);
+            controller.currentEnergy = 1000f;
+            SetField(controller, "gvEnable", true);
+            SetField(controller, "velocity", Vector3.up * 0.17f);
             SetField(controller, "forceCommand", new Vector3(0f, 0.02f, 0f));
             for (int i = 0; i < 120; i++)
                 integrateForce.Invoke(controller, null);
-            Require(Mathf.Abs(((Vector3)GetField(controller, "velocity")).y - 0.17f) < 0.0001f,
-                "directional air move cannot accumulate upward Force beyond the original rise limit", ref assertions);
+            Require(Mathf.Abs(((Vector3)GetField(controller, "velocity")).y + 0.8f) < 0.0001f &&
+                    Mathf.Abs(controller.LastMotionStep.forcePerTick.y) < 0.0001f,
+                "directional air move cannot apply its positive ANI Force as energy-free lift", ref assertions);
+
+            controller.currentEnergy = 0f;
+            SetField(controller, "velocity", Vector3.up * 0.17f);
+            for (int i = 0; i < 120; i++)
+                integrateForce.Invoke(controller, null);
+            Require(Mathf.Abs(((Vector3)GetField(controller, "velocity")).y + 0.8f) < 0.0001f &&
+                    Mathf.Abs(controller.LastMotionStep.forcePerTick.y) < 0.0001f,
+                "held directional air move descends even when the movement gauge is empty", ref assertions);
+
+            SetField(controller, "gvEnable", false);
+            SetField(controller, "velocity", Vector3.zero);
+            SetField(controller, "forceCommand", new Vector3(0f, -0.02f, 0f));
+            integrateForce.Invoke(controller, null);
+            Require(Mathf.Abs(((Vector3)GetField(controller, "velocity")).y + 0.02f) < 0.0001f,
+                "directional air move preserves non-positive ANI Force", ref assertions);
 
             controller.currentAnimationIndex = controller.airIdleAction;
             controller.state.SetInt(190, 0);
+            controller.currentEnergy = 1000f;
             controller.useColliderGrounding = true;
             SetField(controller, "gvEnable", true);
             SetField(controller, "forceCommand", Vector3.zero);
             SetField(controller, "moveCommand", Vector3.zero);
             controller.verticalFallSpeed = 0f;
             SetField(controller, "actionTick", 1);
-            rootObject.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            rootObject.transform.SetPositionAndRotation(Vector3.up * 10f, Quaternion.identity);
             float releasedRisePeak = rootObject.transform.position.y;
             for (int i = 0; i < 50; i++)
             {

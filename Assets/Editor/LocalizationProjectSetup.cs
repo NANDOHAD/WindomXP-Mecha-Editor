@@ -186,6 +186,7 @@ public static class LocalizationProjectSetup
         Dynamic("dialog.no_mecha_data_found", "ディレクトリ内に機体データがみつかりませんでした。", "No mecha data was found in the directory."),
         Dynamic("dialog.initial_directory_created", "初期ディレクトリ（Windom_Data\\Robo）を作成しました。", "Created the default directory (Windom_Data\\Robo)."),
         Dynamic("dialog.mecha_load_failed", "機体データの読み込みに失敗しました。\n{0}", "Failed to load mecha data.\n{0}"),
+        Dynamic("dialog.ani_save_failed", "ANIファイルの保存に失敗しました。\n{0}", "Failed to save the ANI file.\n{0}"),
         Dynamic("dialog.hod_new_name", "新しいHODファイルの名前を入力してください（拡張子.hodは除く）。", "Enter a name for the new HOD file (without the .hod extension)."),
         Dynamic("dialog.hod_select", "読み込むHODファイルを選択してください", "Select the HOD file to load."),
         Dynamic("dialog.hod_not_found", "フォルダ内にHODファイルが見つかりません: {0}", "No HOD files were found in the folder: {0}"),
@@ -230,6 +231,7 @@ public static class LocalizationProjectSetup
         Dynamic("hod.repair.frame_parts_missing", "アニメーション[{0}] フレーム[{1}]のパーツ情報がありません。", "Animation[{0}] frame[{1}] has no part information."),
         Dynamic("hod.repair.frame_part_count", "アニメーション[{0}] フレーム[{1}]のパーツ数が構造HODと一致しません（{2}/{3}）。", "Animation[{0}] frame[{1}] part count does not match the structure HOD ({2}/{3})."),
         Dynamic("hod.repair.frame_order_mismatch", "アニメーション[{0}] フレーム[{1}]のパーツ順が構造HODと一致しません（位置{2}: 「{3}」/「{4}」）。", "Animation[{0}] frame[{1}] part order does not match the structure HOD (position {2}: \"{3}\"/\"{4}\")."),
+        Dynamic("hod.repair.frame_sync_required", "構造HODとアニメーションフレームのパーツ順または階層列が一致しません。", "The structure HOD and animation frames do not have matching part order or hierarchy columns."),
         Dynamic("hod.repair.tree_depth.no_parts_summary", "パーツ情報がないためtreeDepthを正として修復できません。", "Cannot repair using treeDepth because no part information is available."),
         Dynamic("hod.repair.tree_depth.no_parts_details", "treeDepthから階層を復元できません。", "The hierarchy cannot be reconstructed from treeDepth."),
         Dynamic("hod.repair.tree_depth.unrepairable", "treeDepthを正として修復できません。", "Cannot repair using treeDepth."),
@@ -300,6 +302,7 @@ public static class LocalizationProjectSetup
         Dynamic("hod.manual.frame_part_changed", "アニメーション[{0}] フレーム[{1}]のパーツ[{2}]が手動修復の開始後に変更されています。", "Animation[{0}] frame[{1}] part[{2}] changed after manual repair began."),
 
         Dynamic("hod.ui.repair_apply_failed", "HOD階層を安全に修復できなかったため、読み込みを中止しました。\n{0}", "Loading was canceled because the HOD hierarchy could not be repaired safely.\n{0}"),
+        Dynamic("hod.ui.legacy_unrepaired_warning", "旧ANIのHODパーツ階層は自動修復せず読み込みました。パーツの追加・削除時に、安全な正本を確定できる場合だけ正規化確認を表示します。\n{0}", "The legacy ANI was loaded without automatically repairing its HOD part hierarchy. When adding or removing parts, a normalization confirmation is shown only if a safe authoritative hierarchy can be determined.\n{0}"),
         Dynamic("hod.ui.prune_apply_failed", "不整合パーツを安全に除外できなかったため、読み込みを中止しました。\n{0}", "Loading was canceled because the inconsistent parts could not be excluded safely.\n{0}"),
         Dynamic("hod.ui.inconsistent_header", "HODのパーツ階層に不整合があります。\n\n", "The HOD part hierarchy contains inconsistencies.\n\n"),
         Dynamic("hod.ui.repair_preview", "\n\n修復予定:\n{0}", "\n\nPlanned repair:\n{0}"),
@@ -321,7 +324,19 @@ public static class LocalizationProjectSetup
         Dynamic("hod.ui.current_connections", "現在の接続:", "Current connections:"),
         Dynamic("hod.ui.manual_apply_failed", "手動修復を適用できません。\n\n{0}", "Manual repair cannot be applied.\n\n{0}"),
         Dynamic("hod.ui.parent_selection", "{0} の親パーツを選択してください。\n循環を防ぐため、現在より前に並ぶパーツだけを選択できます。", "Select the parent part for {0}.\nOnly parts listed before it can be selected to prevent cycles."),
-        Dynamic("hod.ui.parent_set_failed", "親パーツを設定できません。\n\n{0}", "The parent part cannot be set.\n\n{0}")
+        Dynamic("hod.ui.parent_set_failed", "親パーツを設定できません。\n\n{0}", "The parent part cannot be set.\n\n{0}"),
+
+        Dynamic("hod.legacy_edit.not_legacy", "旧ANIとして読み込まれたデータではありません。", "The data was not loaded as a legacy ANI."),
+        Dynamic("hod.legacy_edit.authority_unavailable", "選択した階層情報を正として旧ANIを安全に編集できません。", "The legacy ANI cannot be edited safely using the selected hierarchy representation."),
+        Dynamic("hod.legacy_edit.apply_failed", "旧ANIの階層を構造編集用に準備できませんでした。\n{0}", "The legacy ANI hierarchy could not be prepared for structural editing.\n{0}"),
+        Dynamic("hod.legacy_edit.frame_index_mismatch", "旧ANIのアニメーション[{0}] フレーム[{1}]は、位置{2}の階層列が構造HODと一致しないため安全に構造編集できません。", "Legacy ANI animation[{0}] frame[{1}] cannot be edited safely because its hierarchy columns at index {2} do not match the structure HOD."),
+        Dynamic("hod.legacy_edit.no_plan", "旧ANIの構造編集準備がありません。", "No legacy ANI structural-edit preparation is available."),
+        Dynamic("hod.legacy_edit.choose_authority", "旧ANIのtreeDepthとchildCountが別の有効な階層を表しています。パーツの追加・削除を行うには、構造HODと全フレームへ適用する正本を選択してください。元ファイルは保存するまで変更されません。", "The legacy ANI treeDepth and childCount values describe different valid hierarchies. To add or remove parts, select which representation should be authoritative for the structure HOD and every frame. The source file is unchanged until you save."),
+        Dynamic("hod.legacy_edit.confirm_normalize", "旧ANIは読込時の階層値を維持しています。パーツの追加・削除を行うには、構造HODと全フレームの階層列を次の内容で正規化します。元ファイルは保存するまで変更されません。正規化して構造編集を続けますか？", "The legacy ANI retains its hierarchy values as loaded. To add or remove parts, the hierarchy columns in the structure HOD and every frame will be normalized as shown below. The source file is unchanged until you save. Normalize and continue structural editing?"),
+        Dynamic("hod.legacy_edit.choice_previews", "\n\n[treeDepth]\n{0}\n\n[childCount]\n{1}", "\n\n[treeDepth]\n{0}\n\n[childCount]\n{1}"),
+        Dynamic("ani.legacy_conversion.prompt", "読み込もうとしているファイルは旧ANI形式です。AN2へ変換して読み込みますか？\n\nOK: 元の旧ANIを変更せず「{0}」へAN2変換コピーを作成して読み込みます。旧ANI固有の未解析末尾データはAN2コピーには含まれません。\nキャンセル: 旧ANIのまま読み込みます。", "The selected file uses the legacy ANI format. Convert it to AN2 before loading?\n\nOK: Create and load an AN2 copy named \"{0}\" without changing the original legacy ANI. Unparsed legacy-only trailing data is not included in the AN2 copy.\nCancel: Load the legacy ANI unchanged."),
+        Dynamic("ani.legacy_conversion.failed", "旧ANIをAN2へ変換できなかったため、読み込みを中止しました。元の旧ANIは変更されていません。\n{0}", "The legacy ANI could not be converted to AN2, so loading was stopped. The original legacy ANI was not changed.\n{0}"),
+        Dynamic("ani.legacy_conversion.completed", "旧ANIをAN2へ変換し、変換後ファイルを読み込みました。\n保存先: {0}\n元の旧ANIは変更されていません。", "The legacy ANI was converted to AN2 and the converted file was loaded.\nSaved to: {0}\nThe original legacy ANI was not changed.")
     };
 
     [MenuItem("Tools/WindomXP/Localization/日英Localizationを構築")]

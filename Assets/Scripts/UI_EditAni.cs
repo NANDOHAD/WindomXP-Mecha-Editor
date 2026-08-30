@@ -599,7 +599,34 @@ public class UI_EditAni : MonoBehaviour
 
     public void saveAni()
     {
-        robo.ani.save();
+        try
+        {
+            robo.ani.save();
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"ANIファイルの保存に失敗しました: {ex.Message}");
+            msgBox?.Show(UILocalization.Get(
+                UILocalizationKeys.AniSaveFailed,
+                "ANIファイルの保存に失敗しました。\n{0}",
+                ex.Message));
+        }
+    }
+
+    public void saveAniAsAn2(string filename)
+    {
+        try
+        {
+            robo.ani.saveAsAn2(filename);
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"AN2ファイルの保存に失敗しました: {ex.Message}");
+            msgBox?.Show(UILocalization.Get(
+                UILocalizationKeys.AniSaveFailed,
+                "ANIファイルの保存に失敗しました。\n{0}",
+                ex.Message));
+        }
     }
 
     public void dumpAniList()

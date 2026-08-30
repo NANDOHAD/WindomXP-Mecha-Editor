@@ -22,7 +22,16 @@ public class hod1
     }
     public bool loadFromBinary(ref BinaryReader br)
     {
-        string signature = new string(br.ReadChars(3));
+        LegacyHodSource ignored;
+        return loadFromBinary(ref br, out ignored);
+    }
+
+    internal bool loadFromBinary(ref BinaryReader br, out LegacyHodSource legacySource)
+    {
+        legacySource = new LegacyHodSource();
+        byte[] signatureBytes = ReadRequiredBytes(br, 3, "HOD signature");
+        string signature = ASCIIEncoding.ASCII.GetString(signatureBytes);
+        legacySource.signatureBytes = signatureBytes;
         if (signature != "HOD")
         {
             Debug.LogWarning("Warning: 署名が 'HOD' ではありません。強制的に 'HOD' として処理を続行します。");
@@ -32,10 +41,11 @@ public class hod1
         
         parts = new List<hod1_Part>();
         int partCount = br.ReadInt32();
+        long maximumPartCount = (br.BaseStream.Length - br.BaseStream.Position) / 328L;
         
-        if (partCount <= 0)
+        if (partCount <= 0 || partCount > maximumPartCount)
         {
-            Debug.LogError("Error: パーツ数が0または負の値です。");
+            Debug.LogError($"Error: HODパーツ数が不正です: {partCount}");
             return false;
         }
 
@@ -44,7 +54,9 @@ public class hod1
             hod1_Part nPart = new hod1_Part();
             nPart.treeDepth = br.ReadInt32();
             nPart.childCount = br.ReadInt32();
-            nPart.name = ASCIIEncoding.ASCII.GetString(br.ReadBytes(256)).TrimEnd('\0');
+            byte[] nameBytes = ReadRequiredBytes(br, 256, $"HOD part {i} name");
+            string sourceName = ASCIIEncoding.ASCII.GetString(nameBytes).TrimEnd('\0');
+            nPart.name = sourceName;
 
             if (string.IsNullOrEmpty(nPart.name))
             {
@@ -52,24 +64,34 @@ public class hod1
                 nPart.name = "NoNamedParts";
             }
 
+            byte[] matrixBytes = ReadRequiredBytes(br, 64, $"HOD part {i} matrix");
             nPart.transform = new Matrix4x4();
-            nPart.transform.m00 = br.ReadSingle();
-            nPart.transform.m10 = br.ReadSingle();
-            nPart.transform.m20 = br.ReadSingle(); 
-            nPart.transform.m30 = br.ReadSingle();
-            nPart.transform.m01 = br.ReadSingle();
-            nPart.transform.m11 = br.ReadSingle();
-            nPart.transform.m21 = br.ReadSingle();
-            nPart.transform.m31 = br.ReadSingle();
-            nPart.transform.m02 = br.ReadSingle();
-            nPart.transform.m12 = br.ReadSingle();
-            nPart.transform.m22 = br.ReadSingle();
-            nPart.transform.m32 = br.ReadSingle();
-            nPart.transform.m03 = br.ReadSingle();
-            nPart.transform.m13 = br.ReadSingle();
-            nPart.transform.m23 = br.ReadSingle();
-            nPart.transform.m33 = br.ReadSingle();
+            nPart.transform.m00 = BitConverter.ToSingle(matrixBytes, 0);
+            nPart.transform.m10 = BitConverter.ToSingle(matrixBytes, 4);
+            nPart.transform.m20 = BitConverter.ToSingle(matrixBytes, 8);
+            nPart.transform.m30 = BitConverter.ToSingle(matrixBytes, 12);
+            nPart.transform.m01 = BitConverter.ToSingle(matrixBytes, 16);
+            nPart.transform.m11 = BitConverter.ToSingle(matrixBytes, 20);
+            nPart.transform.m21 = BitConverter.ToSingle(matrixBytes, 24);
+            nPart.transform.m31 = BitConverter.ToSingle(matrixBytes, 28);
+            nPart.transform.m02 = BitConverter.ToSingle(matrixBytes, 32);
+            nPart.transform.m12 = BitConverter.ToSingle(matrixBytes, 36);
+            nPart.transform.m22 = BitConverter.ToSingle(matrixBytes, 40);
+            nPart.transform.m32 = BitConverter.ToSingle(matrixBytes, 44);
+            nPart.transform.m03 = BitConverter.ToSingle(matrixBytes, 48);
+            nPart.transform.m13 = BitConverter.ToSingle(matrixBytes, 52);
+            nPart.transform.m23 = BitConverter.ToSingle(matrixBytes, 56);
+            nPart.transform.m33 = BitConverter.ToSingle(matrixBytes, 60);
             parts.Add(nPart);
+
+            LegacyHodPartSource sourcePart = new LegacyHodPartSource();
+            sourcePart.nameBytes = nameBytes;
+            sourcePart.modelName = nPart.name;
+            sourcePart.matrixBytes = matrixBytes;
+            sourcePart.position = Utils.GetPosition(nPart.transform);
+            sourcePart.rotation = Utils.GetRotation(nPart.transform);
+            sourcePart.scale = Utils.GetScale(nPart.transform);
+            legacySource.parts.Add(sourcePart);
         }
 
         return true;
@@ -112,6 +134,128 @@ public class hod1
         bw.Write(text);
         for (int i = text.Length; i < byteLength; i++)
             bw.Write((byte)0);
+    }
+
+    internal static void SaveFromHod2v0(
+        ref BinaryWriter bw,
+        hod2v0 hod,
+        LegacyHodSource legacySource)
+    {
+        if (hod == null || hod.parts == null)
+            throw new InvalidDataException("Legacy ANI structure HOD is missing.");
+
+        bw.Write(ASCIIEncoding.ASCII.GetBytes("HOD"));
+        bw.Write(hod.parts.Count);
+        for (int i = 0; i < hod.parts.Count; i++)
+        {
+            hod2v0_Part part = hod.parts[i];
+            LegacyHodPartSource sourcePart = GetSourcePart(legacySource, i);
+            bw.Write(part.treeDepth);
+            bw.Write(part.childCount);
+            WriteLegacyPartName(bw, part.name, sourcePart);
+            WriteLegacyMatrix(
+                bw,
+                part.position,
+                part.rotation,
+                part.scale,
+                sourcePart);
+        }
+    }
+
+    internal static void SaveFromHod2v1(
+        ref BinaryWriter bw,
+        hod2v1 hod,
+        LegacyHodSource legacySource)
+    {
+        if (hod == null || hod.parts == null)
+            throw new InvalidDataException("Legacy ANI frame HOD is missing.");
+
+        bw.Write(ASCIIEncoding.ASCII.GetBytes("HOD"));
+        bw.Write(hod.parts.Count);
+        for (int i = 0; i < hod.parts.Count; i++)
+        {
+            hod2v1_Part part = hod.parts[i];
+            LegacyHodPartSource sourcePart = GetSourcePart(legacySource, i);
+            bw.Write(part.treeDepth);
+            bw.Write(part.childCount);
+            WriteLegacyPartName(bw, part.name, sourcePart);
+            WriteLegacyMatrix(
+                bw,
+                part.position,
+                part.rotation,
+                part.scale,
+                sourcePart);
+        }
+    }
+
+    static LegacyHodPartSource GetSourcePart(LegacyHodSource legacySource, int index)
+    {
+        if (legacySource == null || legacySource.parts == null
+            || index < 0 || index >= legacySource.parts.Count)
+        {
+            return null;
+        }
+
+        return legacySource.parts[index];
+    }
+
+    static void WriteLegacyPartName(
+        BinaryWriter bw,
+        string name,
+        LegacyHodPartSource sourcePart)
+    {
+        if (sourcePart != null && name == sourcePart.modelName
+            && sourcePart.nameBytes != null && sourcePart.nameBytes.Length == 256)
+        {
+            bw.Write(sourcePart.nameBytes);
+            return;
+        }
+
+        WriteFixedASCII(bw, name, 256);
+    }
+
+    static void WriteLegacyMatrix(
+        BinaryWriter bw,
+        Vector3 position,
+        Quaternion rotation,
+        Vector3 scale,
+        LegacyHodPartSource sourcePart)
+    {
+        if (sourcePart != null
+            && LegacyAniSourceValues.VectorExactlyEquals(position, sourcePart.position)
+            && LegacyAniSourceValues.QuaternionExactlyEquals(rotation, sourcePart.rotation)
+            && LegacyAniSourceValues.VectorExactlyEquals(scale, sourcePart.scale)
+            && sourcePart.matrixBytes != null && sourcePart.matrixBytes.Length == 64)
+        {
+            bw.Write(sourcePart.matrixBytes);
+            return;
+        }
+
+        Matrix4x4 matrix = Matrix4x4.TRS(position, rotation, scale);
+        bw.Write(matrix.m00);
+        bw.Write(matrix.m10);
+        bw.Write(matrix.m20);
+        bw.Write(matrix.m30);
+        bw.Write(matrix.m01);
+        bw.Write(matrix.m11);
+        bw.Write(matrix.m21);
+        bw.Write(matrix.m31);
+        bw.Write(matrix.m02);
+        bw.Write(matrix.m12);
+        bw.Write(matrix.m22);
+        bw.Write(matrix.m32);
+        bw.Write(matrix.m03);
+        bw.Write(matrix.m13);
+        bw.Write(matrix.m23);
+        bw.Write(matrix.m33);
+    }
+
+    static byte[] ReadRequiredBytes(BinaryReader br, int byteCount, string field)
+    {
+        byte[] bytes = br.ReadBytes(byteCount);
+        if (bytes.Length != byteCount)
+            throw new EndOfStreamException($"Unexpected end of file while reading {field}.");
+        return bytes;
     }
 
     public hod2v0 convertToHod2v0()

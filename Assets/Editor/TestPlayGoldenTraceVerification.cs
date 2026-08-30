@@ -615,17 +615,13 @@ public static class TestPlayGoldenTraceVerification
                 capture.airMoveActionEntries++;
             capture.airMoveActionTicks++;
 
-            float expectedForceY = capture.airMoveActionTicks <= 5 ? 0.04f : 0.02f;
             capture.airMoveSemanticsValid &= input.direction == 8 &&
                 NearlyEqual(energyDelta, 0f) &&
-                NearlyEqual(step.forcePerTick.x, 0f) &&
-                NearlyEqual(step.forcePerTick.y, expectedForceY) &&
-                NearlyEqual(step.forcePerTick.z, 0f) &&
+                VectorsNearlyEqual(step.forcePerTick, Vector3.zero) &&
                 NearlyEqual(step.scriptedVelocityBeforeRetention.x, 0f) &&
                 NearlyEqual(step.scriptedVelocityBeforeRetention.y, 0f) &&
                 NearlyEqual(step.scriptedVelocityBeforeRetention.z, 0.06f) &&
-                NearlyEqual(step.velocityAfterForce.y,
-                    step.velocityAfterRiseClamp.y + expectedForceY);
+                NearlyEqual(step.velocityAfterForce.y, step.velocityAfterRiseClamp.y);
         }
 
         if (wasAirMove && isAirIdleAfterMove)
@@ -1356,7 +1352,8 @@ public static class TestPlayGoldenTraceVerification
             {
                 throw new InvalidOperationException(
                     "GT-004 must run real-ANI air-move action 4 for 15 ticks with Move(0,0,0.06) " +
-                    "and Force Y 0.04 then 0.02, release to air-stop action 8 for 35 ticks, retain " +
+                    "while filtering its positive raw Force Y 0.04 then 0.02 from physical lift, " +
+                    "release to air-stop action 8 for 35 ticks, retain " +
                     "inherited Move by 0.99, apply +0.012 vertical braking only before tick 31 " +
                     "below Y 0.05, then resume gravity-driven descent. " +
                     "airMoveEntries=" + capture.airMoveActionEntries +

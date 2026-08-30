@@ -328,12 +328,11 @@ public class UI_EditParts : MonoBehaviour
 
     public void addParts()
     {
-        string warning;
-        if (!robo.CanEditStructure(out warning))
-        {
-            msgBox.Show(warning);
-            return;
-        }
+        BeginStructureEdit(OpenAddPartsPanel);
+    }
+
+    void OpenAddPartsPanel()
+    {
         addPartsPanel.SetActive(true);
         addText.text = UILocalization.Get(UILocalizationKeys.AddPartUnder, "{0}の下に新規パーツを追加します。", robo.hod.parts[index].name);
         DirectoryInfo di = new DirectoryInfo(robo.folder);
@@ -357,7 +356,13 @@ public class UI_EditParts : MonoBehaviour
             addPartsPanel.SetActive(false);
             return;
         }
-        robo.addPart(addPartsList.options[addPartsList.value].text, index);
+        string error;
+        if (!robo.TryAddPart(addPartsList.options[addPartsList.value].text, index, out error))
+        {
+            msgBox.Show(error);
+            addPartsPanel.SetActive(false);
+            return;
+        }
         RebuildPrevRoboIfNeeded();
         addPartsPanel.SetActive(false);
         PopulatePartsList();
@@ -378,13 +383,11 @@ public class UI_EditParts : MonoBehaviour
             return;
         }
 
-        string warning;
-        if (!robo.CanEditStructure(out warning))
-        {
-            msgBox.Show(warning);
-            return;
-        }
+        BeginStructureEdit(ContinueRemovePart);
+    }
 
+    void ContinueRemovePart()
+    {
         if (index == 0)
         {
             msgBox.Show(UILocalization.Get(UILocalizationKeys.RootPartCannotDelete, "ルートパーツは削除できません。"));
@@ -399,9 +402,12 @@ public class UI_EditParts : MonoBehaviour
 
         kakuninBox.openNoTextBoxDialog(confirmationMessage, (string rText) =>
         {
-            if (!robo.removePart(partIndexToDelete))
+            string error;
+            if (!robo.TryRemovePart(partIndexToDelete, out error))
             {
-                msgBox.Show(UILocalization.Get(UILocalizationKeys.PartDataInvalidDelete, "パーツ情報の整合性を確認できないため削除できません。"));
+                msgBox.Show(string.IsNullOrEmpty(error)
+                    ? UILocalization.Get(UILocalizationKeys.PartDataInvalidDelete, "パーツ情報の整合性を確認できないため削除できません。")
+                    : error);
             }
             else
             {
@@ -418,6 +424,108 @@ public class UI_EditParts : MonoBehaviour
                 }
             }
         });
+    }
+
+    void BeginStructureEdit(System.Action continuation)
+    {
+        string warning;
+        if (robo.CanEditStructure(out warning))
+        {
+            continuation?.Invoke();
+            return;
+        }
+
+        LegacyAniStructureEditPlan plan;
+        string error;
+        if (!robo.TryCreateLegacyStructureEditPlan(out plan, out error))
+        {
+            msgBox.Show(string.IsNullOrEmpty(error) ? warning : error);
+            return;
+        }
+
+        if (plan.RequiresAuthorityChoice)
+        {
+            List<string> values = new List<string> { "treeDepth", "childCount" };
+            List<string> displayOptions = new List<string>
+            {
+                UILocalization.GetFixed("treeDepthを正として修復"),
+                UILocalization.GetFixed("childCountを正として修復")
+            };
+            string message = BuildLegacyStructureEditMessage(plan, true);
+            inputBox.openSelectDialog(
+                message,
+                values,
+                displayOptions,
+                selected => ApplyLegacyStructureEditPlan(
+                    plan,
+                    selected == "childCount"
+                        ? LegacyAniHierarchyAuthority.ChildCount
+                        : LegacyAniHierarchyAuthority.TreeDepth,
+                    continuation),
+                null);
+            return;
+        }
+
+        LegacyAniHierarchyAuthority authority = plan.RecommendedAuthority;
+        string confirmation = BuildLegacyStructureEditMessage(plan, false);
+        kakuninBox.openNoTextBoxDialog(
+            confirmation,
+            ignored => ApplyLegacyStructureEditPlan(plan, authority, continuation));
+    }
+
+    string BuildLegacyStructureEditMessage(
+        LegacyAniStructureEditPlan plan,
+        bool requiresChoice)
+    {
+        string prefix = requiresChoice
+            ? UILocalization.Get(
+                "hod.legacy_edit.choose_authority",
+                "旧ANIのtreeDepthとchildCountが別の有効な階層を表しています。パーツの追加・削除を行うには、構造HODと全フレームへ適用する正本を選択してください。元ファイルは保存するまで変更されません。")
+            : UILocalization.Get(
+                "hod.legacy_edit.confirm_normalize",
+                "旧ANIは読込時の階層値を維持しています。パーツの追加・削除を行うには、構造HODと全フレームの階層列を次の内容で正規化します。元ファイルは保存するまで変更されません。正規化して構造編集を続けますか？");
+
+        string details = plan.Summary;
+        if (!string.IsNullOrEmpty(plan.Details))
+            details += "\n" + plan.Details;
+
+        if (requiresChoice)
+        {
+            string treePreview = plan.BuildPreview(
+                LegacyAniHierarchyAuthority.TreeDepth, robo.hod.parts);
+            string childPreview = plan.BuildPreview(
+                LegacyAniHierarchyAuthority.ChildCount, robo.hod.parts);
+            details += UILocalization.Get(
+                "hod.legacy_edit.choice_previews",
+                "\n\n[treeDepth]\n{0}\n\n[childCount]\n{1}",
+                treePreview,
+                childPreview);
+        }
+        else
+        {
+            string preview = plan.BuildPreview(plan.RecommendedAuthority, robo.hod.parts);
+            if (!string.IsNullOrEmpty(preview))
+                details += "\n" + preview;
+        }
+
+        return prefix + "\n\n" + details;
+    }
+
+    void ApplyLegacyStructureEditPlan(
+        LegacyAniStructureEditPlan plan,
+        LegacyAniHierarchyAuthority authority,
+        System.Action continuation)
+    {
+        string error;
+        if (!robo.TryApplyLegacyStructureEditPlan(plan, authority, out error))
+        {
+            msgBox.Show(error);
+            return;
+        }
+
+        RebuildPrevRoboIfNeeded();
+        PopulatePartsList();
+        continuation?.Invoke();
     }
 
     public void renamePart()

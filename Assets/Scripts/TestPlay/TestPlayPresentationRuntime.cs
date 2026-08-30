@@ -32,6 +32,8 @@ public class TestPlayPresentationRuntime : MonoBehaviour
     public TestPlayController controller;
     public AudioSource soundSource;
     public AudioSource voiceSource;
+    public AudioSource propulsionStartSource;
+    public AudioSource propulsionSource;
 
     [Header("Original resource mappings")]
     public List<TestPlayAudioBinding> sounds = new List<TestPlayAudioBinding>();
@@ -45,6 +47,17 @@ public class TestPlayPresentationRuntime : MonoBehaviour
     public bool useSpatialAudio = true;
     public float audioMaxDistance = 40f;
 
+    [Header("Propulsion start + loop (Unity adapter)")]
+    public AudioClip propulsionStartClip;
+    [Range(0f, 1f)] public float propulsionStartVolume = 1f;
+    public AudioClip propulsionLoopClip;
+    [Range(0f, 1f)] public float propulsionLoopVolume = 1f;
+    [Min(0f)] public float propulsionFadeSeconds = 0.05f;
+
+    public bool PropulsionActiveRequested { get; private set; }
+    public bool PropulsionLoopRequested { get; private set; }
+    public int PropulsionActivationCount { get; private set; }
+
     readonly HashSet<string> missingAudioKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     readonly HashSet<string> missingTextureKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -55,6 +68,10 @@ public class TestPlayPresentationRuntime : MonoBehaviour
         {
             PreloadBindings(sounds);
             PreloadBindings(voices);
+            if (propulsionStartClip != null && propulsionStartClip.loadState == AudioDataLoadState.Unloaded)
+                propulsionStartClip.LoadAudioData();
+            if (propulsionLoopClip != null && propulsionLoopClip.loadState == AudioDataLoadState.Unloaded)
+                propulsionLoopClip.LoadAudioData();
         }
         if (controller == null)
             controller = GetComponent<TestPlayController>();
@@ -68,6 +85,12 @@ public class TestPlayPresentationRuntime : MonoBehaviour
     void OnDisable()
     {
         Unbind();
+        StopPresentation();
+    }
+
+    void Update()
+    {
+        UpdatePropulsionFade();
     }
 
     public void Bind(TestPlayController source)
@@ -91,6 +114,15 @@ public class TestPlayPresentationRuntime : MonoBehaviour
             soundSource.Stop();
         if (voiceSource != null)
             voiceSource.Stop();
+        PropulsionActiveRequested = false;
+        PropulsionLoopRequested = false;
+        if (propulsionStartSource != null)
+            propulsionStartSource.Stop();
+        if (propulsionSource != null)
+        {
+            propulsionSource.Stop();
+            propulsionSource.volume = 0f;
+        }
     }
 
     public void AttachEmitters(Transform sourceRoot)
@@ -101,6 +133,91 @@ public class TestPlayPresentationRuntime : MonoBehaviour
 
         AttachEmitter(soundSource, sourceRoot);
         AttachEmitter(voiceSource, sourceRoot);
+        AttachEmitter(propulsionStartSource, sourceRoot);
+        AttachEmitter(propulsionSource, sourceRoot);
+    }
+
+    /// <summary>
+    /// Drives a one-shot burner.wav start and a separate burner_f15.wav loop from
+    /// aggregate ANI BURNER output. Only the loop fades when output disappears.
+    /// This remains an explicit Unity presentation adapter; the fixed Snd(5)
+    /// mapping to burner_f15.wav is preserved independently.
+    /// </summary>
+    public void SetPropulsionLoopActive(bool active)
+    {
+        EnsureAudioSources();
+        bool newlyActivated = active && !PropulsionActiveRequested;
+        PropulsionActiveRequested = active;
+        PropulsionLoopRequested = active && propulsionLoopClip != null;
+
+        if (active && propulsionStartClip == null)
+        {
+            const string missingKey = "Propulsion:burner.wav";
+            if (logMissingAudio && missingAudioKeys.Add(missingKey))
+                Debug.LogWarning("[TestPlay][Audio] Missing original resource mapping: " + missingKey);
+        }
+        if (active && propulsionLoopClip == null)
+        {
+            const string missingKey = "Propulsion:burner_f15.wav";
+            if (logMissingAudio && missingAudioKeys.Add(missingKey))
+                Debug.LogWarning("[TestPlay][Audio] Missing original resource mapping: " + missingKey);
+        }
+
+        if (propulsionSource == null)
+            return;
+
+        if (propulsionSource.clip != propulsionLoopClip)
+        {
+            propulsionSource.Stop();
+            propulsionSource.clip = propulsionLoopClip;
+        }
+        propulsionSource.loop = true;
+
+        if (!active)
+        {
+            if (!Application.isPlaying || propulsionFadeSeconds <= 0f)
+            {
+                propulsionSource.Stop();
+                propulsionSource.volume = 0f;
+            }
+            return;
+        }
+
+        if (newlyActivated)
+        {
+            PropulsionActivationCount++;
+            ConfigureAndStartPropulsionOneShot();
+            if (Application.isPlaying && propulsionSource.isPlaying)
+                propulsionSource.Stop();
+        }
+
+        if (!PropulsionLoopRequested)
+            return;
+
+        if (!Application.isPlaying)
+        {
+            propulsionSource.volume = Mathf.Clamp01(propulsionLoopVolume);
+            return;
+        }
+
+        if (!propulsionSource.isPlaying)
+        {
+            propulsionSource.volume = Mathf.Clamp01(propulsionLoopVolume);
+            propulsionSource.Play();
+        }
+    }
+
+    void ConfigureAndStartPropulsionOneShot()
+    {
+        if (propulsionStartSource == null || propulsionStartClip == null)
+            return;
+
+        propulsionStartSource.Stop();
+        propulsionStartSource.clip = propulsionStartClip;
+        propulsionStartSource.loop = false;
+        propulsionStartSource.volume = Mathf.Clamp01(propulsionStartVolume);
+        if (Application.isPlaying)
+            propulsionStartSource.Play();
     }
 
     public GameObject CreateMappedEffect(string key, Vector3 position, Quaternion rotation)
@@ -439,9 +556,19 @@ public class TestPlayPresentationRuntime : MonoBehaviour
             soundSource = CreateAudioSource("TestPlayAudio_Snd");
         if (voiceSource == null)
             voiceSource = CreateAudioSource("TestPlayAudio_Voice");
+        if (propulsionStartSource == null)
+            propulsionStartSource = CreateAudioSource("TestPlayAudio_PropulsionStart");
+        if (propulsionSource == null)
+            propulsionSource = CreateAudioSource("TestPlayAudio_Propulsion");
 
         ConfigureAudioSource(soundSource);
         ConfigureAudioSource(voiceSource);
+        ConfigureAudioSource(propulsionStartSource);
+        ConfigureAudioSource(propulsionSource);
+        propulsionStartSource.loop = false;
+        propulsionSource.loop = true;
+        if (!Application.isPlaying && !PropulsionLoopRequested)
+            propulsionSource.volume = 0f;
     }
 
     AudioSource CreateAudioSource(string objectName)
@@ -467,5 +594,30 @@ public class TestPlayPresentationRuntime : MonoBehaviour
 
         source.transform.SetParent(sourceRoot, false);
         source.transform.localPosition = Vector3.zero;
+    }
+
+    void UpdatePropulsionFade()
+    {
+        if (!Application.isPlaying || propulsionSource == null)
+            return;
+
+        float targetVolume = PropulsionLoopRequested
+            ? Mathf.Clamp01(propulsionLoopVolume)
+            : 0f;
+        if (propulsionFadeSeconds <= 0f)
+        {
+            propulsionSource.volume = targetVolume;
+        }
+        else
+        {
+            float speed = 1f / propulsionFadeSeconds;
+            propulsionSource.volume = Mathf.MoveTowards(
+                propulsionSource.volume,
+                targetVolume,
+                speed * Time.unscaledDeltaTime);
+        }
+
+        if (!PropulsionLoopRequested && propulsionSource.isPlaying && propulsionSource.volume <= 0.0001f)
+            propulsionSource.Stop();
     }
 }

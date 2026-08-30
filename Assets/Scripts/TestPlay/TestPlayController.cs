@@ -1062,13 +1062,22 @@ public class TestPlayController : MonoBehaviour
         // FUN_004d5b60 / FUN_004d5ec0 clamp the current rise speed before the
         // ANI Force value is added by FUN_004cd840. Force is a per-tick velocity
         // delta in the original, not a per-second acceleration.
-        bool limitUpwardVelocity =
-            (IsCurrentAction(riseAction) && riseSequenceActive) ||
-            IsCurrentAction(airMoveAction);
+        bool limitUpwardVelocity = IsCurrentAction(riseAction) && riseSequenceActive;
+        Vector3 appliedForceCommand = forceCommand;
+        if (IsCurrentAction(airMoveAction) && appliedForceCommand.y > 0f)
+        {
+            // Action 4 is used as the directional lower-body/presentation ANI while
+            // the original airborne callback remains action 8. Applying action 4's
+            // positive Y Force as the single Unity physics action lets a held
+            // direction climb forever without entering the energy-gated rise/boost
+            // paths. Preserve its horizontal Move, BURNER, and non-positive Force,
+            // but reserve physical lift for actions 7 and 22.
+            appliedForceCommand.y = 0f;
+        }
         lastMotionStep = TestPlayMotionCore.Integrate(new TestPlayMotionInput
         {
             velocity = velocity,
-            forcePerTick = forceCommand,
+            forcePerTick = appliedForceCommand,
             limitUpwardVelocity = limitUpwardVelocity,
             upwardVelocityLimit = riseVerticalVelocityLimit,
             gravityEnabled = gvEnable,
@@ -4229,10 +4238,13 @@ public class TestPlayController : MonoBehaviour
         bool lineLayerCreated = false;
         if (presentationRuntime != null)
         {
+            // Real HOD weapon-point bones already contain the outward basis for both
+            // UP and DOWN labels. Reversing the display child swaps the saber texture's
+            // root and tip, so type 55 follows the bone's local Z+ without another turn.
             visualRoot = presentationRuntime.CreateOriginalSwordBeamEffect(
                 parameters,
                 weaponPoint.BoneTr,
-                weaponPoint.Direction == SptDirection.DOWN,
+                false,
                 out visual,
                 out primaryLayerCreated,
                 out lineLayerCreated);
@@ -4558,6 +4570,8 @@ public class TestPlayController : MonoBehaviour
 
     void ApplyBurners()
     {
+        UpdatePropulsionLoopFromBurnerOutputs();
+
         if (sptSource == null || sptSource.LastSptData == null)
         {
             HideAllBurnerCones();
@@ -4677,6 +4691,7 @@ public class TestPlayController : MonoBehaviour
     void StopAllBurnerEffects()
     {
         burnerRequestedOutputs.Clear();
+        presentationRuntime?.SetPropulsionLoopActive(false);
         HideAllBurnerCones();
 
         if (sptSource == null || sptSource.LastSptData == null)
@@ -4688,6 +4703,20 @@ public class TestPlayController : MonoBehaviour
             if (info != null)
                 StopParticleBurner(info);
         }
+    }
+
+    void UpdatePropulsionLoopFromBurnerOutputs()
+    {
+        bool active = false;
+        foreach (KeyValuePair<int, float> output in burnerRequestedOutputs)
+        {
+            if (output.Value > 0f)
+            {
+                active = true;
+                break;
+            }
+        }
+        presentationRuntime?.SetPropulsionLoopActive(active);
     }
 
     float EstimateDamageForWeapon(int weaponType)
@@ -4755,7 +4784,7 @@ public class TestPlayController : MonoBehaviour
 
         Vector3 positionAfter = root.position;
         Debug.Log(string.Format(
-            "[TestPlay][RootMotion] tick={0} action={1}:{2} script={3}/{4} root={5} path={6} pos={7}->{8} delta={9} localMove={10} worldMove={11} scriptedMove={12} appliedMove={13} force={14} velocity={15} moveLocked={16} inputMove={17} stepFallbackMove={18} vF={19:F3} aniScale={20:F3} tickDt={21:F4} step={22} stepDist={23:F4}/{24:F4}",
+            "[TestPlay][RootMotion] tick={0} action={1}:{2} script={3}/{4} root={5} path={6} pos={7}->{8} delta={9} localMove={10} worldMove={11} scriptedMove={12} appliedMove={13} force={14} appliedForce={15} velocity={16} moveLocked={17} inputMove={18} stepFallbackMove={19} vF={20:F3} aniScale={21:F3} tickDt={22:F4} step={23} stepDist={24:F4}/{25:F4}",
             tick,
             currentAnimationIndex,
             currentAnimationName,
@@ -4771,6 +4800,7 @@ public class TestPlayController : MonoBehaviour
             FormatVector(scriptedMove),
             FormatVector(appliedMove),
             FormatVector(forceCommand),
+            FormatVector(lastMotionStep.forcePerTick),
             FormatVector(velocity),
             moveLocked,
             usingInputMove,

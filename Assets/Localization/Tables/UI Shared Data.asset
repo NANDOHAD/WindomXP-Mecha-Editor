@@ -1075,6 +1075,62 @@ MonoBehaviour:
     m_Key: fixed.80b3c2365b67f255
     m_Metadata:
       m_Items: []
+  - m_Id: 9484516887355392
+    m_Key: dialog.ani_save_failed
+    m_Metadata:
+      m_Items: []
+  - m_Id: 9502022163226624
+    m_Key: hod.repair.frame_sync_required
+    m_Metadata:
+      m_Items: []
+  - m_Id: 9502022255501312
+    m_Key: hod.ui.legacy_unrepaired_warning
+    m_Metadata:
+      m_Items: []
+  - m_Id: 9601983836053504
+    m_Key: hod.legacy_edit.not_legacy
+    m_Metadata:
+      m_Items: []
+  - m_Id: 9601983882190848
+    m_Key: hod.legacy_edit.authority_unavailable
+    m_Metadata:
+      m_Items: []
+  - m_Id: 9601983882190849
+    m_Key: hod.legacy_edit.apply_failed
+    m_Metadata:
+      m_Items: []
+  - m_Id: 9601983882190850
+    m_Key: hod.legacy_edit.frame_index_mismatch
+    m_Metadata:
+      m_Items: []
+  - m_Id: 9601983882190851
+    m_Key: hod.legacy_edit.no_plan
+    m_Metadata:
+      m_Items: []
+  - m_Id: 9601983882190852
+    m_Key: hod.legacy_edit.choose_authority
+    m_Metadata:
+      m_Items: []
+  - m_Id: 9601983882190853
+    m_Key: hod.legacy_edit.confirm_normalize
+    m_Metadata:
+      m_Items: []
+  - m_Id: 9601983882190854
+    m_Key: hod.legacy_edit.choice_previews
+    m_Metadata:
+      m_Items: []
+  - m_Id: 9756767775875072
+    m_Key: ani.legacy_conversion.prompt
+    m_Metadata:
+      m_Items: []
+  - m_Id: 9756767830401024
+    m_Key: ani.legacy_conversion.failed
+    m_Metadata:
+      m_Items: []
+  - m_Id: 9756767830401025
+    m_Key: ani.legacy_conversion.completed
+    m_Metadata:
+      m_Items: []
   m_Metadata:
     m_Items: []
   m_KeyGenerator:

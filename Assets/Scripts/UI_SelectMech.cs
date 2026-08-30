@@ -6,29 +6,23 @@ using UnityEngine.UI;
 using System;
 using System.Threading.Tasks;
 
+public enum LegacyAniLoadChoice
+{
+    KeepLegacy,
+    ConvertToAn2
+}
+
+public sealed class LegacyAniAn2ConversionResult
+{
+    public bool success;
+    public ani2 ani;
+    public string destinationPath;
+    public HodHierarchyRepairPlan hierarchyPlan;
+    public string error;
+}
+
 public class UI_SelectMech : MonoBehaviour
 {
-    enum HierarchyRepairDecision
-    {
-        Repair,
-        PreferTreeDepth,
-        PreferChildCount,
-        Prune,
-        Manual,
-        ReadOnly,
-        Cancel
-    }
-
-    const string RepairAndLoadLabel = "修復して読み込む";
-    const string PreferTreeDepthLabel = "treeDepthを正として修復";
-    const string PreferChildCountLabel = "childCountを正として修復";
-    const string PruneAndLoadLabel = "不整合パーツを除外して読み込む";
-    const string ManualRepairLabel = "階層を手動修復";
-    const string ApplyManualRepairLabel = "検証して適用";
-    const string ClearParentLabel = "未接続に戻す";
-    const string ReadOnlyLoadLabel = "読取専用で続行";
-
-
     public Dropdown RoboDD;
     List<string> list = new List<string>();
     public Image selectImage;
@@ -174,6 +168,216 @@ public class UI_SelectMech : MonoBehaviour
 
         }
     }
+
+    public static bool TryApplyAutomaticHierarchyRepairForLoad(
+        ani2 ani,
+        out HodHierarchyRepairPlan appliedHierarchyPlan,
+        out string error)
+    {
+        if (ani != null && ani.sourceFormat == AniContainerFormat.LegacyAni)
+        {
+            appliedHierarchyPlan = null;
+            error = "";
+            return true;
+        }
+
+        return HodHierarchyRepair.TryApplyTreeDepthFirst(
+            ani, out appliedHierarchyPlan, out error);
+    }
+
+    public static bool TryDetectContainerFormat(
+        string filename,
+        out AniContainerFormat format,
+        out string error)
+    {
+        format = AniContainerFormat.Unknown;
+        error = "";
+        try
+        {
+            using (BinaryReader reader = new BinaryReader(File.OpenRead(filename)))
+            {
+                if (reader.BaseStream.Length < 3)
+                {
+                    error = "ファイルが短すぎるためANI形式を判定できません。";
+                    return false;
+                }
+
+                string signature = System.Text.Encoding.ASCII.GetString(reader.ReadBytes(3));
+                switch (signature)
+                {
+                    case "ANI":
+                        format = AniContainerFormat.LegacyAni;
+                        return true;
+                    case "AN2":
+                        format = AniContainerFormat.An2;
+                        return true;
+                    case "HOD":
+                        format = AniContainerFormat.Hod;
+                        return true;
+                    default:
+                        error = $"未対応のファイルシグネチャです: {signature}";
+                        return false;
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            error = exception.Message;
+            return false;
+        }
+    }
+
+    public static string GetAvailableAn2ConversionPath(string sourcePath)
+    {
+        if (string.IsNullOrEmpty(sourcePath))
+            throw new ArgumentException("変換元ANIファイルが指定されていません。", nameof(sourcePath));
+
+        string directory = Path.GetDirectoryName(sourcePath) ?? "";
+        string baseName = Path.GetFileNameWithoutExtension(sourcePath);
+        string candidate = Path.Combine(directory, baseName + ".an2");
+        string sourceFullPath = Path.GetFullPath(sourcePath);
+        if (!File.Exists(candidate)
+            && !string.Equals(
+                Path.GetFullPath(candidate),
+                sourceFullPath,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return candidate;
+        }
+
+        int suffix = 1;
+        while (true)
+        {
+            string suffixText = suffix == 1 ? ".converted" : ".converted" + suffix;
+            candidate = Path.Combine(directory, baseName + suffixText + ".an2");
+            if (!File.Exists(candidate)
+                && !string.Equals(
+                    Path.GetFullPath(candidate),
+                    sourceFullPath,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return candidate;
+            }
+            suffix++;
+        }
+    }
+
+    public static async Task<LegacyAniAn2ConversionResult> ConvertLegacyAniToAn2Async(
+        ani2 source,
+        string destinationPath,
+        IProgress<int> progress = null)
+    {
+        LegacyAniAn2ConversionResult result = new LegacyAniAn2ConversionResult
+        {
+            destinationPath = destinationPath,
+            error = ""
+        };
+
+        if (source == null || source.sourceFormat != AniContainerFormat.LegacyAni)
+        {
+            result.error = "旧ANIとして読み込まれたデータではありません。";
+            return result;
+        }
+        if (string.IsNullOrEmpty(destinationPath))
+        {
+            result.error = "AN2の変換先が指定されていません。";
+            return result;
+        }
+
+        string sourceFullPath = string.IsNullOrEmpty(source._filename)
+            ? ""
+            : Path.GetFullPath(source._filename);
+        string destinationFullPath = Path.GetFullPath(destinationPath);
+        if ((!string.IsNullOrEmpty(sourceFullPath)
+                && string.Equals(sourceFullPath, destinationFullPath, StringComparison.OrdinalIgnoreCase))
+            || File.Exists(destinationPath))
+        {
+            result.error = "元の旧ANIまたは既存ファイルを上書きする変換先は使用できません。";
+            return result;
+        }
+
+        HodHierarchyRepairPlan hierarchyPlan;
+        string hierarchyError;
+        if (!HodHierarchyRepair.TryApplyTreeDepthFirst(
+            source, out hierarchyPlan, out hierarchyError))
+        {
+            result.error = "AN2変換前にHOD階層を安全に正規化できませんでした。\n" + hierarchyError;
+            return result;
+        }
+        result.hierarchyPlan = hierarchyPlan;
+
+        bool generatedDestination = false;
+        try
+        {
+            source.saveAsAn2(destinationPath);
+            generatedDestination = File.Exists(destinationPath);
+
+            ani2 converted = new ani2();
+            bool loaded = await converted.load(destinationPath, progress);
+            if (!loaded || converted.sourceFormat != AniContainerFormat.An2
+                || converted.structure == null || converted.animations == null)
+            {
+                TryDeleteGeneratedConversion(destinationPath, generatedDestination);
+                result.error = "変換したAN2を再読み込みできませんでした。";
+                return result;
+            }
+
+            result.success = true;
+            result.ani = converted;
+            result.error = "";
+            return result;
+        }
+        catch (Exception exception)
+        {
+            TryDeleteGeneratedConversion(destinationPath, generatedDestination);
+            result.error = exception.Message;
+            return result;
+        }
+    }
+
+    static void TryDeleteGeneratedConversion(string path, bool generated)
+    {
+        if (!generated || string.IsNullOrEmpty(path) || !File.Exists(path))
+            return;
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception exception)
+        {
+            Debug.LogWarning($"[UI_SelectMech] 失敗したAN2変換ファイルを削除できませんでした: {exception.Message}");
+        }
+    }
+
+    async Task<LegacyAniLoadChoice> AskLegacyAniConversionAsync(string destinationPath)
+    {
+        UI_InputBox dialog = editAni != null ? editAni.kakuninBox : null;
+        if (dialog == null && editParts != null)
+            dialog = editParts.kakuninBox;
+        if (dialog == null)
+            throw new InvalidOperationException("旧ANIの変換確認ダイアログが設定されていません。");
+
+        TaskCompletionSource<LegacyAniLoadChoice> completion =
+            new TaskCompletionSource<LegacyAniLoadChoice>();
+        string message = UILocalization.Get(
+            "ani.legacy_conversion.prompt",
+            "読み込もうとしているファイルは旧ANI形式です。AN2へ変換して読み込みますか？\n\nOK: 元の旧ANIを変更せず「{0}」へAN2変換コピーを作成して読み込みます。旧ANI固有の未解析末尾データはAN2コピーには含まれません。\nキャンセル: 旧ANIのまま読み込みます。",
+            Path.GetFileName(destinationPath));
+
+        bool restoreLoading = loadingUI != null && loadingUI.activeSelf;
+        if (restoreLoading)
+            loadingUI.SetActive(false);
+        dialog.openNoTextBoxDialog(
+            message,
+            ignored => completion.TrySetResult(LegacyAniLoadChoice.ConvertToAn2),
+            ignored => completion.TrySetResult(LegacyAniLoadChoice.KeepLegacy));
+
+        LegacyAniLoadChoice choice = await completion.Task;
+        if (restoreLoading && loadingUI != null)
+            loadingUI.SetActive(true);
+        return choice;
+    }
+
     private async Task LoadDataAsync(string name)
     {
         var progress = new Progress<int>(value =>
@@ -184,111 +388,83 @@ public class UI_SelectMech : MonoBehaviour
                 lodingPerTxt.text = UILocalization.Get(UILocalizationKeys.LoadingProgress, "読み込み中...{0}%", value);
         });
 
-        ani2 ani = new ani2();
         string selectedFolder = Path.Combine(folder, list[RoboDD.value]);
-        bool loaded = await ani.load(Path.Combine(selectedFolder, name), progress);
+        string sourcePath = Path.Combine(selectedFolder, name);
+        LegacyAniLoadChoice legacyChoice = LegacyAniLoadChoice.KeepLegacy;
+        string conversionPath = null;
+        AniContainerFormat detectedFormat;
+        string detectionError;
+        if (TryDetectContainerFormat(sourcePath, out detectedFormat, out detectionError)
+            && detectedFormat == AniContainerFormat.LegacyAni)
+        {
+            conversionPath = GetAvailableAn2ConversionPath(sourcePath);
+            legacyChoice = await AskLegacyAniConversionAsync(conversionPath);
+        }
+
+        ani2 ani = new ani2();
+        bool loaded = await ani.load(sourcePath, progress);
         if (!loaded || ani.structure == null || ani.animations == null)
             throw new InvalidDataException($"'{name}' を読み込めませんでした。");
 
-        HodHierarchyRepairPlan repairPlan = HodHierarchyRepair.CreatePlan(ani.structure.parts);
-        if (repairPlan.Kind != HodHierarchyRepairKind.None)
+        if (legacyChoice == LegacyAniLoadChoice.ConvertToAn2)
         {
-            HodHierarchyPrunePlan prunePlan = HodHierarchyPrune.CreatePlan(ani.structure.parts, repairPlan);
-
-            string targetRepairError;
-            bool canRepairLoadedData = repairPlan.CanApplyTo(ani, out targetRepairError);
-            string targetPruneError;
-            bool canPruneLoadedData = prunePlan.CanApplyTo(ani, out targetPruneError);
-
-            HodHierarchyRepairPlan treeDepthPlan = null;
-            HodHierarchyRepairPlan childCountPlan = null;
-            bool canUseTreeDepth = false;
-            bool canUseChildCount = false;
-            string treeDepthUnavailableReason = "";
-            string childCountUnavailableReason = "";
-            if (repairPlan.Kind == HodHierarchyRepairKind.Ambiguous)
+            LegacyAniAn2ConversionResult conversion =
+                await ConvertLegacyAniToAn2Async(ani, conversionPath, progress);
+            if (!conversion.success)
             {
-                treeDepthPlan = HodHierarchyRepair.CreatePlanUsingTreeDepth(ani.structure.parts);
-                childCountPlan = HodHierarchyRepair.CreatePlanUsingChildCount(ani.structure.parts);
-                canUseTreeDepth = treeDepthPlan.CanApplyTo(ani, out treeDepthUnavailableReason);
-                canUseChildCount = childCountPlan.CanApplyTo(ani, out childCountUnavailableReason);
-            }
-
-            HodHierarchyManualRepairSession manualSession = null;
-            string manualUnavailableReason = "";
-            bool canRepairManually = repairPlan.Kind == HodHierarchyRepairKind.Unrepairable
-                && HodHierarchyManualRepairSession.TryCreate(
-                    ani, out manualSession, out manualUnavailableReason);
-
-            HierarchyRepairDecision decision = await AskHierarchyRepairAsync(
-                repairPlan,
-                prunePlan,
-                treeDepthPlan,
-                childCountPlan,
-                ani.structure.parts,
-                canRepairLoadedData,
-                targetRepairError,
-                canPruneLoadedData,
-                targetPruneError,
-                canUseTreeDepth,
-                treeDepthUnavailableReason,
-                canUseChildCount,
-                childCountUnavailableReason,
-                canRepairManually,
-                manualUnavailableReason);
-            if (decision == HierarchyRepairDecision.Cancel)
+                if (loadingUI != null)
+                    loadingUI.SetActive(false);
+                msgBox?.Show(UILocalization.Get(
+                    "ani.legacy_conversion.failed",
+                    "旧ANIをAN2へ変換できなかったため、読み込みを中止しました。元の旧ANIは変更されていません。\n{0}",
+                    conversion.error));
                 return;
-
-            HodHierarchyRepairPlan selectedRepairPlan = null;
-            if (decision == HierarchyRepairDecision.Repair)
-                selectedRepairPlan = repairPlan;
-            else if (decision == HierarchyRepairDecision.PreferTreeDepth)
-                selectedRepairPlan = treeDepthPlan;
-            else if (decision == HierarchyRepairDecision.PreferChildCount)
-                selectedRepairPlan = childCountPlan;
-
-            if (selectedRepairPlan != null)
-            {
-                string repairError;
-                if (!selectedRepairPlan.TryApply(ani, out repairError))
-                {
-                    Debug.LogWarning($"[UI_SelectMech] HOD階層の修復を中止しました: {repairError}");
-                    msgBox?.Show(UILocalization.Get(
-                        "hod.ui.repair_apply_failed",
-                        "HOD階層を安全に修復できなかったため、読み込みを中止しました。\n{0}",
-                        repairError));
-                    return;
-                }
-
-                Debug.LogWarning($"[UI_SelectMech] HOD階層をメモリ上で修復しました: {selectedRepairPlan.Summary}");
             }
-            else if (decision == HierarchyRepairDecision.Prune)
-            {
-                string pruneError;
-                if (!prunePlan.TryApply(ani, out pruneError))
-                {
-                    Debug.LogWarning($"[UI_SelectMech] 不整合パーツの除外を中止しました: {pruneError}");
-                    msgBox?.Show(UILocalization.Get(
-                        "hod.ui.prune_apply_failed",
-                        "不整合パーツを安全に除外できなかったため、読み込みを中止しました。\n{0}",
-                        pruneError));
-                    return;
-                }
 
-                Debug.LogWarning($"[UI_SelectMech] 不整合パーツをメモリ上で除外しました: {prunePlan.Summary}");
-            }
-            else if (decision == HierarchyRepairDecision.Manual)
-            {
-                if (manualSession == null || !await RunManualHierarchyRepairAsync(manualSession, ani))
-                    return;
+            ani = conversion.ani;
+            name = Path.GetFileName(conversion.destinationPath);
+            Debug.Log($"[UI_SelectMech] 旧ANIをAN2へ変換しました: {conversion.destinationPath}");
+        }
 
-                Debug.LogWarning("[UI_SelectMech] HOD階層を親指定によりメモリ上で修復しました。");
+        HodHierarchyRepairPlan appliedHierarchyPlan;
+        string hierarchyRepairError;
+        if (!TryApplyAutomaticHierarchyRepairForLoad(
+            ani, out appliedHierarchyPlan, out hierarchyRepairError))
+        {
+            Debug.LogWarning($"[UI_SelectMech] HOD階層の自動修復に失敗しました: {hierarchyRepairError}");
+            msgBox?.Show(UILocalization.Get(
+                "hod.ui.repair_apply_failed",
+                "HOD階層を安全に修復できなかったため、読み込みを中止しました。\n{0}",
+                hierarchyRepairError));
+            return;
+        }
+
+        if (appliedHierarchyPlan != null
+            && appliedHierarchyPlan.Kind != HodHierarchyRepairKind.None)
+        {
+            Debug.LogWarning(
+                $"[UI_SelectMech] HOD階層をメモリ上で自動修復しました: {appliedHierarchyPlan.Summary}");
+        }
+
+        string structureEditingBlockReason = "";
+        if (ani.sourceFormat == AniContainerFormat.LegacyAni)
+        {
+            string legacyHierarchyDetails;
+            if (!HodHierarchyRepair.TryValidateWithoutRepair(
+                ani, out legacyHierarchyDetails))
+            {
+                structureEditingBlockReason = UILocalization.Get(
+                    "hod.ui.legacy_unrepaired_warning",
+                    "旧ANIのHODパーツ階層は自動修復せず読み込みました。パーツの追加・削除時に、安全な正本を確定できる場合だけ正規化確認を表示します。\n{0}",
+                    legacyHierarchyDetails);
             }
         }
 
         robo.folder = selectedFolder;
+        robo.SetStructureEditingBlockReason(structureEditingBlockReason);
         robo.buildStructure(ani.structure);
-        if (name.Contains(".ani"))
+        if (ani.sourceFormat == AniContainerFormat.LegacyAni
+            || ani.sourceFormat == AniContainerFormat.An2)
         {
             robo.ani = ani;
             robo.filename = name;
@@ -337,294 +513,18 @@ public class UI_SelectMech : MonoBehaviour
         vc.Menu.SetActive(true);
         vc.EditMode(true);
         prefPanel.SetActive(false);
-    }
 
-
-    async Task<HierarchyRepairDecision> AskHierarchyRepairAsync(
-        HodHierarchyRepairPlan repairPlan,
-        HodHierarchyPrunePlan prunePlan,
-        HodHierarchyRepairPlan treeDepthPlan,
-        HodHierarchyRepairPlan childCountPlan,
-        IList<hod2v0_Part> parts,
-        bool canRepairLoadedData,
-        string repairUnavailableReason,
-        bool canPruneLoadedData,
-        string pruneUnavailableReason,
-        bool canUseTreeDepth,
-        string treeDepthUnavailableReason,
-        bool canUseChildCount,
-        string childCountUnavailableReason,
-        bool canRepairManually,
-        string manualUnavailableReason)
-    {
-        if (robo == null || robo.inputBox == null)
+        if (legacyChoice == LegacyAniLoadChoice.ConvertToAn2)
         {
-            Debug.LogWarning("[UI_SelectMech] 修復確認ダイアログが未設定のため、読取専用で読み込みます。");
-            return HierarchyRepairDecision.ReadOnly;
-        }
-
-        string message = UILocalization.Get(
-            "hod.ui.inconsistent_header",
-            "HODのパーツ階層に不整合があります。\n\n")
-            + repairPlan.Summary;
-        if (!string.IsNullOrEmpty(repairPlan.Details))
-            message += "\n" + repairPlan.Details;
-
-        string repairPreview = repairPlan.BuildPreview(parts);
-        if (!string.IsNullOrEmpty(repairPreview))
-            message += UILocalization.Get(
-                "hod.ui.repair_preview",
-                "\n\n修復予定:\n{0}",
-                repairPreview);
-
-        if (repairPlan.CanApply && !canRepairLoadedData && !string.IsNullOrEmpty(repairUnavailableReason))
-            message += UILocalization.Get(
-                "hod.ui.repair_unavailable",
-                "\n\n自動修復を適用できません:\n{0}",
-                repairUnavailableReason);
-
-        if (treeDepthPlan != null)
-        {
-            if (canUseTreeDepth)
-            {
-                message += UILocalization.Get(
-                    "hod.ui.tree_depth_case",
-                    "\n\ntreeDepthを正とする場合:\n{0}",
-                    treeDepthPlan.Summary);
-                string preview = treeDepthPlan.BuildPreview(parts);
-                if (!string.IsNullOrEmpty(preview))
-                    message += "\n" + preview;
-            }
-            else if (!string.IsNullOrEmpty(treeDepthUnavailableReason))
-            {
-                message += UILocalization.Get(
-                    "hod.ui.tree_depth_unavailable",
-                    "\n\ntreeDepthを正とする修復を適用できません:\n{0}",
-                    treeDepthUnavailableReason);
-            }
-        }
-
-        if (childCountPlan != null)
-        {
-            if (canUseChildCount)
-            {
-                message += UILocalization.Get(
-                    "hod.ui.child_count_case",
-                    "\n\nchildCountを正とする場合:\n{0}",
-                    childCountPlan.Summary);
-                string preview = childCountPlan.BuildPreview(parts);
-                if (!string.IsNullOrEmpty(preview))
-                    message += "\n" + preview;
-            }
-            else if (!string.IsNullOrEmpty(childCountUnavailableReason))
-            {
-                message += UILocalization.Get(
-                    "hod.ui.child_count_unavailable",
-                    "\n\nchildCountを正とする修復を適用できません:\n{0}",
-                    childCountUnavailableReason);
-            }
-        }
-
-        if (canRepairManually)
-        {
-            message += UILocalization.Get(
-                "hod.ui.manual_available",
-                "\n\n手動修復では各パーツの親を指定し、構造HODと全アニメーションフレームを同じ順序へ再構築します。");
-        }
-        else if (repairPlan.Kind == HodHierarchyRepairKind.Unrepairable
-            && !string.IsNullOrEmpty(manualUnavailableReason))
-        {
-            message += UILocalization.Get(
-                "hod.ui.manual_unavailable",
-                "\n\n手動修復を開始できません:\n{0}",
-                manualUnavailableReason);
-        }
-
-        if (canPruneLoadedData)
-        {
-            message += UILocalization.Get(
-                "hod.ui.prune_candidate",
-                "\n\n除外候補:\n{0}",
-                prunePlan.Summary);
-            if (!string.IsNullOrEmpty(prunePlan.Details))
-                message += "\n" + prunePlan.Details;
-
-            string prunePreview = prunePlan.BuildPreview(parts);
-            if (!string.IsNullOrEmpty(prunePreview))
-                message += "\n" + prunePreview;
-        }
-        else if (prunePlan.CanApply && !string.IsNullOrEmpty(pruneUnavailableReason))
-        {
-            message += UILocalization.Get(
-                "hod.ui.prune_unavailable",
-                "\n\n不整合パーツを除外できません:\n{0}",
-                pruneUnavailableReason);
-        }
-
-        if (canRepairLoadedData || canUseTreeDepth || canUseChildCount
-            || canRepairManually || canPruneLoadedData)
-        {
-            message += UILocalization.Get(
-                "hod.ui.memory_only",
-                "\n\n変更はメモリ上だけで行い、元ファイルを自動上書きしません。");
-        }
-        else
-        {
-            message += UILocalization.Get(
-                "hod.ui.read_only_continue",
-                "\n\n読取専用なら表示を継続できます。");
-        }
-
-        List<string> options = new List<string>();
-        if (canRepairLoadedData)
-            options.Add(RepairAndLoadLabel);
-        if (canUseTreeDepth)
-            options.Add(PreferTreeDepthLabel);
-        if (canUseChildCount)
-            options.Add(PreferChildCountLabel);
-        if (canRepairManually)
-            options.Add(ManualRepairLabel);
-        if (canPruneLoadedData)
-            options.Add(PruneAndLoadLabel);
-        options.Add(ReadOnlyLoadLabel);
-
-        string selected = await AskSelectionAsync(message, options);
-        if (selected == null)
-            return HierarchyRepairDecision.Cancel;
-        if (selected == RepairAndLoadLabel)
-            return HierarchyRepairDecision.Repair;
-        if (selected == PreferTreeDepthLabel)
-            return HierarchyRepairDecision.PreferTreeDepth;
-        if (selected == PreferChildCountLabel)
-            return HierarchyRepairDecision.PreferChildCount;
-        if (selected == ManualRepairLabel)
-            return HierarchyRepairDecision.Manual;
-        if (selected == PruneAndLoadLabel)
-            return HierarchyRepairDecision.Prune;
-        return HierarchyRepairDecision.ReadOnly;
-    }
-
-    async Task<bool> RunManualHierarchyRepairAsync(
-        HodHierarchyManualRepairSession session,
-        ani2 ani)
-    {
-        while (true)
-        {
-            string message = UILocalization.Get(
-                "hod.ui.manual_header",
-                "HODパーツ階層の手動修復\n\n")
-                + UILocalization.Get(
-                    "hod.ui.manual_instructions",
-                    "修正するパーツを選び、その親パーツを指定してください。")
-                + UILocalization.Get(
-                    "hod.ui.manual_root",
-                    "ルートはパーツ[0]に固定されます。\n")
-                + UILocalization.Get(
-                    "hod.ui.manual_unassigned",
-                    "未接続: {0} / {1}\n\n",
-                    session.UnassignedCount,
-                    session.PartCount - 1)
-                + UILocalization.Get(
-                    "hod.ui.current_connections",
-                    "現在の接続:");
-
-            List<string> options = new List<string>();
-            options.Add(ApplyManualRepairLabel);
-            for (int partIndex = 1; partIndex < session.PartCount; partIndex++)
-            {
-                string assignment = session.GetAssignmentLabel(partIndex);
-                message += "\n" + assignment;
-                options.Add(assignment);
-            }
-
-            string selected = await AskSelectionAsync(message, options);
-            if (selected == null)
-                return false;
-
-            if (selected == ApplyManualRepairLabel)
-            {
-                string applyError;
-                if (session.TryApply(ani, out applyError))
-                    return true;
-
-                string ignored = await AskSelectionAsync(
-                    UILocalization.Get(
-                        "hod.ui.manual_apply_failed",
-                        "手動修復を適用できません。\n\n{0}",
-                        applyError),
-                    new List<string> { "設定へ戻る" });
-                if (ignored == null)
-                    return false;
-                continue;
-            }
-
-            int selectedOptionIndex = options.IndexOf(selected);
-            int selectedPartIndex = selectedOptionIndex;
-            if (selectedPartIndex <= 0 || selectedPartIndex >= session.PartCount)
-                continue;
-
-            List<string> parentOptions = new List<string>();
-            parentOptions.Add(ClearParentLabel);
-            for (int parentIndex = 0; parentIndex < selectedPartIndex; parentIndex++)
-                parentOptions.Add(session.GetPartLabel(parentIndex));
-
-            string parentSelection = await AskSelectionAsync(
-                UILocalization.Get(
-                    "hod.ui.parent_selection",
-                    "{0} の親パーツを選択してください。\n循環を防ぐため、現在より前に並ぶパーツだけを選択できます。",
-                    session.GetPartLabel(selectedPartIndex)),
-                parentOptions);
-            if (parentSelection == null)
-                continue;
-
-            int selectedParentIndex = parentSelection == ClearParentLabel
-                ? -1
-                : parentOptions.IndexOf(parentSelection) - 1;
-            string setError;
-            if (!session.TrySetParent(selectedPartIndex, selectedParentIndex, out setError))
-            {
-                string ignored = await AskSelectionAsync(
-                    UILocalization.Get(
-                        "hod.ui.parent_set_failed",
-                        "親パーツを設定できません。\n\n{0}",
-                        setError),
-                    new List<string> { "設定へ戻る" });
-                if (ignored == null)
-                    return false;
-            }
+            if (loadingUI != null)
+                loadingUI.SetActive(false);
+            msgBox?.Show(UILocalization.Get(
+                "ani.legacy_conversion.completed",
+                "旧ANIをAN2へ変換し、変換後ファイルを読み込みました。\n保存先: {0}\n元の旧ANIは変更されていません。",
+                conversionPath));
         }
     }
 
-    async Task<string> AskSelectionAsync(string message, List<string> options)
-    {
-        if (robo == null || robo.inputBox == null)
-            return null;
-
-        TaskCompletionSource<string> completion = new TaskCompletionSource<string>();
-        bool loadingWasActive = loadingUI != null && loadingUI.activeSelf;
-        if (loadingUI != null)
-            loadingUI.SetActive(false);
-
-        List<string> displayOptions = new List<string>(options.Count);
-        for (int i = 0; i < options.Count; i++)
-            displayOptions.Add(UILocalization.GetFixed(options[i]));
-
-        robo.inputBox.openSelectDialog(
-            message,
-            options,
-            displayOptions,
-            selected => completion.TrySetResult(selected),
-            ignored => completion.TrySetResult(null));
-
-        string selectedOption = await completion.Task;
-        if (loadingUI != null && loadingWasActive)
-            loadingUI.SetActive(true);
-        return selectedOption;
-    }
-
-
-
-        
 
     public void setFolder(string value)
     {
