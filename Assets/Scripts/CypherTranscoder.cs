@@ -1,10 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
+using System.Text.RegularExpressions;
 using System.IO;
-using UnityEngine;
 
 public struct ctFileType
 {
@@ -33,7 +31,21 @@ public class CypherTranscoder
     public bool findCypher(string name)
     {
         FileInfo fi = new FileInfo(name);
-        if (fi.Length < 4)
+        if (!fi.Exists || fi.Length < 4)
+            return false;
+
+        ctFileType fileType = default(ctFileType);
+        bool registered = false;
+        for (int i = 0; i < filetypes.Count; i++)
+        {
+            if (string.Equals(filetypes[i].fileExt, fi.Extension, StringComparison.OrdinalIgnoreCase))
+            {
+                fileType = filetypes[i];
+                registered = true;
+                break;
+            }
+        }
+        if (!registered)
             return false;
 
         byte[] bytes = new byte[4];
@@ -43,58 +55,89 @@ public class CypherTranscoder
                 return false;
         }
 
-        uint signature = BitConverter.ToUInt32(bytes, 0);
+        uint rawSignature = BitConverter.ToUInt32(bytes, 0);
+        // Plaintext assets must never set the cipher to zero. This matters in
+        // mixed folders where one extracted .x file can coexist with encrypted
+        // models.
+        if (rawSignature == fileType.signature)
+            return false;
 
-        for (int i = 0; i < filetypes.Count; i++)
+        uint candidate = rawSignature ^ fileType.signature;
+        byte[] decodedHeader = (byte[])bytes.Clone();
+        byte[] keyBytes = BitConverter.GetBytes(candidate);
+        for (int i = 0; i < decodedHeader.Length; i++)
+            decodedHeader[i] ^= keyBytes[i];
+
+        if (BitConverter.ToUInt32(decodedHeader, 0) != fileType.signature)
+            return false;
+
+        // Header XOR is mathematically self-validating, so validate the
+        // decoded payload as well. For X files, require a supported text X
+        // header; for PNG, require the fixed PNG signature bytes.
+        if (fileType.fileExt.Equals(".x", StringComparison.OrdinalIgnoreCase))
         {
-            if (filetypes[i].fileExt == fi.Extension)
-            {
-                uint cypherF = filetypes[i].signature ^ signature;
-                signature ^= cypherF;
-                if (signature == filetypes[i].signature)
-                {
-                    cypher = cypherF;
-                    return true;
-                }
-                break;
-            }
+            byte[] decoded = Transcode(File.ReadAllBytes(name), candidate);
+            string header = Encoding.UTF8.GetString(decoded, 0, Math.Min(decoded.Length, 64));
+            if (!Regex.IsMatch(header, @"\A\uFEFF?\s*xof\s+\d{4}(?:txt|bin)\s+\d{4}", RegexOptions.IgnoreCase))
+                return false;
         }
-        return false;
+        else if (fileType.fileExt.Equals(".png", StringComparison.OrdinalIgnoreCase))
+        {
+            byte[] decoded = Transcode(File.ReadAllBytes(name), candidate);
+            if (decoded.Length < 8 || decoded[0] != 0x89 || decoded[1] != 0x50 ||
+                decoded[2] != 0x4E || decoded[3] != 0x47 || decoded[4] != 0x0D ||
+                decoded[5] != 0x0A || decoded[6] != 0x1A || decoded[7] != 0x0A)
+                return false;
+        }
+
+        cypher = candidate;
+        return true;
     }
 
     public byte[] Transcode(string name)
     {
         byte[] bytes = File.ReadAllBytes(name);
-        byte[] cypherBytes = BitConverter.GetBytes(cypher);
-        int fullBlocks = bytes.Length / 4;
+        if (IsPlaintextAsset(name, bytes))
+            return bytes;
+        return Transcode(bytes, cypher);
+    }
 
-        for (int i = 0; i < fullBlocks * 4; i += 4)
-        {
-            for (int b = 0; b < cypherBytes.Length; b++)
-                bytes[i + b] ^= cypherBytes[b];
-        }
+    static bool IsPlaintextAsset(string name, byte[] bytes)
+    {
+        if (bytes == null || bytes.Length < 4)
+            return false;
 
-        return bytes;
+        string extension = Path.GetExtension(name);
+        uint signature = BitConverter.ToUInt32(bytes, 0);
+        if (extension.Equals(".x", StringComparison.OrdinalIgnoreCase))
+            return signature == 543584120u;
+        if (extension.Equals(".png", StringComparison.OrdinalIgnoreCase))
+            return signature == 1196314761u;
+        return false;
     }
 
     public byte[] Transcode(byte[] bytes)
     {
-        //Debug.log($"Starting transcoding for byte array of length: {bytes.Length}");
-        
-        byte[] cypherBytes = BitConverter.GetBytes(cypher);
-        int fullBlocks = bytes.Length / 4; // 4バイトのブロック数
+        return Transcode(bytes, cypher);
+    }
 
-        // Transcode(string) と同じく、4バイト完全ブロックのみを処理する。
-        // 端数バイトまで変換すると、Script.spt 保存後の再読み込み時に末尾が復号されず文字化けする。
+    public byte[] Transcode(byte[] bytes, uint key)
+    {
+        if (bytes == null)
+            return null;
+
+        byte[] cypherBytes = BitConverter.GetBytes(key);
+        int fullBlocks = bytes.Length / 4;
+
+        // 原作の暗号化仕様に合わせ、4バイト完全ブロックのみを処理する。
+        // 端数バイト（bytes.Length % 4 != 0 の残り）は暗号化されていないため処理しない。
         for (int i = 0; i < fullBlocks * 4; i += 4)
         {
             for (int b = 0; b < cypherBytes.Length; b++)
-            {
                 bytes[i + b] ^= cypherBytes[b];
-            }
         }
 
-        //Debug.log($"Completed transcoding for byte array of length: {bytes.Length}");
         return bytes;
     }
+
 }

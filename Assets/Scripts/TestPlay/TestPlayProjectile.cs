@@ -39,8 +39,34 @@ public class TestPlayProjectile : MonoBehaviour
     bool originalType1TargetHit;
     TestPlayType1TrailEffect originalType1TrailEffect;
     readonly List<Vector3> originalType1Trail = new List<Vector3>();
+    readonly HashSet<int> sessionHitTargets = new HashSet<int>();
 
     public int OriginalType1TrailCount => originalType1Trail.Count;
+    GameSession session;
+    MechHandle guidance;
+    bool sessionStepping;
+    public int AttackId { get; private set; }
+    public MechHandle OwnerHandle { get; private set; }
+    public bool SessionExpired { get; private set; }
+
+    internal void AttachSession(GameSession ownerSession, int attackId, MechHandle ownerHandle, MechHandle targetHandle)
+    {
+        if (session != null) throw new System.InvalidOperationException("弾は既にセッションへ登録されています。");
+        session = ownerSession;
+        AttackId = attackId;
+        OwnerHandle = ownerHandle;
+        guidance = targetHandle;
+        target = null;
+        originalTickRate = 60;
+    }
+
+    internal void SimulateSessionTick(GameSession ownerSession)
+    {
+        if (session != ownerSession || SessionExpired) return;
+        sessionStepping = true;
+        try { SessionExpired = SimulateOriginalTick(1f / 60f); }
+        finally { sessionStepping = false; }
+    }
 
     public void ConfigureOriginalType1(
         TestPlayType1ProjectileParameters parameters,
@@ -59,6 +85,7 @@ public class TestPlayProjectile : MonoBehaviour
         maximumHomingTurnDegrees = Mathf.Max(0f, homingTurnDegrees);
         originalType1TargetLinked = targetLinked;
         originalType1TargetHit = false;
+        sessionHitTargets.Clear();
         originalType1Trail.Clear();
         originalType1Trail.Add(transform.position);
         originalType1TrailEffect = GetComponent<TestPlayType1TrailEffect>();
@@ -67,6 +94,7 @@ public class TestPlayProjectile : MonoBehaviour
 
     void Update()
     {
+        if (session != null) return;
         float tickDeltaTime = 1f / Mathf.Max(1f, originalTickRate);
         simulationAccumulator += Mathf.Max(0f, Time.deltaTime);
         int catchUpTicks = 0;
@@ -82,10 +110,19 @@ public class TestPlayProjectile : MonoBehaviour
 
     public bool SimulateOriginalTick(float tickDeltaTime)
     {
+        if (session != null && !sessionStepping)
+            throw new System.InvalidOperationException("弾はセッション時計から更新してください。");
         if (useOriginalType1Core)
             return SimulateOriginalType1Tick();
 
         bool targetAlive = target != null && target.IsAlive;
+        if (session != null && homingTurnRate > 0 && session.TryGet(guidance, out var snapshot))
+        {
+            Vector3 direction = snapshot.Position - transform.position;
+            if (direction.sqrMagnitude > 0.000001f)
+                transform.rotation = Quaternion.RotateTowards(transform.rotation,
+                    Quaternion.LookRotation(direction.normalized, Vector3.up), homingTurnRate * tickDeltaTime);
+        }
         TestPlayProjectileTickResult result = TestPlayCombatCore.TickProjectile(
             new TestPlayProjectileTickInput
             {
@@ -105,14 +142,14 @@ public class TestPlayProjectile : MonoBehaviour
         transform.SetPositionAndRotation(result.position, result.rotation);
         if (result.expired)
         {
-            Destroy(gameObject);
+            Expire();
             return true;
         }
 
         if (result.hit && targetAlive)
         {
             ApplyHit(transform.position - transform.forward);
-            Destroy(gameObject);
+            Expire();
             return true;
         }
 
@@ -122,6 +159,12 @@ public class TestPlayProjectile : MonoBehaviour
     bool SimulateOriginalType1Tick()
     {
         bool targetAlive = target != null && target.IsAlive;
+        Vector3 targetPosition = targetAlive ? target.transform.position : Vector3.zero;
+        if (session != null)
+        {
+            targetAlive = session.TryGet(guidance, out var snapshot);
+            targetPosition = targetAlive ? snapshot.Position : Vector3.zero;
+        }
         TestPlayType1ProjectileTickResult result = TestPlayCombatCore.TickOriginalType1Projectile(
             new TestPlayType1ProjectileTickInput
             {
@@ -132,7 +175,7 @@ public class TestPlayProjectile : MonoBehaviour
                 maximumHomingTurnDegrees = maximumHomingTurnDegrees,
                 targetLinked = originalType1TargetLinked,
                 targetAlive = targetAlive,
-                targetPosition = targetAlive ? target.transform.position : Vector3.zero
+                targetPosition = targetPosition
             });
 
         remainingActiveTicks = result.remainingActiveTicks;
@@ -143,7 +186,28 @@ public class TestPlayProjectile : MonoBehaviour
             originalType1Trail.RemoveAt(0);
         originalType1TrailEffect?.SetTrail(originalType1Trail);
 
-        if (!originalType1TargetHit && targetAlive)
+        if (session != null)
+        {
+            foreach (var candidate in session.QueryAttackTargets(OwnerHandle, transform.position))
+            {
+                if (sessionHitTargets.Contains(candidate.Handle.MechId)) continue;
+                for (int i = 1; i < originalType1Trail.Count; i++)
+                {
+                    if (!TestPlayCombatCore.IntersectsType1TrailSegmentSphere(originalType1Trail[i - 1],
+                        originalType1Trail[i], candidate.Position, candidate.Radius)) continue;
+                    var hit = CreateHit();
+                    if (session.ResolveHit(AttackId, OwnerHandle, candidate.Handle, hit,
+                        originalType1Trail[i - 1], false, 0, out hit))
+                    {
+                        sessionHitTargets.Add(candidate.Handle.MechId);
+                        if (owner != null && owner.playModeActive && owner.currentHP > 0) owner.NotifyProjectileHit(hit);
+                    }
+                    break;
+                }
+            }
+        }
+
+        if (session == null && !originalType1TargetHit && targetAlive)
         {
             for (int i = 1; i < originalType1Trail.Count; i++)
             {
@@ -164,13 +228,26 @@ public class TestPlayProjectile : MonoBehaviour
         {
             // 原作はこの後、描画幅を0.01/tickでfadeする。DX9表示だけの差なので
             // TestPlay Adapterはactive/collision終了時に破棄する。
-            Destroy(gameObject);
+            Expire();
             return true;
         }
         return false;
     }
 
+    void Expire()
+    {
+        if (Application.isPlaying) Destroy(gameObject);
+        else DestroyImmediate(gameObject);
+    }
+
     void ApplyHit(Vector3 attackerPosition)
+    {
+        TestPlayCombatHitResult hit = CreateHit();
+        hit = target.ResolveImpact(hit, attackerPosition, false, false, 0);
+        owner?.NotifyProjectileHit(hit);
+    }
+
+    TestPlayCombatHitResult CreateHit()
     {
         TestPlayProjectilePayload payload = new TestPlayProjectilePayload
         {
@@ -183,8 +260,6 @@ public class TestPlayProjectile : MonoBehaviour
             collisionKind = collisionKind,
             valueSource = valueSource
         };
-        TestPlayCombatHitResult hit = TestPlayCombatCore.CreateHitResult(payload, transform.forward);
-        hit = target.ResolveImpact(hit, attackerPosition, false, false, 0);
-        owner?.NotifyProjectileHit(hit);
+        return TestPlayCombatCore.CreateHitResult(payload, transform.forward);
     }
 }

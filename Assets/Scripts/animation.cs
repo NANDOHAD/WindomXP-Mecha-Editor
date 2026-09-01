@@ -8,11 +8,116 @@ public struct script
     public int unk;
     public float time;
     public string squirrel;
+    // Follow the script value through copies/reordering, independently of timing edits.
+    internal AniScriptTextSource sourceText;
 }
+
+internal sealed class AniScriptTextSource
+{
+    readonly string modelText;
+    readonly byte[] bytes;
+
+    public AniScriptTextSource(byte[] raw, string decoded)
+    {
+        bytes = (byte[])raw.Clone();
+        modelText = decoded;
+    }
+
+    public static string Decode(byte[] raw)
+    {
+        try { return USEncoder.ToEncoding.ToUnicode(raw); }
+        catch (System.IndexOutOfRangeException)
+        {
+            // A dangling lead byte in a comment must not prevent opening the file.
+            // The snapshot still owns the original bytes for unchanged legacy saves.
+            return USEncoder.ToEncoding.ToUnicode(MakeCommentsSafe(raw));
+        }
+    }
+
+    public static byte[] GetBytes(string text, AniScriptTextSource source, bool normalizeLines,
+        bool originalCompatible = true)
+    {
+        // USEncoder cannot round-trip every original byte (e.g. EB -> U+0000).
+        // Unedited source bytes are authoritative, including comments and line endings.
+        if (source != null && text == source.modelText)
+            return originalCompatible ? MakeCommentsSafe(source.bytes) : source.bytes;
+        byte[] encoded = normalizeLines
+            ? LegacyAniSourceValues.EncodeScriptText(text)
+            : USEncoder.ToEncoding.ToSJIS(text ?? "");
+        return MakeCommentsSafe(encoded);
+    }
+
+    static bool IsLead(byte value) => (value >= 0x81 && value <= 0x9f)
+        || (value >= 0xe0 && value <= 0xfc);
+    static bool IsTrail(byte value) => (value >= 0x40 && value <= 0x7e)
+        || (value >= 0x80 && value <= 0xfc);
+
+    static byte[] MakeCommentsSafe(byte[] input)
+    {
+        var output = new List<byte>(input.Length);
+        bool comment = false, quoted = false;
+        for (int i = 0; i < input.Length; i++)
+        {
+            byte value = input[i];
+            if (comment)
+            {
+                // FUN_00583760 skips SJIS lead + trail, and ends a comment only
+                // at CRLF. Invalid leads must not swallow the following newline.
+                if (value == 0) { output.Add((byte)' '); continue; }
+                if (value == '\r' || value == '\n')
+                {
+                    if (value == '\r' && i + 1 < input.Length && input[i + 1] == '\n') i++;
+                    output.Add(13); output.Add(10); comment = false;
+                    continue;
+                }
+                if (IsLead(value))
+                {
+                    if (i + 1 < input.Length && IsTrail(input[i + 1]))
+                    { output.Add(value); output.Add(input[++i]); }
+                    else output.Add((byte)'?');
+                    continue;
+                }
+                output.Add(value);
+                continue;
+            }
+
+            // Do not treat an apostrophe in a quoted filename as a comment, or
+            // a SJIS trail byte as a quote/backslash. Commands are never repaired.
+            if (value == 0)
+            {
+                bool terminal = !quoted;
+                for (int j = i; j < input.Length; j++) terminal &= input[j] == 0;
+                if (!terminal)
+                    throw new InvalidDataException("スクリプトの命令または引用文字列に変換できない文字があります。コメント以外は自動修正できません。");
+                output.AddRange(new byte[input.Length - i]);
+                break;
+            }
+            output.Add(value);
+            if (IsLead(value) && i + 1 < input.Length && IsTrail(input[i + 1]))
+            { output.Add(input[++i]); continue; }
+            if (quoted && value == '\\' && i + 1 < input.Length
+                && (input[i + 1] == '"' || input[i + 1] == '\\'))
+            { output.Add(input[++i]); continue; }
+            if (value == '"') quoted = !quoted;
+            else if (!quoted && value == '\'') comment = true;
+        }
+        return output.ToArray();
+    }
+
+    public static bool BytesEqual(byte[] left, byte[] right)
+    {
+        if (left.Length != right.Length) return false;
+        for (int i = 0; i < left.Length; i++)
+            if (left[i] != right[i]) return false;
+        return true;
+    }
+}
+
 public class animation
 {
     public string name;
     public string squirrelInit = "";
+    internal AniScriptTextSource initialSourceText;
     public List<hod2v1> frames;
     public List<script> scripts;
     public void loadFromAni(ref BinaryReader br, ref hod2v0 structure)
@@ -35,10 +140,9 @@ public class animation
 
         //Read Initial Script
         int textLength = br.ReadInt32();
-        if (textLength != 0)
-        {
-            squirrelInit = USEncoder.ToEncoding.ToUnicode(br.ReadBytes(textLength));
-        }
+        byte[] initialBytes = LegacyAniSourceValues.ReadRequiredBytes(br, textLength, "AN2 initial script");
+        squirrelInit = AniScriptTextSource.Decode(initialBytes);
+        initialSourceText = new AniScriptTextSource(initialBytes, squirrelInit);
 
         //Read Hod Files
         int hodCount = br.ReadInt32();
@@ -58,7 +162,9 @@ public class animation
             ns.unk = br.ReadInt32();
             ns.time = br.ReadSingle();
             textLength = br.ReadInt32();
-            ns.squirrel = USEncoder.ToEncoding.ToUnicode(br.ReadBytes(textLength));
+            byte[] textBytes = LegacyAniSourceValues.ReadRequiredBytes(br, textLength, "AN2 script text");
+            ns.squirrel = AniScriptTextSource.Decode(textBytes);
+            ns.sourceText = new AniScriptTextSource(textBytes, ns.squirrel);
             scripts.Add(ns);
         }
     }
@@ -112,7 +218,8 @@ public class animation
                 throw new InvalidDataException($"Legacy animation script {i} has an invalid text length: {textLength}.");
             byte[] textBytes = LegacyAniSourceValues.ReadRequiredBytes(
                 br, textLength, $"legacy animation script {i} text");
-            ns.squirrel = USEncoder.ToEncoding.ToUnicode(textBytes);
+            ns.squirrel = AniScriptTextSource.Decode(textBytes);
+            ns.sourceText = new AniScriptTextSource(textBytes, ns.squirrel);
             scripts.Add(ns);
             legacySource.scripts.Add(new LegacyScriptSource
             {
@@ -134,7 +241,7 @@ public class animation
     {
         //Encoding ShiftJis = Encoding.GetEncoding(932);
         WriteFixedSJIS(bw, name, 256);
-        byte[] shiftjistext = USEncoder.ToEncoding.ToSJIS(squirrelInit);
+        byte[] shiftjistext = AniScriptTextSource.GetBytes(squirrelInit, initialSourceText, false);
         bw.Write(shiftjistext.Length);
         if (shiftjistext.Length > 0)
             bw.Write(shiftjistext);
@@ -150,22 +257,10 @@ public class animation
         {
             bw.Write(scripts[i].unk);
             bw.Write(scripts[i].time);
-            //shiftjistext = USEncoder.ToEncoding.ToSJIS(scripts[i].squirrel);
-            //bw.Write(shiftjistext.Length);
-            //if (shiftjistext.Length > 0)
-            //    bw.Write(shiftjistext);
-            List<byte> list = new List<byte>();
-            list.AddRange(USEncoder.ToEncoding.ToSJIS(scripts[i].squirrel));
-            for (int j = 0; j < list.Count; j++)
-            {
-                if (list[j] == 0x0A && (j == 0 || list[j - 1] != 0x0D))
-                {
-                    list.Insert(j, 0x0D);
-                    j++;
-                }
-            }
-            bw.Write(list.Count);
-            bw.Write(list.ToArray());
+            byte[] textBytes = AniScriptTextSource.GetBytes(
+                scripts[i].squirrel, scripts[i].sourceText, true);
+            bw.Write(textBytes.Length);
+            bw.Write(textBytes);
         }
     }
 
@@ -199,23 +294,7 @@ public class animation
             bw.Write(current.unk);
             bw.Write(current.time);
 
-            LegacyScriptSource scriptSource = legacySource != null
-                && i < legacySource.scripts.Count
-                ? legacySource.scripts[i]
-                : null;
-            byte[] textBytes;
-            if (scriptSource != null
-                && current.unk == scriptSource.unk
-                && current.time.Equals(scriptSource.time)
-                && current.squirrel == scriptSource.modelText
-                && scriptSource.textBytes != null)
-            {
-                textBytes = scriptSource.textBytes;
-            }
-            else
-            {
-                textBytes = LegacyAniSourceValues.EncodeScriptText(current.squirrel);
-            }
+            byte[] textBytes = AniScriptTextSource.GetBytes(current.squirrel, current.sourceText, true, false);
 
             bw.Write(textBytes.Length);
             if (textBytes.Length > 0)

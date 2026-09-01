@@ -207,6 +207,7 @@ public struct TestPlayType1ProjectileTickResult
 /// </summary>
 public sealed class TestPlayMeleeAttackState
 {
+    public int SessionAttackId { get; internal set; }
     public int weaponPointId;
     public float length;
     public int remainingTicks;
@@ -860,6 +861,32 @@ public static class TestPlayCombatCore
             currentOrigin = currentOrigin,
             currentTip = currentTip
         };
+    }
+
+    // One geometry/lifetime update for all session targets. Legacy single-target entry stays intact.
+    public static TestPlayMeleeTickResult TickMeleeAttackTargets(
+        TestPlayMeleeAttackState state, Vector3 origin, Vector3 forward,
+        System.Collections.Generic.IReadOnlyList<TestPlayTargetSnapshot> targets,
+        System.Collections.Generic.List<TestPlayTargetSnapshot> hits)
+    {
+        hits.Clear();
+        if (state == null) return new TestPlayMeleeTickResult { expired = true };
+        Vector3 direction = forward.sqrMagnitude > 0.000001f ? forward.normalized : Vector3.forward;
+        Vector3 tip = origin + direction * Mathf.Max(0f, state.length);
+        if (state.remainingTicks > 0)
+        {
+            state.TickTargetRehitCooldowns();
+            foreach (var target in targets)
+                if (target.Alive && !state.HasHitTarget(target.Handle.MechId) &&
+                    IntersectsSweptSegmentSphere(state.previousOrigin, state.previousTip, origin, tip,
+                        target.Position, target.Radius) && state.TryMarkTargetHit(target.Handle.MechId))
+                    hits.Add(target);
+            state.remainingTicks--;
+        }
+        state.previousOrigin = origin;
+        state.previousTip = tip;
+        return new TestPlayMeleeTickResult { hit = hits.Count > 0, expired = state.remainingTicks <= 0,
+            currentOrigin = origin, currentTip = tip };
     }
 
     public static bool IntersectsSweptSegmentSphere(

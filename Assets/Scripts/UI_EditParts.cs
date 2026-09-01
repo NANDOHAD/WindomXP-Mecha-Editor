@@ -83,11 +83,15 @@ public class UI_EditParts : MonoBehaviour
 
     public void PopulatePartsList()
     {
+        int[] parents, depths;
+        string error;
+        if (!HodHierarchyRepair.TryGetDisplayHierarchy(robo.hod.parts, out parents, out depths, out error))
+            throw new System.IO.InvalidDataException(error);
         clear();
         for (int i = 0; i < robo.parts.Count; i++)
         {
             string offset = "";
-            for (int j = 0; j < robo.hod.parts[i].treeDepth; j++)
+            for (int j = 0; j < depths[i]; j++)
                 offset += "   ";
             addItem(robo.parts[i], offset + "|_" + robo.parts[i].name);
         }

@@ -151,11 +151,11 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 4386185247
-    m_Localized: Rename Animation
+    m_Localized: Rename
     m_Metadata:
       m_Items: []
   - m_Id: 4390379520
-    m_Localized: 'Application Version: Ver.1.00'
+    m_Localized: 'Application:'
     m_Metadata:
       m_Items: []
   - m_Id: 4390379521
@@ -245,11 +245,9 @@ MonoBehaviour:
   - m_Id: 4390379542
     m_Localized: 'Assists with procedural pose editing.
 
-      Using it on parts
-      other than hands or feet may produce unnatural results.
+      Using it on parts other than hands or feet may produce unnatural results.
 
-      This feature
-      is incomplete.'
+      This feature is incomplete.'
     m_Metadata:
       m_Items: []
   - m_Id: 4390379543
@@ -521,8 +519,7 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 4390379608
-    m_Localized: The loaded HOD contains {0} parts, but the current mecha contains
-      {1}. Loading was canceled.
+    m_Localized: The loaded HOD contains {0} parts, but the current mecha contains {1}. Loading was canceled.
     m_Metadata:
       m_Items: []
   - m_Id: 4390379609
@@ -550,8 +547,7 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 4390379615
-    m_Localized: 'Enter animation numbers separated by commas. Use a dash to specify
-      a range. Example: 1,2, 6-10'
+    m_Localized: 'Enter animation numbers separated by commas. Use a dash to specify a range. Example: 1,2, 6-10'
     m_Metadata:
       m_Items: []
   - m_Id: 4390379616
@@ -563,8 +559,7 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 4390379618
-    m_Localized: The part cannot be deleted because its data integrity could not
-      be verified.
+    m_Localized: The part cannot be deleted because its data integrity could not be verified.
     m_Metadata:
       m_Items: []
   - m_Id: 4390379619
@@ -572,8 +567,7 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 4390379620
-    m_Localized: The specified part does not exist in the folder. It will be replaced
-      with an empty part.
+    m_Localized: The specified part does not exist in the folder. It will be replaced with an empty part.
     m_Metadata:
       m_Items: []
   - m_Id: 4390379621
@@ -581,7 +575,7 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 4390379622
-    m_Localized: 'Application Version: {0}'
+    m_Localized: 'Version: {0}'
     m_Metadata:
       m_Items: []
   - m_Id: 3155927490560
@@ -673,8 +667,7 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 6881912378351632
-    m_Localized: '{0}: treeDepth increases by more than one from the previous part
-      ({1}->{2}).'
+    m_Localized: '{0}: treeDepth increases by more than one from the previous part ({1}->{2}).'
     m_Metadata:
       m_Items: []
   - m_Id: 6881912378351633
@@ -734,13 +727,11 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545929
-    m_Localized: Animation[{0}] frame[{1}] part count does not match the structure
-      HOD ({2}/{3}).
+    m_Localized: Animation[{0}] frame[{1}] part count does not match the structure HOD ({2}/{3}).
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545930
-    m_Localized: 'Animation[{0}] frame[{1}] part order does not match the structure
-      HOD (position {2}: "{3}"/"{4}").'
+    m_Localized: 'Animation[{0}] frame[{1}] part order does not match the structure HOD (position {2}: "{3}"/"{4}").'
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545931
@@ -760,8 +751,7 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545935
-    m_Localized: Keep the hierarchy represented by treeDepth and recalculate childCount
-      for all parts.
+    m_Localized: Keep the hierarchy represented by treeDepth and recalculate childCount for all parts.
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545936
@@ -781,8 +771,7 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545940
-    m_Localized: Keep the hierarchy represented by childCount and recalculate treeDepth
-      for all parts.
+    m_Localized: Keep the hierarchy represented by childCount and recalculate treeDepth for all parts.
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545941
@@ -802,8 +791,7 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545945
-    m_Localized: Automatic repair is not performed because the correct representation
-      cannot be determined uniquely.
+    m_Localized: Automatic repair is not performed because the correct representation cannot be determined uniquely.
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545946
@@ -811,8 +799,7 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545947
-    m_Localized: The treeDepth sequence is valid, but a valid hierarchy cannot be
-      reconstructed from childCount.
+    m_Localized: The treeDepth sequence is valid, but a valid hierarchy cannot be reconstructed from childCount.
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545948
@@ -820,8 +807,7 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545949
-    m_Localized: The childCount sequence is valid, but a valid hierarchy cannot be
-      reconstructed from treeDepth.
+    m_Localized: The childCount sequence is valid, but a valid hierarchy cannot be reconstructed from treeDepth.
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545950
@@ -879,13 +865,11 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545963
-    m_Localized: The orphan parts that can be safely excluded cannot be identified
-      uniquely.
+    m_Localized: The orphan parts that can be safely excluded cannot be identified uniquely.
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545964
-    m_Localized: The structure HOD part count after exclusion does not match the
-      repair plan.
+    m_Localized: The structure HOD part count after exclusion does not match the repair plan.
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545965
@@ -903,8 +887,7 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545968
-    m_Localized: Animation[{0}] frame[{1}] hierarchy data does not match the structure
-      HOD (position {2}).
+    m_Localized: Animation[{0}] frame[{1}] hierarchy data does not match the structure HOD (position {2}).
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545969
@@ -912,18 +895,15 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545970
-    m_Localized: Automatic exclusion is not performed because the values can be repaired
-      or the exclusion target is ambiguous.
+    m_Localized: Automatic exclusion is not performed because the values can be repaired or the exclusion target is ambiguous.
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545971
-    m_Localized: The safe exclusion range cannot be determined because the first
-      root treeDepth is invalid.
+    m_Localized: The safe exclusion range cannot be determined because the first root treeDepth is invalid.
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545972
-    m_Localized: The child hierarchy range cannot be determined because Part[{0}]
-      has a negative treeDepth.
+    m_Localized: The child hierarchy range cannot be determined because Part[{0}] has a negative treeDepth.
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545973
@@ -931,8 +911,7 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545974
-    m_Localized: 'The remaining treeDepth values cannot form a valid hierarchy after
-      exclusion.
+    m_Localized: 'The remaining treeDepth values cannot form a valid hierarchy after exclusion.
 
       {0}'
     m_Metadata:
@@ -942,8 +921,7 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545976
-    m_Localized: After exclusion, childCount will be rebuilt using the remaining
-      treeDepth values.
+    m_Localized: After exclusion, childCount will be rebuilt using the remaining treeDepth values.
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545977
@@ -987,8 +965,7 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545987
-    m_Localized: Only a part that appears before this part can be selected as its
-      parent.
+    m_Localized: Only a part that appears before this part can be selected as its parent.
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545988
@@ -1026,20 +1003,17 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545996
-    m_Localized: Animation[{0}] frame[{1}] part[{2}] changed after manual repair
-      began.
+    m_Localized: Animation[{0}] frame[{1}] part[{2}] changed after manual repair began.
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545997
-    m_Localized: 'Loading was canceled because the HOD hierarchy could not be repaired
-      safely.
+    m_Localized: 'Loading was canceled because the HOD hierarchy could not be repaired safely.
 
       {0}'
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382545998
-    m_Localized: 'Loading was canceled because the inconsistent parts could not be
-      excluded safely.
+    m_Localized: 'Loading was canceled because the inconsistent parts could not be excluded safely.
 
       {0}'
     m_Metadata:
@@ -1109,8 +1083,7 @@ MonoBehaviour:
     m_Localized: '
 
 
-      Manual repair lets you assign each part''s parent and
-      rebuild the structure HOD and all animation frames in the same order.'
+      Manual repair lets you assign each part''s parent and rebuild the structure HOD and all animation frames in the same order.'
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382546007
@@ -1144,8 +1117,7 @@ MonoBehaviour:
     m_Localized: '
 
 
-      Changes are made in memory only; the original files will
-      not be overwritten automatically.'
+      Changes are made in memory only; the original files will not be overwritten automatically.'
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382546011
@@ -1193,8 +1165,7 @@ MonoBehaviour:
   - m_Id: 6881912382546018
     m_Localized: 'Select the parent part for {0}.
 
-      Only parts listed before
-      it can be selected to prevent cycles.'
+      Only parts listed before it can be selected to prevent cycles.'
     m_Metadata:
       m_Items: []
   - m_Id: 6881912382546019
@@ -1215,14 +1186,11 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 9502022163226624
-    m_Localized: The structure HOD and animation frames do not have matching part
-      order or hierarchy columns.
+    m_Localized: The structure HOD and animation frames do not have matching part order or hierarchy columns.
     m_Metadata:
       m_Items: []
   - m_Id: 9502022255501312
-    m_Localized: 'The legacy ANI was loaded without automatically repairing its HOD
-      part hierarchy. When adding or removing parts, a normalization confirmation
-      is shown only if a safe authoritative hierarchy can be determined.
+    m_Localized: 'The legacy ANI was loaded without automatically repairing its HOD part hierarchy. When adding or removing parts, a normalization confirmation is shown only if a safe authoritative hierarchy can be determined.
 
       {0}'
     m_Metadata:
@@ -1232,8 +1200,7 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 9601983882190848
-    m_Localized: The legacy ANI cannot be edited safely using the selected hierarchy
-      representation.
+    m_Localized: The legacy ANI cannot be edited safely using the selected hierarchy representation.
     m_Metadata:
       m_Items: []
   - m_Id: 9601983882190849
@@ -1243,8 +1210,7 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 9601983882190850
-    m_Localized: Legacy ANI animation[{0}] frame[{1}] cannot be edited safely because
-      its hierarchy columns at index {2} do not match the structure HOD.
+    m_Localized: Legacy ANI animation[{0}] frame[{1}] cannot be edited safely because its hierarchy columns at index {2} do not match the structure HOD.
     m_Metadata:
       m_Items: []
   - m_Id: 9601983882190851
@@ -1252,17 +1218,11 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 9601983882190852
-    m_Localized: The legacy ANI treeDepth and childCount values describe different
-      valid hierarchies. To add or remove parts, select which representation should
-      be authoritative for the structure HOD and every frame. The source file is
-      unchanged until you save.
+    m_Localized: The legacy ANI treeDepth and childCount values describe different valid hierarchies. To add or remove parts, select which representation should be authoritative for the structure HOD and every frame. The source file is unchanged until you save.
     m_Metadata:
       m_Items: []
   - m_Id: 9601983882190853
-    m_Localized: The legacy ANI retains its hierarchy values as loaded. To add or
-      remove parts, the hierarchy columns in the structure HOD and every frame will
-      be normalized as shown below. The source file is unchanged until you save.
-      Normalize and continue structural editing?
+    m_Localized: The legacy ANI retains its hierarchy values as loaded. To add or remove parts, the hierarchy columns in the structure HOD and every frame will be normalized as shown below. The source file is unchanged until you save. Normalize and continue structural editing?
     m_Metadata:
       m_Items: []
   - m_Id: 9601983882190854
@@ -1280,25 +1240,30 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 9756767775875072
-    m_Localized: 'The file you are trying to open is in the old ANI format.
+    m_Localized: 'The selected file uses the legacy ANI format. Convert it to AN2 before loading?
 
-      If
-      you add, delete, or rename parts, the script may be corrupted. Do you want
-      to open it?'
+
+      OK: Create and load an AN2 copy named "{0}" without changing the original legacy ANI. The original game uses up to the first 200 slots; extra slots are retained at the end for this editor. Problematic comment characters are made safe for execution. Unparsed legacy-only trailing data is not included in the AN2 copy.
+
+      Cancel: Load the legacy ANI unchanged.'
     m_Metadata:
       m_Items: []
   - m_Id: 9756767830401024
-    m_Localized: 'The legacy ANI could not be converted to AN2, so loading was stopped.
-      The original legacy ANI was not changed.
+    m_Localized: 'The legacy ANI could not be converted to AN2, so loading was stopped. The original legacy ANI was not changed.
 
       {0}'
     m_Metadata:
       m_Items: []
   - m_Id: 9756767830401025
-    m_Localized: 'The legacy ANI was converted to AN2 and the converted file was
-      loaded.
+    m_Localized: 'The legacy ANI was converted to AN2 and the converted file was loaded.
 
-      Saved to: {0}'
+      Saved to: {0}
+
+      The original legacy ANI was not changed.
+
+      Slots used by the original game: {1} (maximum 200)
+
+      Extra slots retained for this editor: {2} (not used by the original game)'
     m_Metadata:
       m_Items: []
   - m_Id: 10611999460286464

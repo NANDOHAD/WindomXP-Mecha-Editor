@@ -27,9 +27,17 @@ public class RoboStructure : MonoBehaviour
     string structureEditingBlockReason = "";
     
     // Start is called before the first frame update
+    internal Action<UnityEngine.Object> RegisterOwnedAsset;
+
+    public void InitializeRuntime()
+    {
+        if (transcoder == null)
+            transcoder = new CypherTranscoder();
+    }
+
     void Start()
     {
-        transcoder = new CypherTranscoder();
+        InitializeRuntime();
     }
 
     // Update is called once per frame
@@ -40,73 +48,27 @@ public class RoboStructure : MonoBehaviour
 
     public void buildStructure(hod2v0 Robo)
     {
+        int[] parents, depths;
+        string error;
+        if (!HodHierarchyRepair.TryGetDisplayHierarchy(Robo?.parts, out parents, out depths, out error))
+            throw new InvalidDataException(error);
 
-        //find cypher
-        string[] files = Directory.GetFiles(folder);
-        foreach (string file in files)
+        InitializeRuntime();
+        foreach (string file in Directory.GetFiles(folder))
         {
             if (transcoder.findCypher(file))
                 break;
         }
 
-
-
-
         hod = Robo;
         ValidateStructureForEditing(Robo, true);
         DestroyExistingStructureObjects();
-
-        for (int i = 0; i < Robo.parts.Count; i++)
-        {
-            int depth = Robo.parts[i].treeDepth;
-            string offset = "";
-            for (int j = 0; j < depth; j++)
-                offset += "   ";
-
-            var part = new GameObject(Robo.parts[i].name);
-            if (Robo.parts[i].treeDepth == 0)
-                root = part;
-            parts.Add(part);
-            if (i == 0)
-            {
-                parts[i].transform.localPosition = Robo.parts[i].position;
-                parts[i].transform.localRotation = Robo.parts[i].rotation;
-                parts[i].transform.localScale = Robo.parts[i].scale;
-            }
-            else
-            {
-                //find next level higher in tree.
-                for (int j = i - 1; j >= 0; j--)
-                {
-                    if (Robo.parts[i].treeDepth - 1 == Robo.parts[j].treeDepth)
-                    {
-                        if (j == 0)
-                        {
-                            parts[i].transform.SetParent(parts[0].transform);
-                            parts[i].transform.localPosition = Robo.parts[i].position;
-                            parts[i].transform.localRotation = Robo.parts[i].rotation;
-                            parts[i].transform.localScale = Robo.parts[i].scale;
-                        }
-                        else
-                        {
-                            parts[i].transform.SetParent(parts[j].transform);
-                            parts[i].transform.localPosition = Robo.parts[i].position;
-                            parts[i].transform.localRotation = Robo.parts[i].rotation;
-                            parts[i].transform.localScale = Robo.parts[i].scale;
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-
-        for (int i = 0; i < Robo.parts.Count; i++)
+        BuildPartTransforms(Robo, parents);
+        for (int i = 1; i < Robo.parts.Count; i++)
         {
             try
             {
-                if (i != 0)
-                    ImportModelEncrypted(parts[i], Path.Combine(folder, Robo.parts[i].name));
-
+                ImportModelEncrypted(parts[i], Path.Combine(folder, Robo.parts[i].name));
             }
             catch (Exception e)
             {
@@ -119,37 +81,34 @@ public class RoboStructure : MonoBehaviour
     {
         if (source == null)
             return;
+        int[] parents, depths;
+        string error;
+        if (!HodHierarchyRepair.TryGetDisplayHierarchy(Robo?.parts, out parents, out depths, out error))
+            throw new InvalidDataException(error);
 
         folder = source.folder;
         hod = Robo;
         DestroyExistingStructureObjects();
-
+        BuildPartTransforms(Robo, parents);
         for (int i = 0; i < Robo.parts.Count; i++)
         {
-            var part = new GameObject(Robo.parts[i].name);
-            if (Robo.parts[i].treeDepth == 0)
-                root = part;
-            parts.Add(part);
-
-            if (i == 0)
-            {
-                ApplyStructureTransform(parts[i].transform, Robo.parts[i]);
-            }
-            else
-            {
-                for (int j = i - 1; j >= 0; j--)
-                {
-                    if (Robo.parts[i].treeDepth - 1 == Robo.parts[j].treeDepth)
-                    {
-                        parts[i].transform.SetParent(parts[j].transform);
-                        ApplyStructureTransform(parts[i].transform, Robo.parts[i]);
-                        break;
-                    }
-                }
-            }
-
             if (i < source.parts.Count && source.parts[i] != null)
                 CopyRenderComponents(source.parts[i], parts[i]);
+        }
+    }
+
+    void BuildPartTransforms(hod2v0 structure, int[] parents)
+    {
+        for (int i = 0; i < structure.parts.Count; i++)
+        {
+            var part = new GameObject(structure.parts[i].name);
+            parts.Add(part);
+            if (parents[i] < 0)
+                root = part;
+            else
+                // 親がscale=0でもworldPositionStaysによる逆行列・NaNを発生させない。
+                part.transform.SetParent(parts[parents[i]].transform, false);
+            ApplyStructureTransform(part.transform, structure.parts[i]);
         }
     }
 
@@ -192,8 +151,9 @@ public class RoboStructure : MonoBehaviour
                 }
 
                 Mesh mesh = new Mesh();
+                RegisterOwnedAsset?.Invoke(mesh);
                 List<int> combinedMeshIndices;
-                List<CombineInstance> combineInstances = BuildCombineInstances(scen, file, mirrorZ, out combinedMeshIndices);
+                List<CombineInstance> combineInstances = BuildCombineInstances(scen, file, mirrorZ, out combinedMeshIndices, RegisterOwnedAsset);
                 if (combineInstances.Count == 0)
                 {
                     Debug.LogWarning($"[RoboStructure] 有効なメッシュがありません: {file}");
@@ -207,6 +167,7 @@ public class RoboStructure : MonoBehaviour
                 {
                     int meshIndex = combinedMeshIndices[index];
                     var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                    RegisterOwnedAsset?.Invoke(mat);
 
                     if (scen.Meshes[meshIndex].MaterialIndex < scen.Materials.Length)
                     {
@@ -224,6 +185,7 @@ public class RoboStructure : MonoBehaviour
                                 try
                                 {
                                     mat.mainTexture = Helper.LoadTexture(Path.Combine(Modelpath, textures[0].FilePath));
+                                    RegisterOwnedAsset?.Invoke(mat.mainTexture);
                                 }
                                 catch
                                 {
@@ -250,6 +212,27 @@ public class RoboStructure : MonoBehaviour
         }
     }
 
+    byte[] LoadModelBytes(string file)
+    {
+        byte[] raw = File.ReadAllBytes(file);
+        if (raw.Length >= 4 && BitConverter.ToUInt32(raw, 0) == 543584120u)
+            return raw;
+
+        if (transcoder.findCypher(file))
+            return transcoder.Transcode(raw, transcoder.cypher);
+
+        // findCypher intentionally rejects an existing plaintext X so that it
+        // cannot overwrite a previously detected folder key. A plaintext model
+        // is still a valid input and must be passed through unchanged.
+        string header = System.Text.Encoding.UTF8.GetString(raw, 0, Math.Min(raw.Length, 64));
+        if (System.Text.RegularExpressions.Regex.IsMatch(
+            header, @"\A\uFEFF?\s*xof\s+\d{4}(?:txt|bin)\s+\d{4}",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            return raw;
+
+        throw new InvalidDataException("暗号化Xファイルのキーを検証できません: " + file);
+    }
+
     void ImportModelEncrypted(GameObject GO, string file)
     {
         // HOD part names are also used for bones and attachment points. Such
@@ -261,7 +244,7 @@ public class RoboStructure : MonoBehaviour
         try
         {
             string Modelpath = Path.GetDirectoryName(file);
-            byte[] data = transcoder.Transcode(file);
+            byte[] data = LoadModelBytes(file);
             if (data == null)
             {
                 //Debug.logError($"Failed to transcode file: {file}. The result is null.");
@@ -274,12 +257,26 @@ public class RoboStructure : MonoBehaviour
             }
             if (data.Length > 0)
             {
-                string data1 = System.Text.Encoding.GetEncoding("utf-8").GetString(data);
-                data1 = XfileStringConverter(data1);
-                byte[] data3 = System.Text.Encoding.GetEncoding("utf-8").GetBytes(data1);
-                MemoryStream ms = new MemoryStream(data3);
+                string textHeader = System.Text.Encoding.GetEncoding("utf-8")
+                    .GetString(data, 0, Math.Min(data.Length, 64));
+                bool isTextX = IsTextXfile(textHeader);
+                bool mirrorZ = isTextX && IsTextFloat32Xfile(textHeader);
+                MemoryStream ms;
+                if (isTextX)
+                {
+                    string data1 = System.Text.Encoding.GetEncoding("utf-8").GetString(data);
+                    data1 = XfileStringConverter(data1);
+                    byte[] data3 = System.Text.Encoding.GetEncoding("utf-8").GetBytes(data1);
+                    ms = new MemoryStream(data3);
+                }
+                else
+                {
+                    // Binary X files must remain byte-for-byte binary. Converting
+                    // them through UTF-8 would replace arbitrary bytes and could
+                    // corrupt valid Hit/HitUp assets.
+                    ms = new MemoryStream(data, false);
+                }
                 Assimp.Scene scen = null;
-                bool mirrorZ = IsTextFloat32Xfile(data1);
                 try
                 {
                     Assimp.PostProcessSteps importFlags = mirrorZ
@@ -300,12 +297,13 @@ public class RoboStructure : MonoBehaviour
 
 
                 Mesh mesh = new Mesh();
+                RegisterOwnedAsset?.Invoke(mesh);
                 mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
                 
                 try
                 {
                     List<int> combinedMeshIndices;
-                    List<CombineInstance> combineInstances = BuildCombineInstances(scen, file, mirrorZ, out combinedMeshIndices);
+                    List<CombineInstance> combineInstances = BuildCombineInstances(scen, file, mirrorZ, out combinedMeshIndices, RegisterOwnedAsset);
                     if (combineInstances.Count == 0)
                     {
                         Debug.LogWarning($"[RoboStructure] 有効なメッシュがありません: {file}");
@@ -319,6 +317,7 @@ public class RoboStructure : MonoBehaviour
                     {
                         int meshIndex = combinedMeshIndices[index];
                         var mat = new Material(Shader.Find("Standard"));
+                        RegisterOwnedAsset?.Invoke(mat);
                         if (mat == null)
                         {
                             //Debug.logError($"Shader not found for material: {file}");
@@ -347,6 +346,7 @@ public class RoboStructure : MonoBehaviour
                                     try
                                     {
                                         mat.mainTexture = Helper.LoadTextureEncrypted(Path.Combine(Modelpath, textures[0].FilePath), ref transcoder);
+                                        RegisterOwnedAsset?.Invoke(mat.mainTexture);
                                     }
                                     catch (System.Exception e)
                                     {
@@ -390,7 +390,7 @@ public class RoboStructure : MonoBehaviour
     }
 
 
-    static List<CombineInstance> BuildCombineInstances(Assimp.Scene scen, string file, bool mirrorZ, out List<int> combinedMeshIndices)
+    static List<CombineInstance> BuildCombineInstances(Assimp.Scene scen, string file, bool mirrorZ, out List<int> combinedMeshIndices, Action<UnityEngine.Object> registerAsset = null)
     {
         combinedMeshIndices = new List<int>();
         List<CombineInstance> combineInstances = new List<CombineInstance>();
@@ -398,17 +398,26 @@ public class RoboStructure : MonoBehaviour
             return combineInstances;
 
         if (scen.RootNode != null)
-            AddNodeMeshes(scen, scen.RootNode, Assimp.Matrix4x4.Identity, file, mirrorZ, combineInstances, combinedMeshIndices);
+            AddNodeMeshes(scen, scen.RootNode, Assimp.Matrix4x4.Identity, file, mirrorZ, combineInstances, combinedMeshIndices, registerAsset);
 
         return combineInstances;
     }
 
-    static void AddNodeMeshes(Assimp.Scene scen, Assimp.Node node, Assimp.Matrix4x4 parentTransform, string file, bool mirrorZ, List<CombineInstance> combineInstances, List<int> combinedMeshIndices)
+    static void AddNodeMeshes(Assimp.Scene scen, Assimp.Node node, Assimp.Matrix4x4 parentTransform, string file, bool mirrorZ, List<CombineInstance> combineInstances, List<int> combinedMeshIndices, Action<UnityEngine.Object> registerAsset)
     {
         if (node == null)
             return;
 
-        Assimp.Matrix4x4 nodeTransform = parentTransform * node.Transform;
+        // The X importer exposes nested text-X frames in the source's row-vector
+        // order: the local frame precedes its accumulated parent frame. This is
+        // required for 0302 meshes authored in the nested Frame space.
+        Assimp.Matrix4x4 nodeTransform = mirrorZ
+            ? node.Transform * parentTransform
+            : parentTransform * node.Transform;
+        // The text-X loader receives right-handed vertex/frame data. Convert the
+        // complete accumulated node transform to Unity's handedness once, in the
+        // same way as the vertex array below. Applying this only to the node or
+        // only to the vertices leaves Axis/head placement inconsistent.
         Matrix4x4 unityTransform = nodeTransform.ToUnityMatrix();
         if (mirrorZ)
             unityTransform = MirrorZTransform(unityTransform);
@@ -423,7 +432,11 @@ public class RoboStructure : MonoBehaviour
                 Assimp.Mesh sourceMesh = scen.Meshes[meshIndex];
                 try
                 {
+                    // The text-X vertex array needs the same single Z conversion as
+                    // the accumulated Axis/head transform. Otherwise the embedded
+                    // FrameTransformMatrix and HOD-relative mesh coordinates diverge.
                     Mesh unityMesh = sourceMesh.ToUnityMesh(mirrorZ);
+                    registerAsset?.Invoke(unityMesh);
                     combineInstances.Add(new CombineInstance()
                     {
                         mesh = unityMesh,
@@ -442,8 +455,9 @@ public class RoboStructure : MonoBehaviour
         if (!node.HasChildren || node.Children == null)
             return;
 
+        // Keep the recursive accumulator in the same source-frame convention.
         foreach (Assimp.Node child in node.Children)
-            AddNodeMeshes(scen, child, nodeTransform, file, mirrorZ, combineInstances, combinedMeshIndices);
+            AddNodeMeshes(scen, child, nodeTransform, file, mirrorZ, combineInstances, combinedMeshIndices, registerAsset);
     }
 
     static Matrix4x4 MirrorZTransform(Matrix4x4 transform)
@@ -452,22 +466,49 @@ public class RoboStructure : MonoBehaviour
         return mirror * transform * mirror;
     }
 
-
     public string XfileStringConverter(string data)
     {
         bool preserveFrameTransformSigns = IsTextFloat32Xfile(data);
 
-        if (!data.Trim().EndsWith("}"))
+        // A number of original 0302 text-X assets contain a known legacy trailer
+        // after the final brace (for example "\\r\\ny\\ns\\x01") and are one
+        // closing brace short. The previous loader discarded that trailer and
+        // restored the missing outer brace, so keep that compatibility behavior.
+        // Unknown non-whitespace tails remain rejected instead of being silently
+        // accepted as valid model data.
+        string trimmed = data == null ? "" : data.TrimEnd();
+        if (!trimmed.EndsWith("}"))
         {
-            //Debug.log("文字化けを確認しました");
-            int lastBraceIndex = data.LastIndexOf('}');
-            if (lastBraceIndex != -1)
+            int openingBraces = CountCharacter(trimmed, '{');
+            int closingBraces = CountCharacter(trimmed, '}');
+
+            // Some encrypted 0303 text-X files in the original data have their
+            // final four bytes left unencrypted. After the normal XOR pass, the
+            // valid terminal "}\r\n}" becomes "$ztv" and two closing braces
+            // appear to be missing. Restore only this exact, validated marker.
+            if (IsKnown0303MixedTerminalBlock(trimmed)
+                && openingBraces == closingBraces + 2)
             {
-                data = data.Substring(0, lastBraceIndex + 1); // 最後の波括弧を残す
+                trimmed = trimmed.Substring(0, trimmed.Length - 4) + "}\r\n}";
+                Debug.Log("[RoboStructure] 0303 Xの混在暗号末尾ブロックを互換修復しました。");
             }
-            data += "}"; // 新たに波括弧
-            //Debug.log("文字化けを対応しました。");
+            else
+            {
+                int lastBraceIndex = trimmed.LastIndexOf('}');
+                if (lastBraceIndex < 0)
+                    throw new InvalidDataException("Xファイル末尾が完全な閉じ括弧で終わっていません。");
+
+                string legacyTail = trimmed.Substring(lastBraceIndex + 1);
+                if (!IsLegacy0302TextXfile(trimmed)
+                    || !IsKnownLegacyXTrailer(legacyTail)
+                    || openingBraces != closingBraces + 1)
+                    throw new InvalidDataException("Xファイル末尾が完全な閉じ括弧で終わっていません。");
+
+                trimmed = trimmed.Substring(0, lastBraceIndex + 1) + "}";
+                Debug.Log("[RoboStructure] 旧形式Xの末尾トレーラーを互換修復しました。");
+            }
         }
+        data = trimmed;
 
         if (preserveFrameTransformSigns)
             return data;
@@ -512,6 +553,54 @@ public class RoboStructure : MonoBehaviour
 
 
         return data;
+    }
+
+    static bool IsTextXfile(string data)
+    {
+        if (string.IsNullOrEmpty(data))
+            return false;
+
+        return Regex.IsMatch(data, @"\A\uFEFF?\s*xof\s+\d{4}txt\s+\d{4}", RegexOptions.IgnoreCase);
+    }
+
+    static int CountCharacter(string value, char character)
+    {
+        if (string.IsNullOrEmpty(value))
+            return 0;
+
+        int count = 0;
+        for (int i = 0; i < value.Length; i++)
+        {
+            if (value[i] == character)
+                count++;
+        }
+        return count;
+    }
+
+    static bool IsKnownLegacyXTrailer(string trailer)
+    {
+        if (string.IsNullOrEmpty(trailer))
+            return false;
+
+        // Observed original assets use exactly these two legacy variants:
+        // CR/LF + y + LF + s/NUL-ish control trailer, or CR + S + LF +
+        // the same trailer. Do not generalize this to arbitrary bytes.
+        return Regex.IsMatch(trailer, @"^(?:\r\ny\ns\x01|\rS\ns\x01)$", RegexOptions.CultureInvariant);
+    }
+
+    static bool IsKnown0303MixedTerminalBlock(string data)
+    {
+        if (string.IsNullOrEmpty(data))
+            return false;
+
+        return Regex.IsMatch(data, @"\A\uFEFF?\s*xof\s+0303txt\s+0032", RegexOptions.IgnoreCase)
+            && data.EndsWith("$ztv", StringComparison.Ordinal);
+    }
+
+    static bool IsLegacy0302TextXfile(string data)
+    {
+        // The legacy trailer is used by both 0032 and 0064 text-X assets.
+        return Regex.IsMatch(data ?? "", @"\A\uFEFF?\s*xof\s+0302txt\s+\d{4}", RegexOptions.IgnoreCase);
     }
 
     static bool IsTextFloat32Xfile(string data)

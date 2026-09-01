@@ -84,7 +84,7 @@ public static class LocalizationProjectSetup
         Fixed("アニメリストをダンプ", "Dump Animation List"),
         Fixed("アニメリストを同期する", "Synchronize Animation List"),
         Fixed("アニメ名の変更", "Rename Animation"),
-        Fixed("アプリケーションバージョン:Ver.1.00", "Application Version: Ver.1.00"),
+        Fixed("アプリケーション:", "Application:"),
         Fixed("環境設定", "Configuration"),
         Fixed("カメラリセット", "Reset Camera"),
         Fixed("カメラ移動速度", "Camera Move Speed"),
@@ -208,7 +208,7 @@ public static class LocalizationProjectSetup
         Dynamic("dialog.delete_part_with_children", "子パーツごと削除しますがよろしいですか？", "Delete the selected part and all of its child parts?"),
         Dynamic("dialog.delete_selected_part", "選択パーツを削除します。", "Delete the selected part."),
         Dynamic("default.hod_new_name", "新規HODファイル", "New HOD File"),
-        Dynamic("help.application_version", "アプリケーションバージョン:Ver.{0}", "Application Version: {0}"),
+        Dynamic("help.application_version", "Ver.{0}", "Version: {0}"),
 
         Dynamic("hod.part.label", "パーツ[{0}]「{1}」", "Part[{0}] \"{1}\""),
         Dynamic("hod.validator.no_parts", "パーツ情報がありません。", "No part information is available."),
@@ -232,6 +232,11 @@ public static class LocalizationProjectSetup
         Dynamic("hod.repair.frame_part_count", "アニメーション[{0}] フレーム[{1}]のパーツ数が構造HODと一致しません（{2}/{3}）。", "Animation[{0}] frame[{1}] part count does not match the structure HOD ({2}/{3})."),
         Dynamic("hod.repair.frame_order_mismatch", "アニメーション[{0}] フレーム[{1}]のパーツ順が構造HODと一致しません（位置{2}: 「{3}」/「{4}」）。", "Animation[{0}] frame[{1}] part order does not match the structure HOD (position {2}: \"{3}\"/\"{4}\")."),
         Dynamic("hod.repair.frame_sync_required", "構造HODとアニメーションフレームのパーツ順または階層列が一致しません。", "The structure HOD and animation frames do not have matching part order or hierarchy columns."),
+        Dynamic("hod.repair.best_effort.unresolved_frames", "内容が欠落したフレーム{0}件は既定姿勢を生成して変換を継続します。", "{0} incomplete frames use generated default poses so conversion can continue."),
+        Dynamic("hod.repair.best_effort.heuristic_frames", "名前の正規化または階層列から推定して対応付けたフレーム{0}件があります。", "{0} frames were matched using normalized names or hierarchy columns heuristically."),
+        Dynamic("hod.repair.best_effort.fallback_frames", "一意に判定できないフレーム{0}件はindex順を仮対応として変換しました。", "{0} frames could not be matched uniquely and were converted using index order as a fallback."),
+        Dynamic("hod.repair.best_effort.normalized_frames", "パーツ数を構造HODへ合わせたフレーム{0}件（追加{1}／除外{2}）があります。", "{0} frames were normalized to the structure HOD part count (added {1}, dropped {2})."),
+        Dynamic("hod.repair.best_effort.reordered_frames", "構造HODの順序を基準に{0}フレームを再構成しました。", "{0} frames were reconstructed using structure HOD order."),
         Dynamic("hod.repair.tree_depth.no_parts_summary", "パーツ情報がないためtreeDepthを正として修復できません。", "Cannot repair using treeDepth because no part information is available."),
         Dynamic("hod.repair.tree_depth.no_parts_details", "treeDepthから階層を復元できません。", "The hierarchy cannot be reconstructed from treeDepth."),
         Dynamic("hod.repair.tree_depth.unrepairable", "treeDepthを正として修復できません。", "Cannot repair using treeDepth."),
@@ -334,9 +339,10 @@ public static class LocalizationProjectSetup
         Dynamic("hod.legacy_edit.choose_authority", "旧ANIのtreeDepthとchildCountが別の有効な階層を表しています。パーツの追加・削除を行うには、構造HODと全フレームへ適用する正本を選択してください。元ファイルは保存するまで変更されません。", "The legacy ANI treeDepth and childCount values describe different valid hierarchies. To add or remove parts, select which representation should be authoritative for the structure HOD and every frame. The source file is unchanged until you save."),
         Dynamic("hod.legacy_edit.confirm_normalize", "旧ANIは読込時の階層値を維持しています。パーツの追加・削除を行うには、構造HODと全フレームの階層列を次の内容で正規化します。元ファイルは保存するまで変更されません。正規化して構造編集を続けますか？", "The legacy ANI retains its hierarchy values as loaded. To add or remove parts, the hierarchy columns in the structure HOD and every frame will be normalized as shown below. The source file is unchanged until you save. Normalize and continue structural editing?"),
         Dynamic("hod.legacy_edit.choice_previews", "\n\n[treeDepth]\n{0}\n\n[childCount]\n{1}", "\n\n[treeDepth]\n{0}\n\n[childCount]\n{1}"),
-        Dynamic("ani.legacy_conversion.prompt", "読み込もうとしているファイルは旧ANI形式です。AN2へ変換して読み込みますか？\n\nOK: 元の旧ANIを変更せず「{0}」へAN2変換コピーを作成して読み込みます。旧ANI固有の未解析末尾データはAN2コピーには含まれません。\nキャンセル: 旧ANIのまま読み込みます。", "The selected file uses the legacy ANI format. Convert it to AN2 before loading?\n\nOK: Create and load an AN2 copy named \"{0}\" without changing the original legacy ANI. Unparsed legacy-only trailing data is not included in the AN2 copy.\nCancel: Load the legacy ANI unchanged."),
+        Dynamic("ani.legacy_conversion.prompt", "読み込もうとしているファイルは旧ANI形式です。AN2へ変換して読み込みますか？\n\nOK: 元の旧ANIを変更せず「{0}」へAN2変換コピーを作成して読み込みます。原作で使用するのは先頭200枠までです。追加枠は本エディタ用として末尾に保持します。問題のあるコメント文字は実行を妨げない形に置き換えます。旧ANI固有の未解析末尾データはAN2コピーには含まれません。\nキャンセル: 旧ANIのまま読み込みます。", "The selected file uses the legacy ANI format. Convert it to AN2 before loading?\n\nOK: Create and load an AN2 copy named \"{0}\" without changing the original legacy ANI. The original game uses up to the first 200 slots; extra slots are retained at the end for this editor. Problematic comment characters are made safe for execution. Unparsed legacy-only trailing data is not included in the AN2 copy.\nCancel: Load the legacy ANI unchanged."),
         Dynamic("ani.legacy_conversion.failed", "旧ANIをAN2へ変換できなかったため、読み込みを中止しました。元の旧ANIは変更されていません。\n{0}", "The legacy ANI could not be converted to AN2, so loading was stopped. The original legacy ANI was not changed.\n{0}"),
-        Dynamic("ani.legacy_conversion.completed", "旧ANIをAN2へ変換し、変換後ファイルを読み込みました。\n保存先: {0}\n元の旧ANIは変更されていません。", "The legacy ANI was converted to AN2 and the converted file was loaded.\nSaved to: {0}\nThe original legacy ANI was not changed.")
+        Dynamic("ani.legacy_conversion.warning", "旧ANIをAN2へ変換しましたが、パーツ対応付けに推測を含みます。\n{0}", "The legacy ANI was converted to AN2, but part matching includes heuristic guesses.\n{0}"),
+        Dynamic("ani.legacy_conversion.completed", "旧ANIをAN2へ変換し、変換後ファイルを読み込みました。\n保存先: {0}\n元の旧ANIは変更されていません。\n原作で使用する枠数: {1}（最大200）\n追加保持枠数: {2}（原作では使用しません）", "The legacy ANI was converted to AN2 and the converted file was loaded.\nSaved to: {0}\nThe original legacy ANI was not changed.\nSlots used by the original game: {1} (maximum 200)\nExtra slots retained for this editor: {2} (not used by the original game)")
     };
 
     [MenuItem("Tools/WindomXP/Localization/日英Localizationを構築")]

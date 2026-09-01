@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using UnityEngine;
 
 public enum HodHierarchyRepairKind
 {
@@ -100,48 +101,48 @@ internal sealed class HodFrameOrderRepairPlan
                     return false;
                 }
 
+                bool hierarchyMatches = HierarchyMatchesAtEveryPosition(
+                    frame.parts, structureParts);
+
                 // 旧ANIではフレーム側のnameが表示名・状態名として変化し、重複も許される。
-                // 階層列が構造HODと位置ごとに一致する場合、index順を正として名前は同一性判定に使わない。
-                if (HierarchyMatchesAtEveryPosition(frame.parts, structureParts))
+                // ただし構造HODとフレームHODの名前が一意に対応する場合は、階層列が
+                // 同じでも名前の対応を使って構造HODの順序へ並べ替える。兄弟パーツの
+                // 入れ替えではtreeDepth/childCountが同じになり、階層列だけでは順序差を
+                // 検出できないため、この判定を階層列の一致より先に行う。
+                List<hod2v1_Part> reorderedParts;
+                bool orderChanged;
+                if (TryBuildPartsInStructureOrder(
+                    frame.parts,
+                    structureParts,
+                    hasUniqueStructureNames,
+                    structureIndexByName,
+                    out reorderedParts,
+                    out orderChanged))
+                {
+                    if (orderChanged)
+                    {
+                        pendingReplacements.Add(new FrameReplacement
+                        {
+                            Frame = frame,
+                            Parts = reorderedParts
+                        });
+                    }
+
+                    if (!hierarchyMatches)
+                        requiresHierarchySynchronization = true;
+                    continue;
+                }
+
+                // 旧ANI固有の短縮・重複ラベルしかない場合は、階層列が一致している
+                // 既存データのindex対応を維持する。階層列まで違う場合は、安全な対応を
+                // 推測せず変換を中止する。
+                if (hierarchyMatches)
                     continue;
 
                 requiresHierarchySynchronization = true;
-
-                Dictionary<string, int> frameIndexByName;
-                if (!hasUniqueStructureNames
-                    || !TryBuildFrameIndex(frame.parts, out frameIndexByName)
-                    || frameIndexByName.Count != structureIndexByName.Count)
-                {
-                    error = BuildUnresolvedOrderError(
-                        animationIndex, frameIndex, frame.parts, structureParts);
-                    return false;
-                }
-
-                List<hod2v1_Part> reorderedParts = new List<hod2v1_Part>(structureParts.Count);
-                bool orderChanged = false;
-                for (int partIndex = 0; partIndex < structureParts.Count; partIndex++)
-                {
-                    int sourceIndex;
-                    if (!frameIndexByName.TryGetValue(structureParts[partIndex].name, out sourceIndex))
-                    {
-                        error = BuildUnresolvedOrderError(
-                            animationIndex, frameIndex, frame.parts, structureParts);
-                        return false;
-                    }
-
-                    reorderedParts.Add(frame.parts[sourceIndex]);
-                    if (sourceIndex != partIndex)
-                        orderChanged = true;
-                }
-
-                if (orderChanged)
-                {
-                    pendingReplacements.Add(new FrameReplacement
-                    {
-                        Frame = frame,
-                        Parts = reorderedParts
-                    });
-                }
+                error = BuildUnresolvedOrderError(
+                    animationIndex, frameIndex, frame.parts, structureParts);
+                return false;
             }
         }
 
@@ -150,6 +151,149 @@ internal sealed class HodFrameOrderRepairPlan
             requiresHierarchySynchronization);
         error = "";
         return true;
+    }
+
+    public static bool TryCreateBestEffort(
+        ani2 ani,
+        IList<hod2v0_Part> structureParts,
+        out HodFrameOrderRepairPlan plan,
+        out string warning)
+    {
+        plan = null;
+        warning = "";
+        if (ani == null || structureParts == null || structureParts.Count == 0)
+        {
+            warning = UILocalization.Get("hod.repair.no_structure", "構造HODがありません。");
+            return false;
+        }
+
+        if (ani.animations == null)
+        {
+            warning = UILocalization.Get("hod.repair.no_animations", "アニメーション情報がありません。");
+            return false;
+        }
+
+        Dictionary<string, int> structureIndexByName;
+        bool hasUniqueStructureNames = TryBuildStructureIndex(
+            structureParts, out structureIndexByName);
+        List<FrameReplacement> pendingReplacements = new List<FrameReplacement>();
+        int unresolvedFrameCount = 0;
+        int fallbackFrameCount = 0;
+        int heuristicFrameCount = 0;
+        int normalizedFrameCount = 0;
+        int insertedPartCount = 0;
+        int droppedPartCount = 0;
+
+        for (int animationIndex = 0; animationIndex < ani.animations.Count; animationIndex++)
+        {
+            animation animationData = ani.animations[animationIndex];
+            if (animationData == null || animationData.frames == null)
+            {
+                unresolvedFrameCount++;
+                continue;
+            }
+
+            for (int frameIndex = 0; frameIndex < animationData.frames.Count; frameIndex++)
+            {
+                hod2v1 frame = animationData.frames[frameIndex];
+                if (frame == null || frame.parts == null)
+                {
+                    unresolvedFrameCount++;
+                    continue;
+                }
+
+                List<hod2v1_Part> normalizedParts;
+                bool orderChanged;
+                int namedMatches;
+                int heuristicMatches;
+                int frameFallbacks;
+                int frameInserted;
+                int frameDropped;
+                if (!TryBuildBestEffortPartsInStructureOrder(
+                    frame.parts,
+                    structureParts,
+                    hasUniqueStructureNames,
+                    structureIndexByName,
+                    out normalizedParts,
+                    out orderChanged,
+                    out namedMatches,
+                    out heuristicMatches,
+                    out frameFallbacks,
+                    out frameInserted,
+                    out frameDropped))
+                {
+                    unresolvedFrameCount++;
+                    continue;
+                }
+
+                if (orderChanged || frame.parts.Count != structureParts.Count)
+                {
+                    pendingReplacements.Add(new FrameReplacement
+                    {
+                        Frame = frame,
+                        Parts = normalizedParts
+                    });
+                }
+
+                if (heuristicMatches > 0)
+                    heuristicFrameCount++;
+                if (frameFallbacks > 0)
+                    fallbackFrameCount++;
+                if (frameInserted > 0 || frameDropped > 0)
+                    normalizedFrameCount++;
+                insertedPartCount += frameInserted;
+                droppedPartCount += frameDropped;
+            }
+        }
+
+        if (unresolvedFrameCount > 0)
+        {
+            warning = AppendWarning(warning, UILocalization.Get(
+                "hod.repair.best_effort.unresolved_frames",
+                "内容が欠落したフレーム{0}件は既定姿勢を生成して変換を継続します。",
+                unresolvedFrameCount));
+        }
+        if (heuristicFrameCount > 0)
+        {
+            warning = AppendWarning(warning, UILocalization.Get(
+                "hod.repair.best_effort.heuristic_frames",
+                "名前の正規化または階層列から推定して対応付けたフレーム{0}件があります。",
+                heuristicFrameCount));
+        }
+        if (fallbackFrameCount > 0 || !hasUniqueStructureNames)
+        {
+            warning = AppendWarning(warning, UILocalization.Get(
+                "hod.repair.best_effort.fallback_frames",
+                "一意に判定できないフレーム{0}件はindex順を仮対応として変換しました。",
+                fallbackFrameCount + (!hasUniqueStructureNames ? 1 : 0)));
+        }
+        if (normalizedFrameCount > 0)
+        {
+            warning = AppendWarning(warning, UILocalization.Get(
+                "hod.repair.best_effort.normalized_frames",
+                "パーツ数を構造HODへ合わせたフレーム{0}件（追加{1}／除外{2}）があります。",
+                normalizedFrameCount,
+                insertedPartCount,
+                droppedPartCount));
+        }
+        if (pendingReplacements.Count > 0)
+        {
+            warning = AppendWarning(warning, UILocalization.Get(
+                "hod.repair.best_effort.reordered_frames",
+                "構造HODの順序を基準に{0}フレームを再構成しました。",
+                pendingReplacements.Count));
+        }
+        plan = new HodFrameOrderRepairPlan(pendingReplacements, false);
+        return true;
+    }
+
+    static string AppendWarning(string left, string right)
+    {
+        if (string.IsNullOrEmpty(left))
+            return right ?? "";
+        if (string.IsNullOrEmpty(right))
+            return left;
+        return left + "\n" + right;
     }
 
     static bool HierarchyMatchesAtEveryPosition(
@@ -162,6 +306,202 @@ internal sealed class HodFrameOrderRepairPlan
                 || frameParts[i].childCount != structureParts[i].childCount)
                 return false;
         }
+
+        return true;
+    }
+
+    static bool TryBuildPartsInStructureOrder(
+        IList<hod2v1_Part> frameParts,
+        IList<hod2v0_Part> structureParts,
+        bool hasUniqueStructureNames,
+        Dictionary<string, int> structureIndexByName,
+        out List<hod2v1_Part> reorderedParts,
+        out bool orderChanged)
+    {
+        reorderedParts = null;
+        orderChanged = false;
+        if (!hasUniqueStructureNames)
+            return false;
+
+        Dictionary<string, int> frameIndexByName;
+        if (!TryBuildFrameIndex(frameParts, out frameIndexByName)
+            || frameIndexByName.Count != structureParts.Count)
+            return false;
+
+        reorderedParts = new List<hod2v1_Part>(structureParts.Count);
+        for (int partIndex = 0; partIndex < structureParts.Count; partIndex++)
+        {
+            int sourceIndex;
+            if (!frameIndexByName.TryGetValue(
+                    structureParts[partIndex].name, out sourceIndex))
+            {
+                reorderedParts = null;
+                orderChanged = false;
+                return false;
+            }
+
+            reorderedParts.Add(frameParts[sourceIndex]);
+            if (sourceIndex != partIndex)
+                orderChanged = true;
+        }
+
+        return true;
+    }
+
+    static bool TryBuildBestEffortPartsInStructureOrder(
+        IList<hod2v1_Part> frameParts,
+        IList<hod2v0_Part> structureParts,
+        bool hasUniqueStructureNames,
+        Dictionary<string, int> structureIndexByName,
+        out List<hod2v1_Part> normalizedParts,
+        out bool orderChanged,
+        out int namedMatches,
+        out int heuristicMatches,
+        out int fallbackCount,
+        out int insertedCount,
+        out int droppedCount)
+    {
+        normalizedParts = new List<hod2v1_Part>(structureParts.Count);
+        orderChanged = false;
+        bool metadataChanged = false;
+        namedMatches = 0;
+        heuristicMatches = 0;
+        fallbackCount = 0;
+        insertedCount = 0;
+        droppedCount = 0;
+
+        bool[] used = new bool[frameParts.Count];
+        int[] sourceIndices = new int[structureParts.Count];
+        for (int i = 0; i < sourceIndices.Length; i++)
+            sourceIndices[i] = -1;
+
+        // Pass 1: exact unique name match. The frame's name is normalized to
+        // the structure name in the output because AN2 has no independent
+        // legacy frame-label field.
+        if (hasUniqueStructureNames)
+        {
+            for (int targetIndex = 0; targetIndex < structureParts.Count; targetIndex++)
+            {
+                string targetName = structureParts[targetIndex].name ?? "";
+                int found = -1;
+                for (int sourceIndex = 0; sourceIndex < frameParts.Count; sourceIndex++)
+                {
+                    if (used[sourceIndex])
+                        continue;
+                    if (string.Equals(frameParts[sourceIndex].name, targetName,
+                        StringComparison.Ordinal))
+                    {
+                        found = sourceIndex;
+                        break;
+                    }
+                }
+                if (found >= 0)
+                {
+                    sourceIndices[targetIndex] = found;
+                    used[found] = true;
+                    namedMatches++;
+                }
+            }
+        }
+
+        // Pass 2: matching hierarchy columns is a useful, but explicitly
+        // heuristic, signal for legacy HODs whose labels are display names.
+        for (int targetIndex = 0; targetIndex < structureParts.Count; targetIndex++)
+        {
+            if (sourceIndices[targetIndex] >= 0)
+                continue;
+            int found = -1;
+            int candidates = 0;
+            for (int sourceIndex = 0; sourceIndex < frameParts.Count; sourceIndex++)
+            {
+                if (used[sourceIndex])
+                    continue;
+                hod2v1_Part candidate = frameParts[sourceIndex];
+                if (candidate.treeDepth == structureParts[targetIndex].treeDepth
+                    && candidate.childCount == structureParts[targetIndex].childCount)
+                {
+                    found = sourceIndex;
+                    candidates++;
+                }
+            }
+            if (candidates == 1)
+            {
+                sourceIndices[targetIndex] = found;
+                used[found] = true;
+                heuristicMatches++;
+            }
+        }
+
+        // Pass 3: preserve the remaining relative index order. If counts
+        // differ, generate an identity part for missing structure entries and
+        // drop surplus frame entries. This is intentionally lossy but keeps a
+        // valid AN2 record and emits a warning to the caller.
+        int nextUnused = 0;
+        for (int targetIndex = 0; targetIndex < structureParts.Count; targetIndex++)
+        {
+            if (sourceIndices[targetIndex] >= 0)
+                continue;
+            while (nextUnused < frameParts.Count && used[nextUnused])
+                nextUnused++;
+            if (nextUnused < frameParts.Count)
+            {
+                sourceIndices[targetIndex] = nextUnused;
+                used[nextUnused] = true;
+                fallbackCount++;
+                nextUnused++;
+            }
+            else
+            {
+                fallbackCount++;
+                insertedCount++;
+            }
+        }
+
+        for (int sourceIndex = 0; sourceIndex < used.Length; sourceIndex++)
+        {
+            if (!used[sourceIndex])
+                droppedCount++;
+        }
+
+        for (int targetIndex = 0; targetIndex < structureParts.Count; targetIndex++)
+        {
+            int sourceIndex = sourceIndices[targetIndex];
+            hod2v1_Part part;
+            if (sourceIndex >= 0)
+            {
+                part = frameParts[sourceIndex];
+                if (sourceIndex != targetIndex)
+                    orderChanged = true;
+            }
+            else
+            {
+                part = new hod2v1_Part
+                {
+                    rotation = Quaternion.identity,
+                    scale = Vector3.one,
+                    position = Vector3.zero,
+                    unk1 = Quaternion.identity,
+                    unk2 = Quaternion.identity,
+                    unk3 = Quaternion.identity
+                };
+                orderChanged = true;
+            }
+
+            if (!string.Equals(part.name, structureParts[targetIndex].name,
+                StringComparison.Ordinal)
+                || part.treeDepth != structureParts[targetIndex].treeDepth
+                || part.childCount != structureParts[targetIndex].childCount)
+            {
+                metadataChanged = true;
+            }
+            part.name = structureParts[targetIndex].name;
+            part.treeDepth = structureParts[targetIndex].treeDepth;
+            part.childCount = structureParts[targetIndex].childCount;
+            normalizedParts.Add(part);
+        }
+
+        if (metadataChanged)
+            orderChanged = true;
 
         return true;
     }
@@ -326,6 +666,59 @@ public sealed class HodHierarchyRepairPlan
     }
 
     
+    internal bool TryApplyStructureOnly(ani2 ani, out string error)
+    {
+        if (!CanApply)
+        {
+            error = UILocalization.Get(
+                "hod.repair.no_unique_method",
+                "この不整合には一意な自動修復方法がありません。");
+            return false;
+        }
+
+        if (ani == null || ani.structure == null || ani.structure.parts == null)
+        {
+            error = UILocalization.Get("hod.repair.no_structure", "構造HODがありません。");
+            return false;
+        }
+
+        int partCount = repairedTreeDepths == null ? 0 : repairedTreeDepths.Length;
+        if (ani.structure.parts.Count != partCount)
+        {
+            error = UILocalization.Get(
+                "hod.repair.structure_part_count",
+                "構造HODのパーツ数が修復計画と一致しません（{0}/{1}）。",
+                ani.structure.parts.Count,
+                partCount);
+            return false;
+        }
+
+        for (int i = 0; i < partCount; i++)
+        {
+            hod2v0_Part part = ani.structure.parts[i];
+            if (part.treeDepth != originalTreeDepths[i]
+                || part.childCount != originalChildCounts[i])
+            {
+                error = UILocalization.Get(
+                    "hod.repair.structure_changed",
+                    "構造HODのパーツ[{0}]が修復計画の作成後に変更されています。",
+                    i);
+                return false;
+            }
+        }
+
+        for (int i = 0; i < partCount; i++)
+        {
+            hod2v0_Part part = ani.structure.parts[i];
+            part.treeDepth = repairedTreeDepths[i];
+            part.childCount = repairedChildCounts[i];
+            ani.structure.parts[i] = part;
+        }
+
+        error = "";
+        return true;
+    }
+
     public bool TryApply(ani2 ani, out string error)
     {
         if (!CanApply)
@@ -342,13 +735,8 @@ public sealed class HodHierarchyRepairPlan
 
         frameOrderPlan.Apply();
 
-        for (int i = 0; i < ani.structure.parts.Count; i++)
-        {
-            hod2v0_Part part = ani.structure.parts[i];
-            part.treeDepth = repairedTreeDepths[i];
-            part.childCount = repairedChildCounts[i];
-            ani.structure.parts[i] = part;
-        }
+        if (!TryApplyStructureOnly(ani, out error))
+            return false;
 
         foreach (animation animationData in ani.animations)
         {
@@ -597,8 +985,8 @@ public sealed class LegacyAniStructureEditPlan
                 }
 
                 plan = new LegacyAniStructureEditPlan(
-                    treePlan, childPlan, false, true,
-                    LegacyAniHierarchyAuthority.TreeDepth,
+                    treePlan, childPlan, false, false,
+                    LegacyAniHierarchyAuthority.ChildCount,
                     currentPlan.Summary, currentPlan.Details);
                 error = "";
                 return true;
@@ -769,6 +1157,151 @@ public static class HodHierarchyRepair
         }
 
         details = "";
+        return true;
+    }
+
+    static string AppendWarning(string left, string right)
+    {
+        if (string.IsNullOrEmpty(left))
+            return right ?? "";
+        if (string.IsNullOrEmpty(right))
+            return left;
+        return left + "\n" + right;
+    }
+
+    public static bool TryApplyBestEffort(
+        ani2 ani,
+        out HodHierarchyRepairPlan appliedHierarchyPlan,
+        out string warning)
+    {
+        appliedHierarchyPlan = null;
+        warning = "";
+        if (ani == null || ani.structure == null || ani.structure.parts == null)
+        {
+            warning = UILocalization.Get("hod.repair.no_structure", "構造HODがありません。");
+            return false;
+        }
+
+        appliedHierarchyPlan = CreatePlan(ani.structure.parts);
+        if (appliedHierarchyPlan.Kind != HodHierarchyRepairKind.None)
+        {
+            HodHierarchyRepairPlan childPlan = CreatePlanUsingChildCount(ani.structure.parts);
+            if (childPlan.CanApply)
+            {
+                if (!childPlan.TryApplyStructureOnly(ani, out string childError))
+                {
+                    warning = childError;
+                    return false;
+                }
+                appliedHierarchyPlan = childPlan;
+            }
+            else
+            {
+                HodHierarchyRepairPlan depthPlan = CreatePlanUsingTreeDepth(ani.structure.parts);
+                if (depthPlan.CanApply)
+                {
+                    if (!depthPlan.TryApplyStructureOnly(ani, out string depthError))
+                    {
+                        warning = depthError;
+                        return false;
+                    }
+                    appliedHierarchyPlan = depthPlan;
+                    warning = "childCountからの復元に失敗したためtreeDepthを使用しました。";
+                }
+                else
+                {
+                    ApplyBestEffortHierarchyFallback(ani.structure.parts);
+                    warning = "treeDepthとchildCountの両方を復元できないため、元の並びを保った推定階層へ正規化しました。";
+                }
+            }
+        }
+
+        HodFrameOrderRepairPlan framePlan;
+        string orderWarning;
+        if (!HodFrameOrderRepairPlan.TryCreateBestEffort(
+            ani, ani.structure.parts, out framePlan, out orderWarning))
+        {
+            warning = AppendWarning(warning, orderWarning);
+            return false;
+        }
+        framePlan.Apply();
+        warning = AppendWarning(warning, orderWarning);
+        return true;
+    }
+
+    static void ApplyBestEffortHierarchyFallback(IList<hod2v0_Part> parts)
+    {
+        if (parts == null || parts.Count == 0)
+            return;
+        for (int i = 0; i < parts.Count; i++)
+        {
+            hod2v0_Part part = parts[i];
+            part.treeDepth = i == 0 ? 0 : 1;
+            part.childCount = i == 0 ? parts.Count - 1 : 0;
+            parts[i] = part;
+        }
+    }
+
+    // 原作確定: FUN_0056fbf0 / FUN_0056fe90 はchildCount回の再帰で親子を構築する。
+    // 表示用の対応を計算するだけで、旧ANIの生の階層列や行列は変更しない。
+    // childCountが復元不能な既存データだけ、有効なtreeDepthへ互換フォールバックする。
+    public static bool TryGetDisplayHierarchy(
+        IList<hod2v0_Part> parts, out int[] parents, out int[] depths, out string error)
+    {
+        parents = null;
+        depths = null;
+        if (parts == null || parts.Count == 0)
+        {
+            error = "構造HODのパーツ情報がありません。";
+            return false;
+        }
+
+        if (!TryBuildDepthsFromChildCounts(parts, out depths, out error))
+        {
+            int[] ignored;
+            if (!TryBuildChildCountsFromDepths(parts, out ignored, out string depthError))
+            {
+                error += "\n" + depthError;
+                return false;
+            }
+            depths = CopyDepths(parts);
+        }
+
+        parents = new int[parts.Count];
+        var ancestors = new List<int>();
+        for (int i = 0; i < parts.Count; i++)
+        {
+            while (ancestors.Count > depths[i])
+                ancestors.RemoveAt(ancestors.Count - 1);
+            parents[i] = depths[i] == 0 ? -1 : ancestors[depths[i] - 1];
+            ancestors.Add(i);
+        }
+        error = "";
+        return true;
+    }
+
+    public static bool TryApplyChildCountFirst(
+        ani2 ani, out HodHierarchyRepairPlan appliedPlan, out string error)
+    {
+        appliedPlan = null;
+        if (ani == null || ani.structure == null || ani.structure.parts == null)
+        {
+            error = "構造HODがありません。";
+            return false;
+        }
+        var current = CreatePlan(ani.structure.parts);
+        // 既に一致する階層は従来と同じ全フレーム事前検査・同期を使う。
+        if (current.Kind == HodHierarchyRepairKind.None)
+            return TryApplyTreeDepthFirst(ani, out appliedPlan, out error);
+
+        var childPlan = CreatePlanUsingChildCount(ani.structure.parts);
+        if (!childPlan.CanApply)
+            return TryApplyTreeDepthFirst(ani, out appliedPlan, out error);
+
+        // フレームの対応不明は別の正本へのfallbackで隠さず、変更前に中止する。
+        if (!childPlan.TryApply(ani, out error))
+            return false;
+        appliedPlan = childPlan;
         return true;
     }
 

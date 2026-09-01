@@ -279,6 +279,18 @@ public class MechaAnimator : MonoBehaviour
         }
     }
 
+    /// <summary>Discard poses from the previous mech before replacing its part table.</summary>
+    public void ResetForStructureChange()
+    {
+        play = false;
+        runner = null;
+        prevRunner = null;
+        UpperOverride = null;
+        transition = 0;
+        initFired = false;
+        lastFiredScriptIndex = -999;
+    }
+
     public void run(animation animID, bool _loop = false)
     {
         prevRunner = runner;

@@ -18,6 +18,8 @@ public sealed class LegacyAniAn2ConversionResult
     public ani2 ani;
     public string destinationPath;
     public HodHierarchyRepairPlan hierarchyPlan;
+    public bool bestEffortUsed;
+    public string warning;
     public string error;
 }
 
@@ -176,15 +178,7 @@ public class UI_SelectMech : MonoBehaviour
         out HodHierarchyRepairPlan appliedHierarchyPlan,
         out string error)
     {
-        if (ani != null && ani.sourceFormat == AniContainerFormat.LegacyAni)
-        {
-            appliedHierarchyPlan = null;
-            error = "";
-            return true;
-        }
-
-        return HodHierarchyRepair.TryApplyTreeDepthFirst(
-            ani, out appliedHierarchyPlan, out error);
+        return MechLoader.TryApplyHierarchy(ani, out appliedHierarchyPlan, out error);
     }
 
     public static bool TryDetectContainerFormat(
@@ -238,7 +232,7 @@ public class UI_SelectMech : MonoBehaviour
         string baseName = Path.GetFileNameWithoutExtension(sourcePath);
         string candidate = Path.Combine(directory, baseName + ".an2");
         string sourceFullPath = Path.GetFullPath(sourcePath);
-        if (!File.Exists(candidate)
+        if (!File.Exists(candidate) && !Directory.Exists(candidate)
             && !string.Equals(
                 Path.GetFullPath(candidate),
                 sourceFullPath,
@@ -252,7 +246,7 @@ public class UI_SelectMech : MonoBehaviour
         {
             string suffixText = suffix == 1 ? ".converted" : ".converted" + suffix;
             candidate = Path.Combine(directory, baseName + suffixText + ".an2");
-            if (!File.Exists(candidate)
+            if (!File.Exists(candidate) && !Directory.Exists(candidate)
                 && !string.Equals(
                     Path.GetFullPath(candidate),
                     sourceFullPath,
@@ -286,43 +280,86 @@ public class UI_SelectMech : MonoBehaviour
             return result;
         }
 
-        string sourceFullPath = string.IsNullOrEmpty(source._filename)
-            ? ""
-            : Path.GetFullPath(source._filename);
-        string destinationFullPath = Path.GetFullPath(destinationPath);
-        if ((!string.IsNullOrEmpty(sourceFullPath)
-                && string.Equals(sourceFullPath, destinationFullPath, StringComparison.OrdinalIgnoreCase))
-            || File.Exists(destinationPath))
-        {
-            result.error = "元の旧ANIまたは既存ファイルを上書きする変換先は使用できません。";
-            return result;
-        }
-
-        HodHierarchyRepairPlan hierarchyPlan;
-        string hierarchyError;
-        if (!HodHierarchyRepair.TryApplyTreeDepthFirst(
-            source, out hierarchyPlan, out hierarchyError))
-        {
-            result.error = "AN2変換前にHOD階層を安全に正規化できませんでした。\n" + hierarchyError;
-            return result;
-        }
-        result.hierarchyPlan = hierarchyPlan;
-
-        bool generatedDestination = false;
+        string temporaryPath = null;
+        bool ownsTemporary = false;
         try
         {
-            source.saveAsAn2(destinationPath);
-            generatedDestination = File.Exists(destinationPath);
+            string sourceFullPath = string.IsNullOrEmpty(source._filename)
+                ? ""
+                : Path.GetFullPath(source._filename);
+            string destinationFullPath = Path.GetFullPath(destinationPath);
+            if ((!string.IsNullOrEmpty(sourceFullPath)
+                    && string.Equals(sourceFullPath, destinationFullPath, StringComparison.OrdinalIgnoreCase))
+                || File.Exists(destinationFullPath) || Directory.Exists(destinationFullPath))
+            {
+                result.error = "元の旧ANIまたは既存ファイルを上書きする変換先は使用できません。";
+                return result;
+            }
+
+            ani2 export;
+            try
+            {
+                export = source.CreateAn2ExportCopy(out HodHierarchyRepairPlan hierarchyPlan);
+                result.hierarchyPlan = hierarchyPlan;
+            }
+            catch (Exception strictException)
+            {
+                // Legacy ANI is often populated with display labels or stale
+                // hierarchy columns. For explicit ANI->AN2 conversion, keep
+                // converting on the isolated export copy even when strict
+                // loading correspondence cannot be proven. The warning is
+                // returned to the caller and never changes the source object.
+                export = source.CreateAn2BestEffortExportCopy(
+                    out HodHierarchyRepairPlan bestEffortPlan,
+                    out string bestEffortWarning);
+                result.hierarchyPlan = bestEffortPlan;
+                result.bestEffortUsed = true;
+                result.warning = string.IsNullOrEmpty(bestEffortWarning)
+                    ? "厳密なパーツ対応付けに失敗したため、推測を含む変換を実行しました。"
+                    : bestEffortWarning;
+                Debug.LogWarning("[UI_SelectMech] 旧ANIの推測混じり変換: "
+                    + result.warning + " / strict: " + strictException.Message);
+            }
+
+            temporaryPath = Path.Combine(Path.GetDirectoryName(destinationFullPath),
+                ".windom-an2-" + Guid.NewGuid().ToString("N") + ".tmp");
+            using (var stream = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                ownsTemporary = true;
+                using (var writer = new BinaryWriter(stream))
+                    export.WriteAn2(writer);
+            }
 
             ani2 converted = new ani2();
-            bool loaded = await converted.load(destinationPath, progress);
+            bool loaded = await converted.load(temporaryPath, progress);
             if (!loaded || converted.sourceFormat != AniContainerFormat.An2
                 || converted.structure == null || converted.animations == null)
             {
-                TryDeleteGeneratedConversion(destinationPath, generatedDestination);
                 result.error = "変換したAN2を再読み込みできませんでした。";
                 return result;
             }
+            try
+            {
+                export.ValidateAn2Export(converted);
+            }
+            catch (Exception validationException)
+            {
+                if (!result.bestEffortUsed)
+                    throw;
+
+                // A guessed/opaque frame is allowed to reach the final file,
+                // but the public result must make the loss of certainty clear.
+                result.warning = AppendConversionWarning(result.warning,
+                    "推測変換の内容照合で差異がありました: " + validationException.Message);
+                Debug.LogWarning("[UI_SelectMech] 推測変換の内容照合警告: "
+                    + validationException.Message);
+            }
+
+            // Move without replacement is the final collision check, including
+            // files created while the asynchronous reload was in progress.
+            File.Move(temporaryPath, destinationFullPath);
+            ownsTemporary = false;
+            converted._filename = destinationPath;
 
             result.success = true;
             result.ani = converted;
@@ -331,10 +368,22 @@ public class UI_SelectMech : MonoBehaviour
         }
         catch (Exception exception)
         {
-            TryDeleteGeneratedConversion(destinationPath, generatedDestination);
             result.error = exception.Message;
             return result;
         }
+        finally
+        {
+            TryDeleteGeneratedConversion(temporaryPath, ownsTemporary);
+        }
+    }
+
+    static string AppendConversionWarning(string left, string right)
+    {
+        if (string.IsNullOrEmpty(left))
+            return right ?? "";
+        if (string.IsNullOrEmpty(right))
+            return left;
+        return left + "\n" + right;
     }
 
     static void TryDeleteGeneratedConversion(string path, bool generated)
@@ -363,20 +412,25 @@ public class UI_SelectMech : MonoBehaviour
             new TaskCompletionSource<LegacyAniLoadChoice>();
         string message = UILocalization.Get(
             "ani.legacy_conversion.prompt",
-            "読み込もうとしているファイルは旧ANI形式です。パーツの追加・削除や名前の変更を行った場合、スクリプトが破壊される可能性があります。開きますか？",
+            "読み込もうとしているファイルは旧ANI形式です。AN2へ変換して読み込みますか？\n\nOKの場合は元の旧ANIを変更せず「{0}」へAN2変換コピーを作成して読み込みます。原作で使用するのは先頭200枠までです。追加枠は本エディタ用として末尾に保持します。問題のあるコメント文字は実行を妨げない形に置き換えます。旧ANI固有の未解析末尾データはAN2コピーには含まれません。キャンセルの場合は旧ANIのまま読み込みます。",
             Path.GetFileName(destinationPath));
 
         bool restoreLoading = loadingUI != null && loadingUI.activeSelf;
         if (restoreLoading)
             loadingUI.SetActive(false);
-        dialog.openNoTextBoxDialog(
-            message,
-            ignored => completion.TrySetResult(LegacyAniLoadChoice.KeepLegacy));
-
-        LegacyAniLoadChoice choice = await completion.Task;
-        if (restoreLoading && loadingUI != null)
-            loadingUI.SetActive(true);
-        return choice;
+        try
+        {
+            dialog.openNoTextBoxDialog(
+                message,
+                ignored => completion.TrySetResult(LegacyAniLoadChoice.ConvertToAn2),
+                ignored => completion.TrySetResult(LegacyAniLoadChoice.KeepLegacy));
+            return await completion.Task;
+        }
+        finally
+        {
+            if (restoreLoading && loadingUI != null)
+                loadingUI.SetActive(true);
+        }
     }
 
     private async Task LoadDataAsync(string name)
@@ -402,10 +456,7 @@ public class UI_SelectMech : MonoBehaviour
             legacyChoice = await AskLegacyAniConversionAsync(conversionPath);
         }
 
-        ani2 ani = new ani2();
-        bool loaded = await ani.load(sourcePath, progress);
-        if (!loaded || ani.structure == null || ani.animations == null)
-            throw new InvalidDataException($"'{name}' を読み込めませんでした。");
+        ani2 ani = await MechLoader.LoadAsync(sourcePath, progress);
 
         if (legacyChoice == LegacyAniLoadChoice.ConvertToAn2)
         {
@@ -425,6 +476,14 @@ public class UI_SelectMech : MonoBehaviour
             ani = conversion.ani;
             name = Path.GetFileName(conversion.destinationPath);
             Debug.Log($"[UI_SelectMech] 旧ANIをAN2へ変換しました: {conversion.destinationPath}");
+            if (!string.IsNullOrEmpty(conversion.warning))
+            {
+                Debug.LogWarning("[UI_SelectMech] 旧ANI変換警告: " + conversion.warning);
+                msgBox?.Show(UILocalization.Get(
+                    "ani.legacy_conversion.warning",
+                    "旧ANIをAN2へ変換しましたが、パーツ対応付けに推測を含みます。\n{0}",
+                    conversion.warning));
+            }
         }
 
         HodHierarchyRepairPlan appliedHierarchyPlan;
@@ -463,6 +522,8 @@ public class UI_SelectMech : MonoBehaviour
 
         robo.folder = selectedFolder;
         robo.SetStructureEditingBlockReason(structureEditingBlockReason);
+        if (editAni != null && editAni.ma != null)
+            editAni.ma.ResetForStructureChange();
         robo.buildStructure(ani.structure);
         if (ani.sourceFormat == AniContainerFormat.LegacyAni
             || ani.sourceFormat == AniContainerFormat.An2)
@@ -521,8 +582,8 @@ public class UI_SelectMech : MonoBehaviour
                 loadingUI.SetActive(false);
             msgBox?.Show(UILocalization.Get(
                 "ani.legacy_conversion.completed",
-                "旧ANIをAN2へ変換し、変換後ファイルを読み込みました。\n保存先: {0}\n元の旧ANIは変更されていません。",
-                conversionPath));
+                "旧ANIをAN2へ変換し、変換後ファイルを読み込みました。\n保存先: {0}\n元の旧ANIは変更されていません。\n原作で使用する枠数: {1}（最大200）\n追加保持枠数: {2}（原作では使用しません）",
+                conversionPath, ani.originalGameAnimationCount, ani.editorOnlyAnimationCount));
         }
     }
 

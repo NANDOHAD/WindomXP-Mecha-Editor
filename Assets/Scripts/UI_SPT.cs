@@ -42,21 +42,12 @@ public class UI_SPT : MonoBehaviour
     /// </summary>
     public bool TryLoadSptRuntimeData()
     {
-        if (robo == null || string.IsNullOrEmpty(robo.folder) || robo.transcoder == null)
+        string sptText = MechLoader.ReadSpt(robo);
+        if (sptText == null)
         {
             ClearSptRuntimeData();
             return false;
         }
-
-        string sptPath = Path.Combine(robo.folder, "Script.spt");
-        if (!File.Exists(sptPath))
-        {
-            ClearSptRuntimeData();
-            return false;
-        }
-
-        byte[] file = robo.transcoder.Transcode(sptPath);
-        string sptText = USEncoder.ToEncoding.ToUnicode(file);
         if (SPTField != null)
             SPTField.text = sptText;
 
@@ -77,16 +68,8 @@ public class UI_SPT : MonoBehaviour
             return;
         }
 
-        // 1. Script.spt をパース
-        var data = SptParser.Parse(sptText);
+        var data = MechLoader.BindSpt(sptText, robo != null && robo.root != null ? robo.root.transform : null, burnerEffectPrefab);
         LastSptData = data;
-
-        // 2. ボーン（Transform）をキャラクターのルートに紐づける
-        if (robo != null && robo.root != null)
-            SptParser.BindTransforms(robo.root.transform, data);
-
-        // 3. 各バーナーボーンにParticleSystemを生成・アタッチ
-        SptParser.BuildBurnerEffects(data, burnerEffectPrefab);
 
         // 4. AniScriptRuntime に渡す
         //    mechaAnimator が Inspector で未設定の場合はシーン内から自動検索する
@@ -139,7 +122,8 @@ public class UI_SPT : MonoBehaviour
                 j++;
             }
         }
-        byte[] tFile = robo.transcoder.Transcode(list.ToArray());
+        robo.transcoder.cypher = 0x0B7E7759;
+        byte[] tFile = robo.transcoder.Transcode(list.ToArray(), robo.transcoder.cypher);
         File.WriteAllBytes(Path.Combine(robo.folder, "Script.spt"), tFile);
     }
 }

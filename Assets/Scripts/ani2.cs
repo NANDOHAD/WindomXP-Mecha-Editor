@@ -340,6 +340,11 @@ internal static class LegacyAniSourceValues
 
 public class ani2
 {
+    public const int OriginalGameAnimationLimit = 200;
+    public int originalGameAnimationCount => Math.Min(animations?.Count ?? 0, OriginalGameAnimationLimit);
+    public int editorOnlyAnimationCount => Math.Max(0, (animations?.Count ?? 0) - OriginalGameAnimationLimit);
+    public int an2DeclaredAnimationCount { get; private set; }
+    byte[] an2TrailingBytes = Array.Empty<byte>();
     public hod2v0 structure;
     public List<animation> animations;
     public string _filename;
@@ -359,6 +364,8 @@ public class ani2
         _filename = filename;
         sourceFormat = AniContainerFormat.Unknown;
         legacySource = null;
+        an2TrailingBytes = Array.Empty<byte>();
+        an2DeclaredAnimationCount = 0;
         return await Task.Run(() =>
         {
             try
@@ -391,6 +398,9 @@ public class ani2
                 return false;
 
             int aCount = br.ReadInt32();
+            if (aCount < 0 || aCount > 100000)
+                throw new InvalidDataException("AN2のアニメーション件数が不正です。");
+            an2DeclaredAnimationCount = aCount;
             for (int i = 0; i < aCount; i++)
             {
                 try
@@ -407,6 +417,7 @@ public class ani2
                     return false;
                 }
             }
+            ReadAn2Extensions(ref br);
             return true;
         }
 
@@ -468,6 +479,69 @@ public class ani2
 
         Debug.LogError($"Unsupported file signature '{signature}' in {filename}");
         return false;
+    }
+
+    void ReadAn2Extensions(ref BinaryReader br)
+    {
+        int remaining = checked((int)(br.BaseStream.Length - br.BaseStream.Position));
+        an2TrailingBytes = LegacyAniSourceValues.ReadRequiredBytes(br, remaining, "AN2 trailing data");
+        if (remaining == 0 || an2DeclaredAnimationCount != OriginalGameAnimationLimit)
+            return;
+
+        // Same layout as the original-game-tested count-200 diagnostic: additional
+        // animation records follow the declared region, without new game-visible fields.
+        // Only promote a COMPLETE, bounded record sequence; unknown tails stay opaque.
+        try
+        {
+            using (var stream = new MemoryStream(an2TrailingBytes, false))
+            {
+                var reader = new BinaryReader(stream);
+                void Skip(long length)
+                {
+                    if (length < 0 || length > stream.Length - stream.Position)
+                        throw new InvalidDataException("Invalid AN2 extension boundary.");
+                    stream.Position += length;
+                }
+                int Count()
+                {
+                    int value = reader.ReadInt32();
+                    if (value < 0 || value > 100000) throw new InvalidDataException("Invalid AN2 extension count.");
+                    return value;
+                }
+                int count = 0;
+                while (stream.Position < stream.Length)
+                {
+                    if (++count > 4096) throw new InvalidDataException("Too many AN2 extensions.");
+                    Skip(256); Skip(reader.ReadInt32());
+                    int frames = Count();
+                    for (int f = 0; f < frames; f++)
+                    {
+                        Skip(reader.ReadInt16());
+                        if (reader.ReadByte() != 'H' || reader.ReadByte() != 'D' || reader.ReadByte() != '2'
+                            || reader.ReadInt32() != 1 || reader.ReadInt32() != structure.parts.Count)
+                            throw new InvalidDataException("Invalid AN2 extension HOD.");
+                        Skip(179L * structure.parts.Count);
+                    }
+                    int scripts = Count();
+                    for (int s = 0; s < scripts; s++) { Skip(8); Skip(reader.ReadInt32()); }
+                }
+                stream.Position = 0;
+                var extensions = new List<animation>();
+                for (int i = 0; i < count; i++)
+                {
+                    var item = new animation();
+                    item.loadFromAni(ref reader, ref structure);
+                    extensions.Add(item);
+                }
+                animations.AddRange(extensions);
+                an2TrailingBytes = Array.Empty<byte>();
+            }
+        }
+        catch (Exception ex) when (ex is InvalidDataException || ex is IOException
+            || ex is ArgumentException || ex is IndexOutOfRangeException)
+        {
+            // Preserve all bytes if any candidate record cannot be read safely.
+        }
     }
 
     void ReadLegacyExtensions(ref BinaryReader br)
@@ -629,18 +703,217 @@ public class ani2
         SaveAn2(filename);
     }
 
+    public void saveAsAn2BestEffort(string filename)
+    {
+        if (string.IsNullOrEmpty(filename))
+            throw new ArgumentException("AN2 destination filename is required.", nameof(filename));
+
+        ani2 export = CreateAn2BestEffortExportCopy(
+            out HodHierarchyRepairPlan ignoredPlan,
+            out string warning);
+        if (!string.IsNullOrEmpty(warning))
+            Debug.LogWarning("[ani2] 推測混じりのAN2保存: " + warning);
+
+        WriteAtomically(filename, export.WriteAn2, path =>
+        {
+            var reloaded = new ani2();
+            var reader = new BinaryReader(File.OpenRead(path));
+            using (reader)
+            {
+                if (!reloaded.LoadFromReader(ref reader, path, null)
+                    || reader.BaseStream.Position != reader.BaseStream.Length)
+                    throw new InvalidDataException("推測変換したAN2の再読込に失敗しました。");
+            }
+            try
+            {
+                export.ValidateAn2Export(reloaded);
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("[ani2] 推測変換AN2の内容照合警告: " + exception.Message);
+            }
+        });
+    }
+
     void SaveAn2(string filename)
     {
-        WriteAtomically(filename, bw =>
+        // AN2出力は原作のchildCount階層を保つ正規化コピーから行う。
+        // 旧ANIの原バイト保存に必要な、編集中の生の階層列は変更しない。
+        ani2 export = CreateAn2ExportCopy(out _);
+        WriteAtomically(filename, export.WriteAn2, path =>
         {
-            bw.Write(ASCIIEncoding.ASCII.GetBytes("AN2"));
-            WriteFixedSJIS(bw, structure.filename, 256);
-            structure.saveToBinary(ref bw);
-
-            bw.Write(animations.Count);
-            for (int i = 0; i < animations.Count; i++)
-                animations[i].saveToAni(ref bw);
+            var reloaded = new ani2();
+            var reader = new BinaryReader(File.OpenRead(path));
+            using (reader)
+            {
+                if (!reloaded.LoadFromReader(ref reader, path, null)
+                    || reader.BaseStream.Position != reader.BaseStream.Length)
+                    throw new InvalidDataException("AN2の再読込検証に失敗しました。");
+            }
+            export.ValidateAn2Export(reloaded);
         });
+    }
+
+    internal void WriteAn2(BinaryWriter writer)
+    {
+        writer.Write(ASCIIEncoding.ASCII.GetBytes("AN2"));
+        WriteFixedSJIS(writer, structure.filename, 256);
+        structure.saveToBinary(ref writer);
+        writer.Write(originalGameAnimationCount);
+        foreach (animation item in animations)
+            item.saveToAni(ref writer);
+        writer.Write(an2TrailingBytes);
+    }
+
+    internal ani2 CreateAn2BestEffortExportCopy(
+        out HodHierarchyRepairPlan plan,
+        out string warning)
+    {
+        if (structure == null || structure.parts == null || animations == null)
+            throw new InvalidDataException("構造HODまたはアニメーション情報がありません。");
+
+        var copy = new ani2
+        {
+            structure = new hod2v0(structure.filename)
+            {
+                parts = new List<hod2v0_Part>(structure.parts)
+            },
+            animations = new List<animation>(),
+            an2TrailingBytes = (byte[])an2TrailingBytes.Clone()
+        };
+
+        foreach (animation source in animations)
+        {
+            if (source == null || source.frames == null || source.scripts == null)
+                throw new InvalidDataException("アニメーション情報がありません。");
+            var target = new animation
+            {
+                name = source.name,
+                squirrelInit = source.squirrelInit,
+                initialSourceText = source.initialSourceText,
+                scripts = new List<script>(source.scripts),
+                frames = new List<hod2v1>()
+            };
+            foreach (hod2v1 frame in source.frames)
+            {
+                if (frame == null || frame.parts == null)
+                    throw new InvalidDataException("フレームのパーツ情報がありません。");
+                target.frames.Add(new hod2v1(frame.filename)
+                {
+                    parts = new List<hod2v1_Part>(frame.parts)
+                });
+            }
+            copy.animations.Add(target);
+        }
+
+        if (!HodHierarchyRepair.TryApplyBestEffort(
+            copy, out plan, out warning))
+        {
+            throw new InvalidDataException(string.IsNullOrEmpty(warning)
+                ? "推測混じりのHOD対応付けにも失敗しました。"
+                : warning);
+        }
+        return copy;
+    }
+
+    internal ani2 CreateAn2ExportCopy(out HodHierarchyRepairPlan plan)
+    {
+        if (structure == null || structure.parts == null || animations == null)
+            throw new InvalidDataException("構造HODまたはアニメーション情報がありません。");
+        var copy = new ani2
+        {
+            structure = new hod2v0(structure.filename)
+            {
+                parts = new List<hod2v0_Part>(structure.parts)
+            },
+            animations = new List<animation>(),
+            an2TrailingBytes = (byte[])an2TrailingBytes.Clone()
+        };
+        foreach (animation source in animations)
+        {
+            if (source == null || source.frames == null || source.scripts == null)
+                throw new InvalidDataException("アニメーション情報がありません。");
+            var target = new animation
+            {
+                name = source.name,
+                squirrelInit = source.squirrelInit,
+                initialSourceText = source.initialSourceText,
+                scripts = new List<script>(source.scripts),
+                frames = new List<hod2v1>()
+            };
+            foreach (hod2v1 frame in source.frames)
+            {
+                if (frame == null || frame.parts == null)
+                    throw new InvalidDataException("フレームのパーツ情報がありません。");
+                target.frames.Add(new hod2v1(frame.filename)
+                {
+                    parts = new List<hod2v1_Part>(frame.parts)
+                });
+            }
+            copy.animations.Add(target);
+        }
+        if (!HodHierarchyRepair.TryApplyChildCountFirst(copy, out plan, out string error))
+            throw new InvalidDataException(error);
+        return copy;
+    }
+
+    // Compare transforms and script payload bytes. A lossy decoder can make two
+    // different byte strings look identical, so decoded script equality is insufficient.
+    internal void ValidateAn2Export(ani2 actual)
+    {
+        void Require(bool condition, string field)
+        {
+            if (!condition)
+                throw new InvalidDataException("AN2再読込でデータが一致しません: " + field);
+        }
+        Require(actual != null && actual.sourceFormat == AniContainerFormat.An2
+            && actual.structure?.parts != null && actual.animations != null, "container");
+        Require((structure.filename ?? "") == actual.structure.filename, "structure filename");
+        Require(structure.parts.Count == actual.structure.parts.Count, "structure count");
+        for (int p = 0; p < structure.parts.Count; p++)
+        {
+            var expected = structure.parts[p];
+            expected.name = expected.name ?? "";
+            Require(expected.Equals(actual.structure.parts[p]), "structure part " + p);
+        }
+        Require(animations.Count == actual.animations.Count, "animation count");
+        Require(actual.an2DeclaredAnimationCount == originalGameAnimationCount, "original game animation count");
+        Require(ByteArraysEqual(an2TrailingBytes, actual.an2TrailingBytes), "opaque AN2 trailing bytes");
+        for (int a = 0; a < animations.Count; a++)
+        {
+            var expected = animations[a];
+            var loaded = actual.animations[a];
+            Require((expected.name ?? "") == loaded.name, "animation name " + a);
+            Require(AniScriptTextSource.BytesEqual(
+                AniScriptTextSource.GetBytes(expected.squirrelInit, expected.initialSourceText, false),
+                AniScriptTextSource.GetBytes(loaded.squirrelInit, loaded.initialSourceText, false, false)),
+                "initial script bytes " + a);
+            Require(expected.frames.Count == loaded.frames.Count
+                && expected.scripts.Count == loaded.scripts.Count, "animation counts " + a);
+            for (int f = 0; f < expected.frames.Count; f++)
+            {
+                var left = expected.frames[f];
+                var right = loaded.frames[f];
+                Require((left.filename ?? "") == right.filename
+                    && left.parts.Count == right.parts.Count, $"frame {a}/{f}");
+                for (int p = 0; p < left.parts.Count; p++)
+                {
+                    var part = left.parts[p];
+                    part.name = structure.parts[p].name ?? "";
+                    Require(part.Equals(right.parts[p]), $"frame part {a}/{f}/{p}");
+                }
+            }
+            for (int s = 0; s < expected.scripts.Count; s++)
+            {
+                var left = expected.scripts[s];
+                var right = loaded.scripts[s];
+                Require(left.unk == right.unk && left.time.Equals(right.time)
+                    && AniScriptTextSource.BytesEqual(
+                        AniScriptTextSource.GetBytes(left.squirrel, left.sourceText, true),
+                        AniScriptTextSource.GetBytes(right.squirrel, right.sourceText, true, false)),
+                    $"script {a}/{s}");
+            }
+        }
     }
 
     void SaveLegacyAni(string filename)
@@ -999,8 +1272,8 @@ public class ani2
                 if (expectedScript.unk != actualScript.unk
                     || !expectedScript.time.Equals(actualScript.time)
                     || !ByteArraysEqual(
-                        LegacyAniSourceValues.EncodeScriptText(expectedScript.squirrel),
-                        LegacyAniSourceValues.EncodeScriptText(actualScript.squirrel)))
+                        AniScriptTextSource.GetBytes(expectedScript.squirrel, expectedScript.sourceText, true, false),
+                        AniScriptTextSource.GetBytes(actualScript.squirrel, actualScript.sourceText, true, false)))
                 {
                     error = $"アニメーション {animationIndex}、スクリプト {scriptIndex} が一致しません。";
                     return false;
@@ -1183,11 +1456,13 @@ public class ani2
             throw new InvalidOperationException("Save destination filename is empty.");
 
         string directory = Path.GetDirectoryName(Path.GetFullPath(filename));
-        string tempFilename = Path.Combine(directory, Path.GetFileName(filename) + ".tmp");
+        string tempFilename = Path.Combine(directory, ".windom-save-" + Guid.NewGuid().ToString("N") + ".tmp");
+        bool ownsTemporary = false;
 
         try
         {
-            BinaryWriter bw = new BinaryWriter(File.Open(tempFilename, FileMode.Create, FileAccess.ReadWrite));
+            BinaryWriter bw = new BinaryWriter(File.Open(tempFilename, FileMode.CreateNew, FileAccess.ReadWrite));
+            ownsTemporary = true;
             try
             {
                 write(bw);
@@ -1202,7 +1477,7 @@ public class ani2
         }
         catch
         {
-            if (File.Exists(tempFilename))
+            if (ownsTemporary && File.Exists(tempFilename))
                 File.Delete(tempFilename);
             throw;
         }

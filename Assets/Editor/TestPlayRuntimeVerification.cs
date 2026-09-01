@@ -33,6 +33,7 @@ public static class TestPlayRuntimeVerification
         VerifyOriginalTextureTables(ref assertions);
         VerifyBurnerDirectionAndVisual(ref assertions);
         VerifyOriginalSimulationClockAndLock(ref assertions);
+        assertions += VerifyProjectileLockGating();
         VerifyCameraControllerLifecycle(ref assertions);
         VerifyMovementReferenceModes(ref assertions);
         VerifyOriginalDirectionMovement(ref assertions);
@@ -43,6 +44,101 @@ public static class TestPlayRuntimeVerification
         assertions += TestPlayPhase4Verification.RunAll();
         assertions += TestPlayPhase5Verification.RunAll();
         assertions += TestPlayPhase6Verification.RunAll();
+        return assertions;
+    }
+
+    public static int VerifyProjectileLockGating()
+    {
+        int assertions = 0;
+        GameObject host = new GameObject("ProjectileLockVerification");
+        GameObject root = new GameObject("ProjectileLockRoot");
+        GameObject muzzle = new GameObject("ProjectileLockMuzzle");
+        GameObject dummy = new GameObject("ProjectileLockTarget");
+        TestPlayController controller = host.AddComponent<TestPlayController>();
+        try
+        {
+            RoboStructure robo = host.AddComponent<RoboStructure>();
+            robo.root = root;
+            controller.robo = robo;
+            controller.sptSource = host.AddComponent<UI_SPT>();
+            TestPlayTargetDummy target = dummy.AddComponent<TestPlayTargetDummy>();
+            target.logHits = false;
+            controller.target = target;
+            muzzle.transform.SetPositionAndRotation(new Vector3(3f, 2f, 1f), Quaternion.Euler(-12f, 35f, 7f));
+            SptRuntimeData data = new SptRuntimeData();
+            data.WeaponPoints[0] = new WeaponPointInfo { BoneTr = muzzle.transform };
+            SetField(controller.sptSource, "<LastSptData>k__BackingField", data);
+            dummy.transform.position = muzzle.transform.TransformPoint(new Vector3(2f, 0f, 20f));
+            MethodInfo spawn = typeof(TestPlayController).GetMethod("SpawnRunProc", BindingFlags.Instance | BindingFlags.NonPublic);
+            List<GameObject> transients = (List<GameObject>)GetField(controller, "spawnedTransientObjects");
+            TestPlayProjectile FireType1()
+            {
+                spawn.Invoke(controller, new object[] { Values(0f, 1f, 0f, 0f, 30f, 100f, 10f, 100f, -1f, 0f, 0f, 0f), true });
+                return transients[transients.Count - 1].GetComponent<TestPlayProjectile>();
+            }
+
+            controller.ClearTargetLock();
+            TestPlayProjectile free = FireType1();
+            Require(Vector3.Distance(free.transform.position, muzzle.transform.position) < 0.00001f &&
+                    Vector3.Angle(free.transform.forward, muzzle.transform.forward) < 0.01f,
+                "unlocked type 1 uses the rotated WEAPONPOINT position and forward even with a living target inside the aim cone", ref assertions);
+            Require(free.target == target && free.maximumHomingTurnDegrees == 0f,
+                "unlocked type 1 retains collision target without acquiring guidance", ref assertions);
+            Require(controller.TryAcquireTargetLock(), "projectile probe acquires a valid lock", ref assertions);
+            for (int tick = 0; tick < 5; tick++) free.SimulateOriginalTick(1f / 60f);
+            Require(Vector3.Distance(free.transform.position, muzzle.transform.position + muzzle.transform.forward * 5f) < 0.0001f &&
+                    Vector3.Angle(free.transform.forward, muzzle.transform.forward) < 0.01f,
+                "a projectile fired unlocked remains straight after the owner acquires a lock", ref assertions);
+            TestPlayProjectile locked = FireType1();
+            Require(Vector3.Angle(locked.transform.forward, dummy.transform.position - muzzle.transform.position) < 0.01f &&
+                    locked.maximumHomingTurnDegrees > 0f,
+                "locked type 1 preserves initial aim and distance-dependent homing", ref assertions);
+            dummy.transform.position += muzzle.transform.right * 4f;
+            Quaternion beforeTurn = locked.transform.rotation;
+            locked.SimulateOriginalTick(1f / 60f);
+            Require(Quaternion.Angle(beforeTurn, locked.transform.rotation) > 0.01f,
+                "locked type 1 still turns toward a moving target", ref assertions);
+
+            controller.ClearTargetLock();
+            TestPlayProjectile released = FireType1();
+            Require(Vector3.Angle(released.transform.forward, muzzle.transform.forward) < 0.01f && released.maximumHomingTurnDegrees == 0f,
+                "a shot after lock release returns to muzzle-forward flight", ref assertions);
+            controller.lockedTarget = target;
+            controller.targetLockActive = true;
+            controller.fallbackLockDistance = 1f;
+            TestPlayProjectile invalid = FireType1();
+            Require(Vector3.Angle(invalid.transform.forward, muzzle.transform.forward) < 0.01f && invalid.maximumHomingTurnDegrees == 0f,
+                "a stale out-of-range lock cannot aim or guide a new shot", ref assertions);
+
+            controller.ClearTargetLock();
+            dummy.transform.position = muzzle.transform.position + muzzle.transform.forward * 2f;
+            float hpBefore = target.hp;
+            TestPlayProjectile directHit = FireType1();
+            directHit.SimulateOriginalTick(1f / 60f);
+            directHit.SimulateOriginalTick(1f / 60f);
+            Require(target.hp < hpBefore, "unlocked straight shots still damage a target on the muzzle axis", ref assertions);
+
+            MethodInfo fallbackSpawn = typeof(TestPlayController).GetMethod("SpawnProjectile", BindingFlags.Instance | BindingFlags.NonPublic,
+                null, new[] { typeof(string), typeof(float), typeof(float), typeof(bool) }, null);
+            fallbackSpawn.Invoke(controller, new object[] { "LockProbe", 1f, 20f, true });
+            TestPlayProjectile fallback = transients[transients.Count - 1].GetComponent<TestPlayProjectile>();
+            Require(fallback.target == target && fallback.homingTurnRate == 0f,
+                "fallback projectiles also require a lock for guidance while retaining collisions", ref assertions);
+            controller.fallbackLockDistance = 100f;
+            controller.TryAcquireTargetLock();
+            fallbackSpawn.Invoke(controller, new object[] { "LockProbe", 1f, 20f, true });
+            Require(transients[transients.Count - 1].GetComponent<TestPlayProjectile>().homingTurnRate > 0f,
+                "fallback homing remains available with a valid lock", ref assertions);
+        }
+        finally
+        {
+            foreach (GameObject transient in (List<GameObject>)GetField(controller, "spawnedTransientObjects"))
+                if (transient != null) UnityEngine.Object.DestroyImmediate(transient);
+            UnityEngine.Object.DestroyImmediate(host);
+            UnityEngine.Object.DestroyImmediate(root);
+            UnityEngine.Object.DestroyImmediate(muzzle);
+            UnityEngine.Object.DestroyImmediate(dummy);
+        }
         return assertions;
     }
 

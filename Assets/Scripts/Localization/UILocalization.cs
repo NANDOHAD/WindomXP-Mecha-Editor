@@ -46,9 +46,16 @@ public static class UILocalization
         {
             try
             {
-                string localized = new LocalizedString(TableName, entryKey).GetLocalizedString();
-                if (!string.IsNullOrEmpty(localized))
-                    template = localized;
+                // A standalone/editor caller may have no selected locale even after
+                // initialization completes. Do not ask Addressables for a null-locale table.
+                var settings = LocalizationSettings.GetInstanceDontCreateDefault();
+                if (settings != null && LocalizationSettings.InitializationOperation.IsDone
+                    && LocalizationSettings.SelectedLocale != null)
+                {
+                    string localized = new LocalizedString(TableName, entryKey).GetLocalizedString();
+                    if (!string.IsNullOrEmpty(localized))
+                        template = localized;
+                }
             }
             catch (Exception exception)
             {

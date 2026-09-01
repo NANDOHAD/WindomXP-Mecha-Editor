@@ -8,6 +8,180 @@ public class TestPlayController : MonoBehaviour
     public RoboStructure robo;
     public TestPlayTargetDummy target;
     public UI_SPT sptSource;
+    TestPlayContext explicitContext;
+    bool manualClock;
+    GameSession session;
+    MechHandle sessionMech;
+    MechHandle sessionLock;
+    bool sessionAnimationHitStopped;
+    TestPlaySessionInput sessionInput;
+    public MechHandle SessionHandle => sessionMech;
+    public MechHandle SessionLockHandle => sessionLock;
+    public bool SessionDefeated { get; private set; }
+    public int SessionReactionState { get; private set; }
+    public Vector3 LastSessionImpactForce { get; private set; }
+    public int LastSessionDownValue { get; private set; }
+    bool sessionReactionActive;
+    readonly List<TestPlayTargetSnapshot> sessionMeleeHits = new List<TestPlayTargetSnapshot>();
+
+    internal TestPlayCombatHitResult ResolveSessionImpact(TestPlayCombatHitResult hit,
+        Vector3 attackerPosition, TestPlayTargetSnapshot snapshot, bool melee, int meleeHitStop)
+    {
+        Vector3 toAttacker = Vector3.ProjectOnPlane(attackerPosition - snapshot.Position, Vector3.up);
+        Vector3 forward = Vector3.ProjectOnPlane(snapshot.Rotation * Vector3.forward, Vector3.up);
+        var defense = TestPlayCombatCore.ResolveDefenseHit(new TestPlayDefenseHitInput {
+            collisionKind = hit.collisionKind, attackFlag = hit.attackFlag,
+            shieldGuardValue = shieldGuard, hitAcceptanceBlockTicks = state.GetInt(158),
+            defenderForwardDotToAttacker = toAttacker.sqrMagnitude > 0.000001f && forward.sqrMagnitude > 0.000001f
+                ? Vector3.Dot(forward.normalized, toAttacker.normalized) : -1,
+            sourceIsCharacter = melee, meleeHitStopTicks = meleeHitStop });
+        hit.decision = defense.decision;
+        hit.reactionState = defense.reactionState;
+        hit.guardHitTimerTicks = defense.guardHitTimerTicks;
+        hit.hitStopTicks = defense.defenderHitStopTicks;
+        hit.clearLinkedTarget = defense.clearLinkedTarget;
+        hit.forceFacingToAttacker = defense.forceFacingToAttacker;
+        hit.attackerGuardReactionTicks = defense.attackerGuardReactionTicks;
+        hit.applyAttackerGuardRecoil = defense.applyAttackerGuardRecoil;
+        state.SetInt(157, Mathf.Max(state.GetInt(157), hit.guardHitTimerTicks));
+        hitStopTicks = Mathf.Max(hitStopTicks, hit.hitStopTicks);
+        if (hit.hitStopTicks > 0) sessionAnimationHitStopped = true;
+        if (hit.decision != TestPlayCombatHitDecision.Damaged) return hit;
+        currentHP = Mathf.Max(0, currentHP - Mathf.Max(0, hit.damage));
+        LastSessionImpactForce = hit.impactForce;
+        LastSessionDownValue = hit.down;
+        if (hit.clearLinkedTarget) ClearTargetLock();
+        if (hit.forceFacingToAttacker && toAttacker.sqrMagnitude > 0.000001f)
+            robo.root.transform.rotation = Quaternion.LookRotation(toAttacker, Vector3.up);
+        if (currentHP <= 0 || hit.reactionState != 0)
+            BeginSessionReaction(hit.reactionState, hit.down);
+        return hit;
+    }
+
+    void BeginSessionReaction(int reaction, int down)
+    {
+        SessionDefeated = currentHP <= 0;
+        SessionReactionState = SessionDefeated ? 6 : reaction;
+        state.SetInt(156, SessionReactionState);
+        sessionReactionActive = true;
+        attackSequenceActive = false;
+        landingSequenceActive = false;
+        activeMeleeAttacks.Clear();
+        if (SessionDefeated) ClearTargetLock();
+        ClearHeldMotionState(true);
+        moveCommand = forceCommand = velocity = Vector3.zero;
+        hasPendingDrivenHorizontalVelocity = false;
+        shieldGuard = 0;
+        StopAllBurnerEffects();
+        // FUN_004ba1c0 selects 13/14 for medium down and 15 for large down/HP0.
+        // Recovery duration and terminal pose hold here are a minimal Unity adapter.
+        int action = SessionDefeated || down >= 401 || reaction == 3 ? 15 : airborneFlag ? 14 : 13;
+        var selection = ResolveActionSelection(action);
+        bool hasPose = HasUsableAction(selection.poseActionId) &&
+            robo.ani.animations[selection.poseActionId].frames?.Count > 0;
+        if (hasPose) ChangeAnimation(selection, true);
+        else
+        {
+            HoldCurrentAnimationAtLastPose();
+            sessionReactionActive = SessionDefeated;
+            if (!SessionDefeated) { SessionReactionState = 0; state.SetInt(156, 0); ChangeAnimation(idleAction); }
+        }
+    }
+
+    void TickSessionReactionPose()
+    {
+        if (sessionAnimationHitStopped || !sessionReactionActive) return;
+        // Pose-only adapter: reaction/death ANI cannot spawn attacks or re-enable input.
+        int count = currentAnimation?.frames?.Count ?? 0;
+        if (!animationPoseHeldAtEnd && count > 0)
+        {
+            frameIndex = Mathf.Min(frameIndex + 1, count - 1);
+            frameTime = 0;
+            ApplyPose();
+            if (frameIndex >= count - 1) animationPoseHeldAtEnd = true;
+        }
+        if (animationPoseHeldAtEnd && !SessionDefeated)
+        {
+            sessionReactionActive = false;
+            SessionReactionState = 0;
+            state.SetInt(156, 0);
+            ChangeAnimation(idleAction);
+        }
+    }
+
+    internal void AttachSession(GameSession owner, MechHandle handle)
+    {
+        if (playModeActive || session != null || explicitContext == null)
+            throw new InvalidOperationException("停止中の明示contextへセッションを設定してください。");
+        session = owner;
+        sessionMech = handle;
+        originalTickRate = 60f;
+    }
+
+    internal void PrepareSessionTimers()
+    {
+        sessionAnimationHitStopped = UpdateOriginalCombatTimers();
+    }
+
+    internal void SimulateSessionTick(TestPlaySessionInput input)
+    {
+        if (session == null || !playModeActive || tick + 1 != session.Tick)
+            throw new InvalidOperationException("機体とセッションのtickが一致しません。");
+        sessionInput = input;
+        SetSampledInput(input.Effective);
+        SimulateOriginalTick();
+    }
+
+    internal void ValidateSessionLock()
+    {
+        if (targetLockActive && !IsSessionLockValid()) ClearTargetLock();
+    }
+
+    bool IsSessionLockValid()
+    {
+        if (session == null || !session.TryGet(sessionLock, out var candidate)) return false;
+        float distance = GetConfiguredLockDistance();
+        return distance <= 0 || (session.TryGet(sessionMech, out var self) &&
+            Vector3.Distance(self.Position, candidate.Position) <= distance);
+    }
+
+    bool TryGetMovementTarget(out Vector3 position, out float radius)
+    {
+        position = Vector3.zero;
+        radius = 0;
+        if (session != null)
+        {
+            var candidates = session.Query(sessionMech, 0);
+            if (candidates.Count == 0) return false;
+            var candidate = session.TryGet(sessionLock, out var locked) ? locked : candidates[0];
+            position = candidate.Position;
+            radius = candidate.Radius;
+            return true;
+        }
+        if (target == null || !target.IsAlive) return false;
+        position = target.transform.position;
+        radius = target.hitRadius;
+        return true;
+    }
+    public SptRuntimeData RuntimeSptData => explicitContext != null ? explicitContext.Spt :
+        (sptSource != null ? sptSource.LastSptData : null);
+
+    public void Initialize(TestPlayContext context)
+    {
+        if (playModeActive)
+            throw new InvalidOperationException("実行中のcontextは変更できません。");
+        if (context == null || context.Robo == null || context.Robo.root == null ||
+            context.Robo.ani == null || context.Robo.ani.animations == null ||
+            context.Robo.ani.animations.Count == 0 || context.Spt == null)
+            throw new ArgumentException("機体・アニメーション・SPTを指定してください。", nameof(context));
+        explicitContext = new TestPlayContext { Robo = context.Robo, Spt = context.Spt,
+            Target = context.Target, Camera = context.Camera, ShowHud = context.ShowHud,
+            HudCanvas = context.HudCanvas };
+        robo = context.Robo;
+        target = context.Target;
+        cameraController = context.Camera;
+    }
+
     public TestPlayPresentationRuntime presentationRuntime;
     public TestPlayCameraController cameraController;
     public TestPlayHudRuntime hudRuntime;
@@ -498,15 +672,7 @@ public class TestPlayController : MonoBehaviour
     void Awake()
     {
         NormalizeActionIds();
-
-        if (state == null)
-            state = new TestPlayStateTable();
-
-        vm = new TestPlayScriptVM(state);
-        vm.commandHandler = HandleCommand;
-        vm.assignmentHandler = HandleAssignment;
-        vm.unhandledLineHandler = LogUnhandled;
-        vm.shouldStopExecution = () => abortScriptExecution;
+        EnsureScriptRuntime();
 
         if (presentationRuntime == null)
             presentationRuntime = GetComponent<TestPlayPresentationRuntime>();
@@ -518,6 +684,19 @@ public class TestPlayController : MonoBehaviour
             hudRuntime.Bind(this);
     }
 
+    void EnsureScriptRuntime()
+    {
+        if (state == null)
+            state = new TestPlayStateTable();
+        if (vm != null) return;
+        vm = new TestPlayScriptVM(state);
+        vm.commandHandler = HandleCommand;
+        vm.assignmentHandler = HandleAssignment;
+        vm.unhandledLineHandler = LogUnhandled;
+        vm.shouldStopExecution = () => abortScriptExecution;
+
+    }
+
     void Start()
     {
         if (startOnPlay)
@@ -526,7 +705,7 @@ public class TestPlayController : MonoBehaviour
 
     void Update()
     {
-        if (!playModeActive)
+        if (!playModeActive || manualClock || session != null)
             return;
 
         SampleInputFrame();
@@ -555,7 +734,15 @@ public class TestPlayController : MonoBehaviour
         BeginCombatTraceTick();
         BeginPresentationTraceTick();
         groundRecoveryCompletedThisTick = false;
-        bool animationHitStopped = UpdateOriginalCombatTimers();
+        bool animationHitStopped = session != null ? sessionAnimationHitStopped : UpdateOriginalCombatTimers();
+        if (session != null && (currentHP <= 0 || sessionReactionActive || SessionDefeated))
+        {
+            if (currentHP <= 0 && !SessionDefeated) BeginSessionReaction(3, 401);
+            TickSessionReactionPose();
+            ConsumeLatchedInput();
+            simulatingCombatTick = simulatingPresentationTick = false;
+            return;
+        }
         UpdateOriginalAttackCooldowns();
         UpdateInputState();
         UpdateTargetLock();
@@ -588,20 +775,29 @@ public class TestPlayController : MonoBehaviour
             state.SetInt(157, TestPlayCombatCore.TickPositiveTimer(state.GetInt(157)));
             state.SetInt(158, TestPlayCombatCore.TickPositiveTimer(state.GetInt(158)));
         }
-        if (target != null)
+        if (session == null && target != null)
             target.SimulateOriginalCombatTimerTick();
         return animationHitStopped;
     }
 
     public void StartTestPlay()
     {
-        if (robo == null)
-            robo = FindObjectOfType<RoboStructure>();
-        if (target == null)
-            target = FindObjectOfType<TestPlayTargetDummy>();
-        if (sptSource == null)
-            sptSource = FindObjectOfType<UI_SPT>();
-        EnsureSptRuntimeDataLoaded();
+        if (playModeActive)
+            return;
+        if (session != null && session.Status != "Ready")
+            throw new InvalidOperationException("セッションの開始入口を使用してください。");
+        manualClock = session != null;
+        EnsureScriptRuntime();
+        if (explicitContext == null)
+        {
+            if (robo == null)
+                robo = FindObjectOfType<RoboStructure>();
+            if (target == null)
+                target = FindObjectOfType<TestPlayTargetDummy>();
+            if (sptSource == null)
+                sptSource = FindObjectOfType<UI_SPT>();
+            EnsureSptRuntimeDataLoaded();
+        }
         if (presentationRuntime == null)
             presentationRuntime = GetComponent<TestPlayPresentationRuntime>();
         if (presentationRuntime == null)
@@ -614,10 +810,16 @@ public class TestPlayController : MonoBehaviour
         ResetRuntimeFlags();
         ResetInputSamplingState();
         InitializeOriginalSptStatus();
+        if (session != null && !useColliderGrounding) deterministicGroundPlaneEnabled = true;
         SetHeldWeapon("GUN");
         playModeActive = true;
-        EnsureHudRuntime();
-        hudRuntime.ShowHud();
+        if (explicitContext == null || explicitContext.ShowHud)
+        {
+            EnsureHudRuntime();
+            if (explicitContext != null && hudRuntime.font == null)
+                hudRuntime.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            hudRuntime.ShowHud();
+        }
         ChangeAnimation(idleAction);
         EnsureCameraController();
         cameraController?.EnterTestPlayCamera(this);
@@ -625,13 +827,14 @@ public class TestPlayController : MonoBehaviour
 
     void EnsureSptRuntimeDataLoaded()
     {
-        if (sptSource != null && sptSource.LastSptData == null)
+        if (sptSource != null && RuntimeSptData == null)
             sptSource.TryLoadSptRuntimeData();
     }
 
     public void StopTestPlay()
     {
         playModeActive = false;
+        ClearTargetLock();
         cameraController?.ExitTestPlayCamera();
         velocity = Vector3.zero;
         pendingDrivenHorizontalVelocity = Vector3.zero;
@@ -656,13 +859,15 @@ public class TestPlayController : MonoBehaviour
         if (hudRuntime == null)
             hudRuntime = gameObject.AddComponent<TestPlayHudRuntime>();
         hudRuntime.Bind(this);
+        if (explicitContext != null && explicitContext.HudCanvas != null)
+            hudRuntime.AssignSceneCanvas(explicitContext.HudCanvas);
     }
 
     void EnsureCameraController()
     {
-        if (cameraController == null)
+        if (cameraController == null && explicitContext == null)
             cameraController = FindObjectOfType<TestPlayCameraController>();
-        if (cameraController == null && Camera.main != null)
+        if (cameraController == null && explicitContext == null && Camera.main != null)
             cameraController = Camera.main.gameObject.AddComponent<TestPlayCameraController>();
         if (cameraController != null)
             cameraController.Bind(this);
@@ -1117,14 +1322,14 @@ public class TestPlayController : MonoBehaviour
     Vector3 ConstrainMeleeMoveAgainstTarget(Transform root, Vector3 requestedMove)
     {
         if (!IsMeleeAttackAction(GetLogicalActionId(currentAnimationIndex)) ||
-            target == null || !target.IsAlive)
+            !TryGetMovementTarget(out var targetPosition, out var targetRadius))
             return requestedMove;
 
-        float contactRadius = Mathf.Max(0f, target.hitRadius);
+        float contactRadius = Mathf.Max(0f, targetRadius);
         if (contactRadius <= 0f)
             return requestedMove;
 
-        Vector3 targetOffset = root.position - target.transform.position;
+        Vector3 targetOffset = root.position - targetPosition;
         targetOffset.y = 0f;
         Vector3 horizontalMove = requestedMove;
         horizontalMove.y = 0f;
@@ -1498,6 +1703,7 @@ public class TestPlayController : MonoBehaviour
 
     public float GetOriginalTickDeltaTime()
     {
+        if (session != null) return 1f / 60f;
         return 1f / Mathf.Max(1f, originalTickRate);
     }
 
@@ -1515,7 +1721,7 @@ public class TestPlayController : MonoBehaviour
     void UpdateTargetState()
     {
         Transform activeTarget = GetLockedTargetTransform();
-        if (activeTarget == null || lockedTarget == null || robo == null || robo.root == null)
+        if (activeTarget == null || (session == null && lockedTarget == null) || robo == null || robo.root == null)
         {
             activeTargetDistance = 0f;
             state.SetFloat(99, 0f);
@@ -1525,7 +1731,8 @@ public class TestPlayController : MonoBehaviour
 
         activeTargetDistance = Vector3.Distance(robo.root.transform.position, activeTarget.position);
         state.SetFloat(99, activeTargetDistance);
-        state.SetInt(154, lockedTarget.stateId);
+        state.SetInt(154, session != null && session.TryGet(sessionLock, out var snapshot)
+            ? snapshot.StateId : lockedTarget != null ? lockedTarget.stateId : 0);
     }
 
     void UpdateTargetLock()
@@ -1536,9 +1743,9 @@ public class TestPlayController : MonoBehaviour
 
         if (!requireLockInput)
         {
-            if (!IsTargetLockValid(lockedTarget))
+            if (!(session != null ? IsSessionLockValid() : IsTargetLockValid(lockedTarget)))
                 TryAcquireTargetLock();
-            targetLockActive = IsTargetLockValid(lockedTarget);
+            targetLockActive = session != null ? IsSessionLockValid() : IsTargetLockValid(lockedTarget);
             return;
         }
 
@@ -1550,12 +1757,21 @@ public class TestPlayController : MonoBehaviour
                 TryAcquireTargetLock();
         }
 
-        if (targetLockActive && !IsTargetLockValid(lockedTarget))
+        if (targetLockActive && !(session != null ? IsSessionLockValid() : IsTargetLockValid(lockedTarget)))
             ClearTargetLock();
     }
 
     public bool TryAcquireTargetLock()
     {
+        if (session != null)
+        {
+            var candidates = session.Query(sessionMech, GetConfiguredLockDistance());
+            if (candidates.Count == 0) { ClearTargetLock(); return false; }
+            sessionLock = candidates[0].Handle;
+            targetLockActive = true;
+            activeTargetDistance = Vector3.Distance(robo.root.transform.position, candidates[0].Position);
+            return true;
+        }
         if (!IsTargetLockValid(target))
         {
             ClearTargetLock();
@@ -1570,6 +1786,7 @@ public class TestPlayController : MonoBehaviour
 
     public void ClearTargetLock()
     {
+        sessionLock = default;
         lockedTarget = null;
         targetLockActive = false;
         activeTargetDistance = 0f;
@@ -1577,6 +1794,8 @@ public class TestPlayController : MonoBehaviour
 
     public Transform GetLockedTargetTransform()
     {
+        if (session != null)
+            return targetLockActive && IsSessionLockValid() ? session.GetSnapshotTransform(sessionLock) : null;
         if (!targetLockActive || !IsTargetLockValid(lockedTarget))
             return null;
         return lockedTarget.transform;
@@ -1584,8 +1803,8 @@ public class TestPlayController : MonoBehaviour
 
     public float GetConfiguredLockDistance()
     {
-        if (sptSource != null && sptSource.LastSptData != null && sptSource.LastSptData.LockDist > 0f)
-            return sptSource.LastSptData.LockDist;
+        if (RuntimeSptData != null && RuntimeSptData.LockDist > 0f)
+            return RuntimeSptData.LockDist;
         return Mathf.Max(0f, fallbackLockDistance);
     }
 
@@ -1879,8 +2098,8 @@ public class TestPlayController : MonoBehaviour
         bool currentMelee = IsMeleeAttackAction(currentAnimationIndex);
         if (attackSequenceActive && currentMelee && actionTick > 15)
             heldAction = GetHeldActionFromInput();
-        bool reachedTarget = target != null && robo != null && robo.root != null &&
-                             Vector3.Distance(robo.root.transform.position, target.transform.position) <
+        bool reachedTarget = TryGetMovementTarget(out var targetPosition, out _) && robo != null && robo.root != null &&
+                             Vector3.Distance(robo.root.transform.position, targetPosition) <
                              Mathf.Max(0f, meleeApproachDistance);
         TestPlayCombatSequenceDecision decision = TestPlayCombatCore.EvaluateSequence(
             new TestPlayCombatSequenceInput
@@ -2052,7 +2271,7 @@ public class TestPlayController : MonoBehaviour
 
     void InitializeOriginalSptStatus()
     {
-        SptRuntimeData data = sptSource != null ? sptSource.LastSptData : null;
+        SptRuntimeData data = RuntimeSptData;
 
         maximumHP = Mathf.Max(1f, data != null && data.HP > 0 ? data.HP : fallbackMaximumHP);
         currentHP = maximumHP;
@@ -2173,7 +2392,7 @@ public class TestPlayController : MonoBehaviour
     public bool TryGetSubLockDistance(int index, out float distance)
     {
         distance = 0f;
-        SptRuntimeData data = sptSource != null ? sptSource.LastSptData : null;
+        SptRuntimeData data = RuntimeSptData;
         if (data == null || !data.SubLockDistances.TryGetValue(index, out int configuredDistance))
             return false;
 
@@ -2581,6 +2800,14 @@ public class TestPlayController : MonoBehaviour
                 referenceRight = Vector3.Cross(Vector3.up, referenceForward).normalized;
                 return referenceRight.sqrMagnitude > 0.000001f;
             }
+        }
+
+        if (session != null)
+        {
+            if (!useCameraRelativeMovement || !sessionInput.hasMovementBasis) return false;
+            referenceForward = FlattenDirection(sessionInput.movementForward, Vector3.forward);
+            referenceRight = Vector3.Cross(Vector3.up, referenceForward).normalized;
+            return true;
         }
 
         if (useCameraRelativeMovement && cameraController != null &&
@@ -3128,6 +3355,8 @@ public class TestPlayController : MonoBehaviour
     /// </summary>
     public void BeginDeterministicTraceSession(TestPlayGoldenSetupKind setup)
     {
+        if (session != null) throw new InvalidOperationException("セッション時計とGolden時計は排他です。");
+        manualClock = true;
         NormalizeActionIds();
         if (state == null)
             state = new TestPlayStateTable();
@@ -3160,6 +3389,14 @@ public class TestPlayController : MonoBehaviour
     /// </summary>
     public string SimulateDeterministicTraceTick(TestPlayGoldenInputFrame input)
     {
+        if (session != null) throw new InvalidOperationException("セッションのStepを使用してください。");
+        SetSampledInput(input);
+        SimulateOriginalTick();
+        return CapturePhase5TickTrace();
+    }
+
+    void SetSampledInput(TestPlayGoldenInputFrame input)
+    {
         sampledDirectionInput = input.direction;
         sampledRiseKeyHeld = input.rise;
         sampledShotKeyHeld = input.shot;
@@ -3169,12 +3406,11 @@ public class TestPlayController : MonoBehaviour
         sampledSpecial1KeyHeld = input.special1;
         sampledSpecial2KeyHeld = input.special2;
         sampledSpecial3KeyHeld = input.special3;
-        SimulateOriginalTick();
-        return CapturePhase5TickTrace();
     }
 
     public void EndDeterministicTraceSession()
     {
+        if (session != null) throw new InvalidOperationException("セッションのStopAsyncを使用してください。");
         playModeActive = false;
         deterministicGroundPlaneEnabled = false;
         StopAllBurnerEffects();
@@ -3510,6 +3746,7 @@ public class TestPlayController : MonoBehaviour
 
     void HandleCommand(string name, List<TestPlayScriptValue> args, string rawLine)
     {
+        if (session != null && (SessionDefeated || currentHP <= 0)) return;
         if (logCommands)
             Debug.Log($"[TestPlayCommand] A{currentAnimationIndex} S{scriptIndex}: {rawLine.Trim()}");
 
@@ -3729,7 +3966,7 @@ public class TestPlayController : MonoBehaviour
         if (inspectorOverride != null)
             return inspectorOverride;
 
-        SptRuntimeData data = sptSource != null ? sptSource.LastSptData : null;
+        SptRuntimeData data = RuntimeSptData;
         if (data != null &&
             data.AttackArms.TryGetValue(attackArmId, out SptFrameBindingInfo info) &&
             info != null)
@@ -3865,8 +4102,8 @@ public class TestPlayController : MonoBehaviour
     TestPlayPresentationAdapterKind ResolveBurnerAdapter(int id)
     {
         if (id < TestPlayPresentationCore.MinimumBurnerId || id > TestPlayPresentationCore.MaximumBurnerId ||
-            sptSource == null || sptSource.LastSptData == null ||
-            !sptSource.LastSptData.BurnerSets.ContainsKey(id))
+            RuntimeSptData == null ||
+            !RuntimeSptData.BurnerSets.ContainsKey(id))
             return TestPlayPresentationAdapterKind.None;
 
         return useConeBurnerEffects
@@ -4155,7 +4392,7 @@ public class TestPlayController : MonoBehaviour
 
     void ApplyOriginalWeaponModelVisibility(bool gunVisible)
     {
-        SptRuntimeData data = sptSource != null ? sptSource.LastSptData : null;
+        SptRuntimeData data = RuntimeSptData;
         if (data == null)
             return;
 
@@ -4192,7 +4429,7 @@ public class TestPlayController : MonoBehaviour
     void SpawnOriginalType1Projectile(List<TestPlayScriptValue> args)
     {
         const string source = "RunProc2:1";
-        if (args == null || args.Count < 12 || sptSource == null || sptSource.LastSptData == null)
+        if (args == null || args.Count < 12 || RuntimeSptData == null)
         {
             LogUnhandled(source + " requires the original 12 arguments and parsed Script.spt WEAPONPOINT data.");
             return;
@@ -4207,7 +4444,7 @@ public class TestPlayController : MonoBehaviour
             args[7].AsInt(),
             args[8].AsInt(-1),
             args[9].AsInt());
-        if (!sptSource.LastSptData.WeaponPoints.TryGetValue(
+        if (!RuntimeSptData.WeaponPoints.TryGetValue(
                 parameters.weaponPointId,
                 out WeaponPointInfo weaponPoint) ||
             weaponPoint == null || weaponPoint.BoneTr == null)
@@ -4221,7 +4458,10 @@ public class TestPlayController : MonoBehaviour
         if (parameters.energyCost > 0)
             SetAuxiliaryEnergy(currentAuxiliaryEnergy - parameters.energyCost);
 
-        bool targetAlive = target != null && target.IsAlive;
+        // A collision candidate is not an acquired lock. Snapshot guidance only
+        // from a valid lock so an unlocked shot keeps the WEAPONPOINT direction.
+        Transform guidanceTarget = GetLockedTargetTransform();
+        bool targetLinked = guidanceTarget != null;
         Vector3 spawnPosition = weaponPoint.BoneTr.position;
         Quaternion muzzleRotation = Quaternion.LookRotation(
             weaponPoint.WorldForward,
@@ -4229,12 +4469,12 @@ public class TestPlayController : MonoBehaviour
         Quaternion spawnRotation = TestPlayCombatCore.ResolveOriginalType1InitialRotation(
             muzzleRotation,
             spawnPosition,
-            targetAlive,
-            targetAlive ? target.transform.position : Vector3.zero);
-        float targetDistance = targetAlive
-            ? Vector3.Distance(spawnPosition, target.transform.position)
+            targetLinked,
+            targetLinked ? guidanceTarget.position : Vector3.zero);
+        float targetDistance = targetLinked
+            ? Vector3.Distance(spawnPosition, guidanceTarget.position)
             : TestPlayCombatCore.OriginalType1HomingDistance;
-        float homingTurnDegrees = targetAlive
+        float homingTurnDegrees = targetLinked
             ? TestPlayCombatCore.ResolveOriginalType1HomingTurnDegrees(
                 targetDistance,
                 parameters.homingPercent)
@@ -4302,7 +4542,8 @@ public class TestPlayController : MonoBehaviour
         projectile.homingTurnRate = 0f;
         projectile.sourceCommand = payload.source;
         projectile.valueSource = payload.valueSource;
-        projectile.ConfigureOriginalType1(parameters, targetAlive, homingTurnDegrees);
+        projectile.ConfigureOriginalType1(parameters, targetLinked, homingTurnDegrees);
+        session?.RegisterProjectile(projectile, sessionMech, sessionLock);
         spawnedTransientObjects.Add(go);
         RecordCombatEvent(new TestPlayCombatTraceEvent
         {
@@ -4330,14 +4571,14 @@ public class TestPlayController : MonoBehaviour
         // FUN_004fa150: [2]=WEAPONPOINT, [3]/100=長さ, [5]=攻防双方のhit-stop、
         // [6]=対象別再命中interval、[11]=存続tick。
         // FUN_00502e60はATTACKテーブルを生成時に複製する。
-        if (args == null || args.Count < 12 || sptSource == null || sptSource.LastSptData == null)
+        if (args == null || args.Count < 12 || RuntimeSptData == null)
         {
             LogUnhandled(source + " requires the original 12 arguments and parsed Script.spt WEAPONPOINT data.");
             return;
         }
 
         int weaponPointId = args[2].AsInt(-1);
-        if (!sptSource.LastSptData.WeaponPoints.TryGetValue(weaponPointId, out WeaponPointInfo weaponPoint) ||
+        if (!RuntimeSptData.WeaponPoints.TryGetValue(weaponPointId, out WeaponPointInfo weaponPoint) ||
             weaponPoint == null || weaponPoint.BoneTr == null)
         {
             LogUnhandled(source + " WEAPONPOINT " + weaponPointId + " is not bound; original type 57 creates no hit object.");
@@ -4357,14 +4598,17 @@ public class TestPlayController : MonoBehaviour
             weaponPoint.WorldForward,
             source,
             attackFlag));
+        if (session != null)
+            activeMeleeAttacks[activeMeleeAttacks.Count - 1].SessionAttackId = session.AllocateAttackId(sessionMech);
     }
 
     void TickActiveMeleeAttacks()
     {
+        if (session != null) { TickSessionMeleeAttacks(); return; }
         if (activeMeleeAttacks.Count == 0)
             return;
 
-        SptRuntimeData sptData = sptSource != null ? sptSource.LastSptData : null;
+        SptRuntimeData sptData = RuntimeSptData;
         for (int i = activeMeleeAttacks.Count - 1; i >= 0; i--)
         {
             TestPlayMeleeAttackState attack = activeMeleeAttacks[i];
@@ -4417,6 +4661,33 @@ public class TestPlayController : MonoBehaviour
 
             if (tickResult.expired)
                 activeMeleeAttacks.RemoveAt(i);
+        }
+    }
+
+    void TickSessionMeleeAttacks()
+    {
+        // Creation order within each MechId; target count never advances lifetime or sweep twice.
+        for (int i = 0; i < activeMeleeAttacks.Count;)
+        {
+            var attack = activeMeleeAttacks[i];
+            if (RuntimeSptData == null || !RuntimeSptData.WeaponPoints.TryGetValue(attack.weaponPointId, out var point) ||
+                point?.BoneTr == null)
+            { activeMeleeAttacks.RemoveAt(i); continue; }
+            Vector3 attackerPosition = robo.root.transform.position;
+            var tickResult = TestPlayCombatCore.TickMeleeAttackTargets(attack, point.BoneTr.position,
+                point.WorldForward, session.QueryAttackTargets(sessionMech, attackerPosition), sessionMeleeHits);
+            foreach (var candidate in sessionMeleeHits)
+            {
+                var hit = TestPlayCombatCore.CreateHitResult(attack.payload, candidate.Position - tickResult.currentOrigin);
+                if (!session.ResolveHit(attack.SessionAttackId, sessionMech, candidate.Handle, hit,
+                    attackerPosition, true, attack.HitStopTicks, out hit)) continue;
+                ApplyMeleeDefenseFeedback(hit);
+                if (hit.applyAttackerGuardRecoil) velocity += candidate.Rotation * Vector3.forward * 0.05f;
+                RecordCombatHit(hit);
+                RaiseRuntimeEvent(TestPlayRuntimeEventType.AttackHit, attack.source, null,
+                    "WEAPONPOINT:" + attack.weaponPointId, Mathf.RoundToInt(hit.damage), attack.remainingTicks);
+            }
+            if (tickResult.expired) activeMeleeAttacks.RemoveAt(i); else i++;
         }
     }
 
@@ -4518,7 +4789,8 @@ public class TestPlayController : MonoBehaviour
         projectile.collisionKind = payload.collisionKind;
         projectile.speed = payload.speed;
         projectile.hitRadius = projectileRadius;
-        projectile.homingTurnRate = payload.homing ? 180f : 0f;
+        projectile.homingTurnRate = payload.homing && GetLockedTargetTransform() != null ? 180f : 0f;
+        session?.RegisterProjectile(projectile, sessionMech, sessionLock);
         projectile.sourceCommand = payload.source;
         projectile.valueSource = payload.valueSource;
         spawnedTransientObjects.Add(go);
@@ -4581,7 +4853,7 @@ public class TestPlayController : MonoBehaviour
             return;
         }
 
-        SptRuntimeData sptData = sptSource != null ? sptSource.LastSptData : null;
+        SptRuntimeData sptData = RuntimeSptData;
         if (sptData == null ||
             !sptData.WeaponPoints.TryGetValue(parameters.weaponPointId, out WeaponPointInfo weaponPoint) ||
             weaponPoint == null || weaponPoint.BoneTr == null)
@@ -4683,7 +4955,7 @@ public class TestPlayController : MonoBehaviour
             return;
         }
 
-        SptRuntimeData sptData = sptSource != null ? sptSource.LastSptData : null;
+        SptRuntimeData sptData = RuntimeSptData;
         if (sptData == null ||
             !sptData.WeaponPoints.TryGetValue(parameters.weaponPointId, out WeaponPointInfo weaponPoint) ||
             weaponPoint == null || weaponPoint.BoneTr == null)
@@ -4779,7 +5051,7 @@ public class TestPlayController : MonoBehaviour
             return;
         }
 
-        SptRuntimeData sptData = sptSource != null ? sptSource.LastSptData : null;
+        SptRuntimeData sptData = RuntimeSptData;
         if (sptData == null ||
             !sptData.WeaponPoints.TryGetValue(parameters.weaponPointId, out WeaponPointInfo weaponPoint) ||
             weaponPoint == null || weaponPoint.BoneTr == null)
@@ -4870,7 +5142,7 @@ public class TestPlayController : MonoBehaviour
             return;
         }
 
-        SptRuntimeData sptData = sptSource != null ? sptSource.LastSptData : null;
+        SptRuntimeData sptData = RuntimeSptData;
         if (sptData == null ||
             !sptData.WeaponPoints.TryGetValue(parameters.weaponPointId, out WeaponPointInfo weaponPoint) ||
             weaponPoint == null || weaponPoint.BoneTr == null)
@@ -5038,7 +5310,7 @@ public class TestPlayController : MonoBehaviour
             return;
         }
 
-        SptRuntimeData sptData = sptSource != null ? sptSource.LastSptData : null;
+        SptRuntimeData sptData = RuntimeSptData;
         if (sptData == null ||
             !sptData.WeaponPoints.TryGetValue(parameters.weaponPointId, out WeaponPointInfo weaponPoint) ||
             weaponPoint == null || weaponPoint.BoneTr == null)
@@ -5187,7 +5459,7 @@ public class TestPlayController : MonoBehaviour
             return;
         }
 
-        SptRuntimeData sptData = sptSource != null ? sptSource.LastSptData : null;
+        SptRuntimeData sptData = RuntimeSptData;
         if (sptData == null ||
             !sptData.WeaponPoints.TryGetValue(parameters.weaponPointId, out WeaponPointInfo weaponPoint) ||
             weaponPoint == null || weaponPoint.BoneTr == null)
@@ -5506,7 +5778,7 @@ public class TestPlayController : MonoBehaviour
     {
         UpdatePropulsionLoopFromBurnerOutputs();
 
-        if (sptSource == null || sptSource.LastSptData == null)
+        if (RuntimeSptData == null)
         {
             HideAllBurnerCones();
             return;
@@ -5514,11 +5786,11 @@ public class TestPlayController : MonoBehaviour
 
         if (useConeBurnerEffects)
         {
-            ApplyConeBurners(sptSource.LastSptData);
+            ApplyConeBurners(RuntimeSptData);
             return;
         }
 
-        ApplyParticleBurners(sptSource.LastSptData);
+        ApplyParticleBurners(RuntimeSptData);
     }
 
     void ApplyParticleBurners(SptRuntimeData data)
@@ -5629,10 +5901,10 @@ public class TestPlayController : MonoBehaviour
         presentationRuntime?.SetPropulsionLoopActive(false);
         HideAllBurnerCones();
 
-        if (sptSource == null || sptSource.LastSptData == null)
+        if (RuntimeSptData == null)
             return;
 
-        foreach (var kv in sptSource.LastSptData.BurnerSets)
+        foreach (var kv in RuntimeSptData.BurnerSets)
         {
             BurnerSetInfo info = kv.Value;
             if (info != null)
@@ -5798,6 +6070,11 @@ public class TestPlayController : MonoBehaviour
 
     void ResetRuntimeFlags()
     {
+        SessionDefeated = false;
+        SessionReactionState = 0;
+        sessionReactionActive = false;
+        LastSessionImpactForce = Vector3.zero;
+        LastSessionDownValue = 0;
         currentAnimation = null;
         currentScriptAnimation = null;
         currentActionSelection = new TestPlayActionSelection();
@@ -5929,6 +6206,10 @@ public class TestPlayController : MonoBehaviour
             GameObject transient = spawnedTransientObjects[i];
             if (transient != null)
             {
+                // The session owns flying projectiles even when their controller is removed.
+                var projectile = transient.GetComponent<TestPlayProjectile>();
+                if (session != null && session.Status == "Running" && projectile != null && projectile.AttackId > 0)
+                    continue;
                 if (Application.isPlaying)
                     Destroy(transient);
                 else

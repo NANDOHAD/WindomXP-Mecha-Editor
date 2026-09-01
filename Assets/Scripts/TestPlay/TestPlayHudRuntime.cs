@@ -8,6 +8,16 @@ public class TestPlayHudRuntime : MonoBehaviour
     [Header("References")]
     public TestPlayController controller;
     public Font font;
+    [Tooltip("シーンに配置した TestPlayHUDCanvas。未設定時のみ実行時生成します。")]
+    public GameObject hudCanvas;
+
+    [Header("Bound Elements (optional; resolved from hudCanvas by name when empty)")]
+    public Text mechaNameText;
+    public Text hpText;
+    public Text generatorValueText;
+    public Text energyValueText;
+    public RectTransform generatorFill;
+    public RectTransform energyFill;
 
     [Header("Layout")]
     public Vector2 referenceResolution = new Vector2(1920f, 1080f);
@@ -23,12 +33,8 @@ public class TestPlayHudRuntime : MonoBehaviour
     public Color hpColor = new Color(1f, 0.38f, 0.34f, 1f);
 
     GameObject canvasObject;
-    RectTransform generatorFill;
-    RectTransform energyFill;
-    Text mechaNameText;
-    Text hpText;
-    Text generatorValueText;
-    Text energyValueText;
+    bool ownsCanvas;
+    public GameObject OwnedCanvas => ownsCanvas ? canvasObject : null;
     bool hudVisible;
     float displayedHP = float.NaN;
     float displayedGenerator = float.NaN;
@@ -36,14 +42,33 @@ public class TestPlayHudRuntime : MonoBehaviour
     float displayedEnergy = float.NaN;
     float displayedMaximumEnergy = float.NaN;
 
+    void Awake()
+    {
+        if (hudCanvas != null)
+            hudCanvas.SetActive(false);
+    }
+
     public void Bind(TestPlayController source)
     {
         controller = source;
     }
 
+    public void AssignSceneCanvas(GameObject canvas)
+    {
+        if (canvas == null)
+            return;
+
+        hudCanvas = canvas;
+        if (!hudVisible)
+            hudCanvas.SetActive(false);
+    }
+
     public void ShowHud()
     {
         EnsureVisuals();
+        if (canvasObject == null)
+            return;
+
         hudVisible = true;
         canvasObject.SetActive(true);
         mechaNameText.text = ResolveMechaName(controller);
@@ -56,6 +81,8 @@ public class TestPlayHudRuntime : MonoBehaviour
         hudVisible = false;
         if (canvasObject != null)
             canvasObject.SetActive(false);
+        else if (hudCanvas != null)
+            hudCanvas.SetActive(false);
     }
 
     public void RefreshHud()
@@ -109,7 +136,7 @@ public class TestPlayHudRuntime : MonoBehaviour
 
     void OnDestroy()
     {
-        if (canvasObject == null)
+        if (!ownsCanvas || canvasObject == null)
             return;
 
         if (Application.isPlaying)
@@ -131,7 +158,7 @@ public class TestPlayHudRuntime : MonoBehaviour
         if (source == null)
             return UILocalization.GetFixed("機体名不明");
 
-        SptRuntimeData data = source.sptSource != null ? source.sptSource.LastSptData : null;
+        SptRuntimeData data = source.RuntimeSptData;
         string displayName = data != null ? CleanDisplayName(data.Name) : "";
         if (!string.IsNullOrEmpty(displayName))
             return displayName;
@@ -167,6 +194,14 @@ public class TestPlayHudRuntime : MonoBehaviour
         if (canvasObject != null)
             return;
 
+        if (hudCanvas != null)
+        {
+            if (!TryBindSceneCanvas())
+                return;
+            return;
+        }
+
+        ownsCanvas = true;
         int uiLayer = LayerMask.NameToLayer("UI");
         canvasObject = new GameObject(
             "TestPlayHUDCanvas",
@@ -189,6 +224,71 @@ public class TestPlayHudRuntime : MonoBehaviour
         RectTransform canvasRect = canvasObject.GetComponent<RectTransform>();
         BuildStatusPanel(canvasRect, resolvedFont);
         BuildGaugePanel(canvasRect, resolvedFont);
+    }
+
+    bool TryBindSceneCanvas()
+    {
+        if (hudCanvas == null)
+            return false;
+
+        canvasObject = hudCanvas;
+        ownsCanvas = false;
+        Transform root = hudCanvas.transform;
+        if (mechaNameText == null)
+            mechaNameText = FindChildComponent<Text>(root, "MechaName");
+        if (hpText == null)
+            hpText = FindChildComponent<Text>(root, "RemainingHP");
+        if (generatorValueText == null)
+            generatorValueText = FindChildComponent<Text>(root, "BoosterValue");
+        if (energyValueText == null)
+            energyValueText = FindChildComponent<Text>(root, "EnergyValue");
+        if (generatorFill == null)
+        {
+            Transform fill = FindChildTransform(root, "BoosterFill");
+            generatorFill = fill != null ? fill as RectTransform : null;
+        }
+        if (energyFill == null)
+        {
+            Transform fill = FindChildTransform(root, "EnergyFill");
+            energyFill = fill != null ? fill as RectTransform : null;
+        }
+
+        if (mechaNameText == null || hpText == null ||
+            generatorValueText == null || energyValueText == null ||
+            generatorFill == null || energyFill == null)
+        {
+            Debug.LogError(
+                "TestPlayHudRuntime: hudCanvas に必要な子要素（MechaName / RemainingHP / BoosterFill / BoosterValue / EnergyFill / EnergyValue）がありません。",
+                hudCanvas);
+            canvasObject = null;
+            ownsCanvas = false;
+            return false;
+        }
+
+        return true;
+    }
+
+    static T FindChildComponent<T>(Transform root, string objectName) where T : Component
+    {
+        Transform child = FindChildTransform(root, objectName);
+        return child != null ? child.GetComponent<T>() : null;
+    }
+
+    static Transform FindChildTransform(Transform root, string objectName)
+    {
+        if (root == null)
+            return null;
+        if (root.name == objectName)
+            return root;
+
+        for (int i = 0; i < root.childCount; i++)
+        {
+            Transform found = FindChildTransform(root.GetChild(i), objectName);
+            if (found != null)
+                return found;
+        }
+
+        return null;
     }
 
     Font ResolveFont()

@@ -13,7 +13,7 @@ using UnityEngine.Localization.Settings;
 public enum WindomVerificationSelection
 {
     Runtime = 1, Hod = 2, Golden = 4, SelectedGolden = 8, All = 7,
-    BaselineComparison = 16, AniInventory = 32, Regression = All | BaselineComparison
+    BaselineComparison = 16, AniInventory = 32, Standalone = 64, Session = 128, Lifecycle = 256, Regression = All | BaselineComparison
 }
 
 [Serializable]
@@ -65,7 +65,7 @@ public static class WindomVerificationRunner
     public static string StartVerification(WindomVerificationSelection selection, string mechFolder = null)
     {
         CheckMainThread();
-        if ((int)selection <= 0 || ((int)selection & ~63) != 0)
+        if ((int)selection <= 0 || ((int)selection & ~511) != 0)
             throw new ArgumentOutOfRangeException(nameof(selection));
         if ((selection & WindomVerificationSelection.BaselineComparison) != 0 && (selection & WindomVerificationSelection.Golden) == 0)
             throw new ArgumentException("BaselineComparison requires Golden in the same run.", nameof(selection));
@@ -203,6 +203,20 @@ public static class WindomVerificationRunner
         if (!string.IsNullOrEmpty(mechFolder)) { files.Add(Path.Combine(mechFolder, "Script.ani")); files.Add(Path.Combine(mechFolder, "Script.spt")); }
         job.hashes = await Task.Run(() => HashFiles(files, token), token);
         await SaveAsync(job);
+        if ((selection & WindomVerificationSelection.Lifecycle) != 0)
+            await RunSuite(job, "Lifecycle", token, async () => new WindomVerificationSuiteResult {
+                name = "Lifecycle", assertions = (await TestPlaySessionLifecycleVerification.RunAsync(
+                    Path.Combine(projectRoot, "Windom_Data", "Robo", "ガンダムTR-1ヘイズル改", "Script.ani"),
+                    job.outputFolder, null, token)).assertions
+            });
+        if ((selection & WindomVerificationSelection.Session) != 0)
+            await RunSuite(job, "Session", token, async () => new WindomVerificationSuiteResult {
+                name = "Session", assertions = await TestPlaySessionVerification.RunForJobAsync(job.outputFolder, token)
+            });
+        if ((selection & WindomVerificationSelection.Standalone) != 0)
+            await RunSuite(job, "Standalone", token, async () => new WindomVerificationSuiteResult {
+                name = "Standalone", assertions = await TestPlayStandaloneVerification.RunForJobAsync(job.outputFolder, token)
+            });
         if ((selection & WindomVerificationSelection.Runtime) != 0)
             await RunSuite(job, "Runtime", token, () => Task.FromResult(new WindomVerificationSuiteResult { name = "Runtime", assertions = TestPlayRuntimeVerification.RunAll() }));
         if ((selection & WindomVerificationSelection.Hod) != 0)
