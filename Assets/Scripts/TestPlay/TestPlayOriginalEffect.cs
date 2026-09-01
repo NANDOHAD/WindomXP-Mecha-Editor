@@ -11,6 +11,8 @@ public class TestPlayOriginalEffect : MonoBehaviour
     Color tint = Color.white;
     float age;
 
+    public Color CurrentTint => tint;
+
     public void Initialize(Texture2D texture, Shader shader, Vector2 size, float life, Color color, bool faceCamera)
     {
         sourceTexture = texture;
@@ -32,6 +34,13 @@ public class TestPlayOriginalEffect : MonoBehaviour
         runtimeMaterial.SetTexture("_MainTex", texture);
         runtimeMaterial.SetColor("_TintColor", tint);
         meshRenderer.sharedMaterial = runtimeMaterial;
+    }
+
+    public void SetTint(Color color)
+    {
+        tint = color;
+        if (runtimeMaterial != null)
+            runtimeMaterial.SetColor("_TintColor", tint);
     }
 
     void LateUpdate()

@@ -283,7 +283,6 @@ public class TestPlayController : MonoBehaviour
     TestPlayActionSelection currentActionSelection;
     TestPlayMotionStep lastMotionStep;
     int scriptTick;
-    bool initFired;
     bool executeScriptRepeatedly;
     int scriptRepeatInterval;
     int scriptRepeatCounter;
@@ -292,6 +291,7 @@ public class TestPlayController : MonoBehaviour
     bool animationPoseHeldAtEnd;
     bool moveLocked;
     int shieldGuard;
+    int laserReflectValue;
     bool gvEnable;
     int attackFlag;
     int hitStopTicks;
@@ -397,6 +397,8 @@ public class TestPlayController : MonoBehaviour
     readonly List<TestPlayMeleeAttackState> activeMeleeAttacks = new List<TestPlayMeleeAttackState>();
     readonly List<ActiveSwordBeam> activeSwordBeams = new List<ActiveSwordBeam>();
     readonly List<ActiveThunderEffect> activeThunderEffects = new List<ActiveThunderEffect>();
+    readonly List<ActiveHinokoEffect> activeHinokoEffects = new List<ActiveHinokoEffect>();
+    readonly List<ActiveMagicShieldEffect> activeMagicShieldEffects = new List<ActiveMagicShieldEffect>();
     ActiveSwordBeam managedSwordBeam;
     bool attackSequenceActive;
     bool meleeApproachActive;
@@ -434,6 +436,26 @@ public class TestPlayController : MonoBehaviour
         public int remainingActiveTicks;
         public float travelDistance;
         public int elapsedTicks;
+    }
+
+    sealed class ActiveMagicShieldEffect
+    {
+        public TestPlayMagicShieldParameters parameters;
+        public TestPlayMagicShieldState state;
+        public Transform anchor;
+        public bool followingAnchor;
+        public GameObject visualRoot;
+        public Vector3 visualBaseScale;
+    }
+
+    sealed class ActiveHinokoEffect
+    {
+        public TestPlayHinokoParameters parameters;
+        public TestPlayHinokoState state;
+        public GameObject visualRoot;
+        public TestPlayOriginalEffect visual;
+        public float forwardStep;
+        public int adapterSeed;
     }
 
     void Awake()
@@ -508,6 +530,8 @@ public class TestPlayController : MonoBehaviour
         TickActiveMeleeAttacks();
         TickActiveSwordBeams();
         TickActiveThunderEffects();
+        TickActiveHinokoEffects();
+        TickActiveMagicShieldEffects();
         ApplyQueuedAimCommands();
         ApplyRootMotion();
         ConsumeLatchedInput();
@@ -664,7 +688,6 @@ public class TestPlayController : MonoBehaviour
         frameIndex = 0;
         frameTime = 0f;
         actionTick = 0;
-        initFired = false;
         ResetScriptRepeatState();
         animeLoop = false;
         StopAllBurnerEffects();
@@ -719,15 +742,6 @@ public class TestPlayController : MonoBehaviour
             ChangeAnimation(idleAction);
         if (currentAnimation == null)
             return;
-
-        if (!initFired)
-        {
-            initFired = true;
-            int initAction = currentAnimationIndex;
-            bool initInterrupted = ExecuteCurrentAnimationScript(currentScriptAnimation != null ? currentScriptAnimation.squirrelInit : "");
-            if (initInterrupted || currentAnimationIndex != initAction)
-                return;
-        }
 
         actionTick++;
         if (TryFinishGroundRecoveryByWatchdog())
@@ -852,6 +866,7 @@ public class TestPlayController : MonoBehaviour
         forceCommand = Vector3.zero;
         moveLocked = false;
         shieldGuard = 0;
+        laserReflectValue = 0;
         gvEnable = true;
         attackFlag = 0;
         camEffect = 0f;
@@ -2120,9 +2135,7 @@ public class TestPlayController : MonoBehaviour
             return false;
 
         animation candidate = robo.ani.animations[actionId];
-        return candidate != null &&
-               (!string.IsNullOrWhiteSpace(candidate.squirrelInit) ||
-                (candidate.scripts != null && candidate.scripts.Count > 0));
+        return candidate != null && candidate.scripts != null && candidate.scripts.Count > 0;
     }
 
     animation ResolveScriptAnimation(int resolvedActionId, int logicalActionId, animation resolvedAnimation)
@@ -2130,9 +2143,7 @@ public class TestPlayController : MonoBehaviour
         if (resolvedAnimation == null || resolvedActionId < 50 || resolvedActionId >= 100)
             return resolvedAnimation;
 
-        bool resolvedHasScripts =
-            !string.IsNullOrWhiteSpace(resolvedAnimation.squirrelInit) ||
-            (resolvedAnimation.scripts != null && resolvedAnimation.scripts.Count > 0);
+        bool resolvedHasScripts = resolvedAnimation.scripts != null && resolvedAnimation.scripts.Count > 0;
         if (resolvedHasScripts)
             return resolvedAnimation;
 
@@ -2147,9 +2158,7 @@ public class TestPlayController : MonoBehaviour
         // FUN_004d2030 selects +50 for the displayed ANI while retaining the
         // base 0..49 ANI as the script source when the +50 entry has no script
         // blocks. This is why sword locomotion poses still advance in-game.
-        bool baseHasScripts =
-            !string.IsNullOrWhiteSpace(baseAnimation.squirrelInit) ||
-            (baseAnimation.scripts != null && baseAnimation.scripts.Count > 0);
+        bool baseHasScripts = baseAnimation.scripts != null && baseAnimation.scripts.Count > 0;
         return baseHasScripts ? baseAnimation : resolvedAnimation;
     }
 
@@ -2173,8 +2182,7 @@ public class TestPlayController : MonoBehaviour
         if (candidate == null)
             return false;
 
-        return !string.IsNullOrWhiteSpace(candidate.squirrelInit) ||
-               (candidate.scripts != null && candidate.scripts.Count > 0) ||
+        return (candidate.scripts != null && candidate.scripts.Count > 0) ||
                (candidate.frames != null && candidate.frames.Count > 0);
     }
 
@@ -2926,6 +2934,7 @@ public class TestPlayController : MonoBehaviour
 
     public TestPlayActionSelection CurrentActionSelection => currentActionSelection;
     public TestPlayMotionStep LastMotionStep => lastMotionStep;
+    public int CurrentLaserReflectValue => laserReflectValue;
     public TestPlayLocomotionState CurrentLocomotionState =>
         TestPlayLocomotionCore.Classify(currentAnimationIndex, GetLocomotionActions());
 
@@ -3337,6 +3346,7 @@ public class TestPlayController : MonoBehaviour
         forceCommand = Vector3.zero;
         moveLocked = false;
         shieldGuard = 0;
+        laserReflectValue = 0;
         ResetInputMoveHeading();
     }
 
@@ -3354,6 +3364,10 @@ public class TestPlayController : MonoBehaviour
         if (vm == null || targetAnimation == null)
             return;
 
+        // AN2's script-index -1 text is parsed into the animation record's
+        // load-time command vector by FUN_0049d8e0. Original action entry
+        // (FUN_004b8250) starts only the timed block list at record +0x04;
+        // keep compiling the text for diagnostics without executing it here.
         vm.Compile(targetAnimation.squirrelInit);
         if (targetAnimation.scripts == null)
             return;
@@ -3493,6 +3507,10 @@ public class TestPlayController : MonoBehaviour
             case "shotturnang": shotTurnAng = values.Count > 0 ? values[0].AsFloat() : 0f; break;
             case "turnmoveang": turnMoveAng = values.Count > 0 ? values[0].AsFloat() : 0f; break;
             case "shildguard": shieldGuard = values.Count > 0 ? values[0].AsInt() : 0; break;
+            case "laserreflect":
+                laserReflectValue = TestPlayCombatCore.NormalizeOriginalLaserReflectValue(
+                    values.Count > 0 ? values[0].AsInt() : 0);
+                break;
             case "attackflag":
                 attackFlag = values.Count > 0 ? values[0].AsInt() : 0;
                 RecordAttackProfileChanged("AttackFlag");
@@ -3789,6 +3807,12 @@ public class TestPlayController : MonoBehaviour
             return;
         }
 
+        if (extended && procType == 1)
+        {
+            SpawnOriginalType1Projectile(args);
+            return;
+        }
+
         if (procType == 57)
         {
             SpawnMeleeAttack(args, extended ? "RunProc2:57" : "RunProc:57", EstimateDamageForWeapon(procType));
@@ -3798,6 +3822,16 @@ public class TestPlayController : MonoBehaviour
         if (procType == 62)
         {
             int subtype = args.Count > 3 ? args[3].AsInt() : 0;
+            if (TestPlayPresentationCore.IsOriginalHinokoProc(extended, procType, subtype))
+            {
+                SpawnOriginalHinokoEffect(args, "RunProc2:62:6");
+                return;
+            }
+            if (TestPlayPresentationCore.IsOriginalMagicShieldProc(extended, procType, subtype))
+            {
+                SpawnOriginalMagicShieldEffect(args, "RunProc2:62:8");
+                return;
+            }
             if (extended && TrySpawnOriginalSpecialEffect(args, subtype))
                 return;
             if (subtype == 3)
@@ -3843,6 +3877,33 @@ public class TestPlayController : MonoBehaviour
                 return TestPlayPresentationAdapterKind.None;
             return presentationRuntime.HasOriginalTexture(parameters.textureId)
                 ? TestPlayPresentationAdapterKind.OriginalTextureQuad
+                : TestPlayPresentationAdapterKind.None;
+        }
+        int subtype = args != null && args.Count > 3 ? args[3].AsInt() : -1;
+        if (TestPlayPresentationCore.IsOriginalHinokoProc(extended, procType, subtype))
+        {
+            return TestPlayPresentationCore.TryCreateOriginalHinokoParameters(
+                       extended,
+                       args,
+                       out TestPlayHinokoParameters _) &&
+                   presentationRuntime != null &&
+                   presentationRuntime.HasOriginalTexture(TestPlayPresentationCore.OriginalHinokoTextureId)
+                ? TestPlayPresentationAdapterKind.OriginalTextureQuad
+                : TestPlayPresentationAdapterKind.None;
+        }
+        if (TestPlayPresentationCore.IsOriginalMagicShieldProc(extended, procType, subtype))
+        {
+            if (!TestPlayPresentationCore.TryCreateOriginalMagicShieldParameters(
+                    extended,
+                    args,
+                    out TestPlayMagicShieldParameters parameters) ||
+                presentationRuntime == null)
+                return TestPlayPresentationAdapterKind.None;
+
+            string slotKey = GetMagicShieldEffectSlotKey(parameters.modelSlotIndex);
+            return presentationRuntime.HasMappedEffect(slotKey) ||
+                   presentationRuntime.HasMappedEffect("RunProc2:62:8")
+                ? TestPlayPresentationAdapterKind.MappedPrefab
                 : TestPlayPresentationAdapterKind.None;
         }
         if (!TestPlayPresentationCore.IsOriginalWindProc(extended, procType))
@@ -3933,19 +3994,26 @@ public class TestPlayController : MonoBehaviour
         if (data == null)
             return;
 
-        SetFrameBindingsActive(data.GunModels, gunVisible);
-        SetFrameBindingsActive(data.SwordModels, !gunVisible);
+        SetFrameBindingsVisible(data.GunModels, gunVisible);
+        SetFrameBindingsVisible(data.SwordModels, !gunVisible);
     }
 
-    static void SetFrameBindingsActive(Dictionary<int, SptFrameBindingInfo> bindings, bool active)
+    static void SetFrameBindingsVisible(Dictionary<int, SptFrameBindingInfo> bindings, bool visible)
     {
         if (bindings == null)
             return;
 
         foreach (SptFrameBindingInfo info in bindings.Values)
         {
-            if (info != null && info.BoneTr != null)
-                info.BoneTr.gameObject.SetActive(active);
+            if (info == null || info.BoneTr == null)
+                continue;
+
+            // FUN_00499d50 resolves GUNFILENAME/SWORDFILENAME as already-loaded
+            // HOD nodes. FUN_00572c50 then changes the display flag recursively;
+            // it does not disable the node hierarchy or its runtime components.
+            Renderer[] renderers = info.BoneTr.GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < renderers.Length; i++)
+                renderers[i].enabled = visible;
         }
     }
 
@@ -3956,10 +4024,154 @@ public class TestPlayController : MonoBehaviour
             attackProfile, fallback, 0f, false, "Damage").damage);
     }
 
+    void SpawnOriginalType1Projectile(List<TestPlayScriptValue> args)
+    {
+        const string source = "RunProc2:1";
+        if (args == null || args.Count < 12 || sptSource == null || sptSource.LastSptData == null)
+        {
+            LogUnhandled(source + " requires the original 12 arguments and parsed Script.spt WEAPONPOINT data.");
+            return;
+        }
+
+        TestPlayType1ProjectileParameters parameters = TestPlayCombatCore.CreateOriginalType1Parameters(
+            args[2].AsInt(-1),
+            args[3].AsInt(),
+            args[4].AsInt(),
+            args[5].AsInt(),
+            args[6].AsInt(),
+            args[7].AsInt(),
+            args[8].AsInt(-1),
+            args[9].AsInt());
+        if (!sptSource.LastSptData.WeaponPoints.TryGetValue(
+                parameters.weaponPointId,
+                out WeaponPointInfo weaponPoint) ||
+            weaponPoint == null || weaponPoint.BoneTr == null)
+        {
+            LogUnhandled(source + " WEAPONPOINT " + parameters.weaponPointId +
+                         " is not bound; original type 1 creates no projectile.");
+            return;
+        }
+        if (parameters.energyCost > currentAuxiliaryEnergy)
+            return;
+        if (parameters.energyCost > 0)
+            SetAuxiliaryEnergy(currentAuxiliaryEnergy - parameters.energyCost);
+
+        bool targetAlive = target != null && target.IsAlive;
+        Vector3 spawnPosition = weaponPoint.BoneTr.position;
+        Quaternion muzzleRotation = Quaternion.LookRotation(
+            weaponPoint.WorldForward,
+            weaponPoint.BoneTr.up);
+        Quaternion spawnRotation = TestPlayCombatCore.ResolveOriginalType1InitialRotation(
+            muzzleRotation,
+            spawnPosition,
+            targetAlive,
+            targetAlive ? target.transform.position : Vector3.zero);
+        float targetDistance = targetAlive
+            ? Vector3.Distance(spawnPosition, target.transform.position)
+            : TestPlayCombatCore.OriginalType1HomingDistance;
+        float homingTurnDegrees = targetAlive
+            ? TestPlayCombatCore.ResolveOriginalType1HomingTurnDegrees(
+                targetDistance,
+                parameters.homingPercent)
+            : 0f;
+
+        EnsureAttackProfile();
+        TestPlayProjectilePayload payload = TestPlayCombatCore.CreateProjectilePayload(
+            attackProfile,
+            EstimateDamageForWeapon(1),
+            parameters.distancePerTick * originalTickRate,
+            homingTurnDegrees > 0f,
+            source,
+            attackFlag,
+            TestPlayAttackCollisionKind.OriginalType1);
+
+        GameObject go = presentationRuntime != null
+            ? presentationRuntime.CreateMappedEffect(source, spawnPosition, spawnRotation)
+            : null;
+        bool mappedEffect = go != null;
+        TestPlayPresentationAdapterKind visualAdapter = mappedEffect
+            ? TestPlayPresentationAdapterKind.MappedPrefab
+            : TestPlayPresentationAdapterKind.None;
+        if (go == null && presentationRuntime != null && parameters.textureId >= 0)
+        {
+            float trailLength = Mathf.Max(
+                parameters.visualWidth,
+                parameters.distancePerTick * Mathf.Max(1, parameters.trailPointCount - 1));
+            GameObject visual = presentationRuntime.CreateOriginalTextureEffect(
+                parameters.textureId,
+                spawnPosition,
+                spawnRotation,
+                new Vector2(Mathf.Max(0.01f, parameters.visualWidth), Mathf.Max(0.01f, trailLength)),
+                0f,
+                Color.white);
+            if (visual != null)
+            {
+                go = new GameObject("TestPlayProjectileRoot_" + source);
+                go.transform.SetPositionAndRotation(spawnPosition, spawnRotation);
+                visual.transform.SetParent(go.transform, true);
+                mappedEffect = true;
+                visualAdapter = TestPlayPresentationAdapterKind.OriginalTextureQuad;
+            }
+        }
+        if (go == null)
+        {
+            go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            visualAdapter = TestPlayPresentationAdapterKind.PrimitiveFallback;
+        }
+
+        RaisePresentationEvent(TestPlayPresentationCore.CreateVisual(
+            source,
+            parameters.textureId,
+            visualAdapter));
+        go.name = "TestPlayProjectile_" + source;
+        go.transform.SetPositionAndRotation(spawnPosition, spawnRotation);
+        if (!mappedEffect)
+            go.transform.localScale = Vector3.one * projectileRadius;
+
+        TestPlayProjectile projectile = go.GetComponent<TestPlayProjectile>();
+        if (projectile == null)
+            projectile = go.AddComponent<TestPlayProjectile>();
+        projectile.owner = this;
+        projectile.target = target;
+        projectile.damage = payload.damage;
+        projectile.downValue = payload.down;
+        projectile.horizontalImpactForce = payload.horizontalImpactForce;
+        projectile.verticalImpactForce = payload.verticalImpactForce;
+        projectile.attackFlag = payload.attackFlag;
+        projectile.collisionKind = payload.collisionKind;
+        projectile.speed = payload.speed;
+        projectile.hitRadius = projectileRadius;
+        projectile.homingTurnRate = 0f;
+        projectile.sourceCommand = payload.source;
+        projectile.valueSource = payload.valueSource;
+        projectile.ConfigureOriginalType1(parameters, targetAlive, homingTurnDegrees);
+        spawnedTransientObjects.Add(go);
+        RecordCombatEvent(new TestPlayCombatTraceEvent
+        {
+            type = TestPlayCombatTraceEventType.ProjectileSpawned,
+            actionId = currentAnimationIndex,
+            source = payload.source,
+            damage = payload.damage,
+            down = payload.down,
+            force = payload.horizontalImpactForce,
+            forceY = payload.verticalImpactForce,
+            attackFlag = payload.attackFlag,
+            valueSource = payload.valueSource
+        });
+        RaiseRuntimeEvent(
+            TestPlayRuntimeEventType.WeaponSpawned,
+            source,
+            args,
+            "WEAPONPOINT:" + parameters.weaponPointId,
+            parameters.activeTicks,
+            parameters.distancePerTick);
+    }
+
     void SpawnMeleeAttack(List<TestPlayScriptValue> args, string source, float fallbackDamage)
     {
-        // FUN_004fa150: [2]=WEAPONPOINT, [3]/100=長さ, [5]/[6]=原作未命名値,
-        // [11]=存続tick。FUN_00502e60はATTACKテーブルを生成時に複製する。
+        // FUN_004fa150: [2]=WEAPONPOINT, [3]/100=長さ, [5]=攻防双方のhit-stop、
+        // [6]=対象別再命中interval、[11]=存続tick。
+        // FUN_00502e60はATTACKテーブルを生成時に複製する。
         if (args == null || args.Count < 12 || sptSource == null || sptSource.LastSptData == null)
         {
             LogUnhandled(source + " requires the original 12 arguments and parsed Script.spt WEAPONPOINT data.");
@@ -4033,7 +4245,7 @@ public class TestPlayController : MonoBehaviour
                     attackerPosition,
                     false,
                     true,
-                    attack.originalP2);
+                    attack.HitStopTicks);
                 ApplyMeleeDefenseFeedback(hit);
                 RecordCombatHit(hit);
                 RaiseRuntimeEvent(
@@ -4406,6 +4618,304 @@ public class TestPlayController : MonoBehaviour
         }
     }
 
+    void SpawnOriginalHinokoEffect(List<TestPlayScriptValue> args, string key)
+    {
+        if (!TestPlayPresentationCore.TryCreateOriginalHinokoParameters(
+                true,
+                args,
+                out TestPlayHinokoParameters parameters))
+        {
+            LogUnhandled(key + " requires the original 12 arguments.");
+            return;
+        }
+
+        SptRuntimeData sptData = sptSource != null ? sptSource.LastSptData : null;
+        if (sptData == null ||
+            !sptData.WeaponPoints.TryGetValue(parameters.weaponPointId, out WeaponPointInfo weaponPoint) ||
+            weaponPoint == null || weaponPoint.BoneTr == null)
+        {
+            LogUnhandled(key + " WEAPONPOINT " + parameters.weaponPointId +
+                " is not bound; original BB_Hinoko is not created.");
+            return;
+        }
+
+        int adapterSeed = unchecked(
+            parameters.weaponPointId * 397 ^
+            currentAnimationIndex * 7919 ^
+            tick * 104729 ^
+            activeHinokoEffects.Count);
+        Quaternion baseRotation = weaponPoint.BoneTr.rotation;
+        Vector3 movementVector = velocity * 0.5f +
+            weaponPoint.WorldForward * parameters.signedForwardInput;
+        float forwardStep = movementVector.magnitude;
+        if (forwardStep > 0.000001f)
+            baseRotation = Quaternion.LookRotation(movementVector / forwardStep, weaponPoint.BoneTr.up);
+
+        Vector3 localScatter = new Vector3(
+            SampleHinokoSigned(adapterSeed, 0) * parameters.scatterX,
+            SampleHinokoSigned(adapterSeed, 1) * parameters.scatterY,
+            SampleHinokoSigned(adapterSeed, 2) * parameters.scatterZ);
+        Quaternion adapterRotation = baseRotation * Quaternion.Euler(
+            SampleHinokoSigned(adapterSeed, 3) * 10f,
+            SampleHinokoSigned(adapterSeed, 4) * 10f,
+            (SampleHinokoSigned(adapterSeed, 5) + 1f) * 180f);
+        Vector3 spawnPosition = weaponPoint.BoneTr.position + baseRotation * localScatter;
+
+        GameObject visualRoot = presentationRuntime != null
+            ? presentationRuntime.CreateOriginalTextureEffect(
+                TestPlayPresentationCore.OriginalHinokoTextureId,
+                spawnPosition,
+                adapterRotation,
+                new Vector2(parameters.size, parameters.size * 0.5f),
+                0f,
+                Color.white,
+                false)
+            : null;
+        TestPlayOriginalEffect visual = visualRoot != null
+            ? visualRoot.GetComponent<TestPlayOriginalEffect>()
+            : null;
+        ActiveHinokoEffect active = new ActiveHinokoEffect
+        {
+            parameters = parameters,
+            state = TestPlayPresentationCore.CreateOriginalHinokoState(),
+            visualRoot = visualRoot,
+            visual = visual,
+            forwardStep = forwardStep,
+            adapterSeed = adapterSeed
+        };
+        activeHinokoEffects.Add(active);
+
+        if (visualRoot != null)
+        {
+            visualRoot.name = "TestPlayEffect_" + key + "_WEAPONPOINT" + parameters.weaponPointId;
+            spawnedTransientObjects.Add(visualRoot);
+            RaiseRuntimeEvent(
+                TestPlayRuntimeEventType.EffectSpawned,
+                key,
+                args,
+                "hinoko.png",
+                TestPlayPresentationCore.OriginalHinokoTextureId,
+                94f);
+        }
+
+        RaisePresentationEvent(TestPlayPresentationCore.CreateVisual(
+            key,
+            TestPlayPresentationCore.OriginalHinokoTextureId,
+            visual != null
+                ? TestPlayPresentationAdapterKind.OriginalTextureQuad
+                : TestPlayPresentationAdapterKind.None,
+            TestPlayPresentationEvidence.OriginalExecutableConfirmed,
+            visual != null
+                ? "OriginalParametersAndLifecycleWithDeterministicUnitySharedRngAdapter"
+                : "OriginalHinokoTextureUnavailable"));
+    }
+
+    void TickActiveHinokoEffects()
+    {
+        for (int i = activeHinokoEffects.Count - 1; i >= 0; i--)
+        {
+            ActiveHinokoEffect active = activeHinokoEffects[i];
+            if (active == null)
+            {
+                RemoveActiveHinokoEffectAt(i);
+                continue;
+            }
+
+            if (active.visualRoot != null)
+            {
+                // FUN_0048e0b0 moves along the copied matrix Z basis before
+                // changing the shared-RNG-dependent basis. The original RNG
+                // sequence is global, so this Adapter keeps its confirmed
+                // bounds with a deterministic per-effect sample.
+                active.visualRoot.transform.Translate(
+                    Vector3.forward * active.forwardStep,
+                    Space.Self);
+                int nextTick = active.state.elapsedTicks + 1;
+                active.visualRoot.transform.rotation *= Quaternion.Euler(
+                    SampleHinokoSigned(active.adapterSeed, nextTick * 2 + 6) * 1.1459156f,
+                    SampleHinokoSigned(active.adapterSeed, nextTick * 2 + 7) * 1.1459156f,
+                    0f);
+            }
+
+            if (!TestPlayPresentationCore.AdvanceOriginalHinoko(ref active.state))
+            {
+                RemoveActiveHinokoEffectAt(i);
+                continue;
+            }
+
+            if (active.visual != null)
+            {
+                Color tint = Color.white;
+                tint.a = active.state.alphaByte / 255f;
+                active.visual.SetTint(tint);
+            }
+        }
+    }
+
+    static float SampleHinokoSigned(int seed, int sample)
+    {
+        unchecked
+        {
+            uint value = (uint)(seed + 1) * 0x9E3779B9u;
+            value ^= (uint)(sample + 1) * 0x85EBCA6Bu;
+            value ^= value >> 16;
+            value *= 0x7FEB352Du;
+            value ^= value >> 15;
+            value *= 0x846CA68Bu;
+            value ^= value >> 16;
+            return (value & 0x00FFFFFFu) / 8388607.5f - 1f;
+        }
+    }
+
+    void SpawnOriginalMagicShieldEffect(List<TestPlayScriptValue> args, string key)
+    {
+        if (!TestPlayPresentationCore.TryCreateOriginalMagicShieldParameters(
+                true,
+                args,
+                out TestPlayMagicShieldParameters parameters))
+        {
+            LogUnhandled(key + " requires the original 12 arguments.");
+            return;
+        }
+
+        SptRuntimeData sptData = sptSource != null ? sptSource.LastSptData : null;
+        if (sptData == null ||
+            !sptData.WeaponPoints.TryGetValue(parameters.weaponPointId, out WeaponPointInfo weaponPoint) ||
+            weaponPoint == null || weaponPoint.BoneTr == null)
+        {
+            LogUnhandled(key + " WEAPONPOINT " + parameters.weaponPointId +
+                " is not bound; original LZ_MagicShieldEffect is not created.");
+            return;
+        }
+
+        string slotKey = GetMagicShieldEffectSlotKey(parameters.modelSlotIndex);
+        GameObject visualRoot = presentationRuntime != null
+            ? presentationRuntime.CreateMappedEffect(
+                slotKey,
+                weaponPoint.BoneTr.position,
+                weaponPoint.BoneTr.rotation)
+            : null;
+        if (visualRoot == null && presentationRuntime != null)
+        {
+            visualRoot = presentationRuntime.CreateMappedEffect(
+                key,
+                weaponPoint.BoneTr.position,
+                weaponPoint.BoneTr.rotation);
+        }
+
+        TestPlayMagicShieldState state =
+            TestPlayPresentationCore.CreateOriginalMagicShieldState(parameters);
+        ActiveMagicShieldEffect active = new ActiveMagicShieldEffect
+        {
+            parameters = parameters,
+            state = state,
+            anchor = weaponPoint.BoneTr,
+            followingAnchor = parameters.followWeaponPoint,
+            visualRoot = visualRoot,
+            visualBaseScale = visualRoot != null ? visualRoot.transform.localScale : Vector3.one
+        };
+        activeMagicShieldEffects.Add(active);
+
+        if (visualRoot != null)
+        {
+            visualRoot.name = "TestPlayEffect_" + key + "_ModelSlot" +
+                parameters.modelSlotIndex + "_WEAPONPOINT" + parameters.weaponPointId;
+            visualRoot.transform.localScale = Vector3.Scale(active.visualBaseScale, Vector3.one * state.scale);
+            spawnedTransientObjects.Add(visualRoot);
+            RaiseRuntimeEvent(
+                TestPlayRuntimeEventType.EffectSpawned,
+                key,
+                args,
+                slotKey,
+                parameters.modelSlotIndex,
+                parameters.activeTicks);
+        }
+
+        RaisePresentationEvent(TestPlayPresentationCore.CreateVisual(
+            key,
+            -1,
+            visualRoot != null
+                ? TestPlayPresentationAdapterKind.MappedPrefab
+                : TestPlayPresentationAdapterKind.None,
+            TestPlayPresentationEvidence.OriginalExecutableConfirmed,
+            visualRoot != null
+                ? "OriginalLifecycleWithMappedModelSlotPrefab"
+                : "OriginalModelSlotRenderingUnavailable"));
+    }
+
+    void TickActiveMagicShieldEffects()
+    {
+        for (int i = activeMagicShieldEffects.Count - 1; i >= 0; i--)
+        {
+            ActiveMagicShieldEffect active = activeMagicShieldEffects[i];
+            if (active == null || !TestPlayPresentationCore.AdvanceOriginalMagicShield(
+                    active.parameters,
+                    ref active.state))
+            {
+                RemoveActiveMagicShieldEffectAt(i);
+                continue;
+            }
+
+            if (active.followingAnchor)
+            {
+                if (active.anchor == null)
+                {
+                    // The original clears its owner/matrix pointers but lets the
+                    // current grow/active/fade callback finish from the last matrix.
+                    active.followingAnchor = false;
+                }
+                else if (active.visualRoot != null)
+                {
+                    active.visualRoot.transform.SetPositionAndRotation(
+                        active.anchor.position,
+                        active.anchor.rotation);
+                }
+            }
+
+            if (active.visualRoot != null)
+            {
+                active.visualRoot.transform.localScale = Vector3.Scale(
+                    active.visualBaseScale,
+                    Vector3.one * active.state.scale);
+            }
+        }
+    }
+
+    void RemoveActiveMagicShieldEffectAt(int index)
+    {
+        ActiveMagicShieldEffect active = activeMagicShieldEffects[index];
+        activeMagicShieldEffects.RemoveAt(index);
+        GameObject visualRoot = active != null ? active.visualRoot : null;
+        if (visualRoot == null)
+            return;
+
+        spawnedTransientObjects.Remove(visualRoot);
+        if (Application.isPlaying)
+            Destroy(visualRoot);
+        else
+            DestroyImmediate(visualRoot);
+    }
+
+    static string GetMagicShieldEffectSlotKey(int modelSlotIndex)
+    {
+        return "RunProc2:62:8:ModelSlot" + modelSlotIndex;
+    }
+
+    void RemoveActiveHinokoEffectAt(int index)
+    {
+        ActiveHinokoEffect active = activeHinokoEffects[index];
+        activeHinokoEffects.RemoveAt(index);
+        GameObject visualRoot = active != null ? active.visualRoot : null;
+        if (visualRoot == null)
+            return;
+
+        spawnedTransientObjects.Remove(visualRoot);
+        if (Application.isPlaying)
+            Destroy(visualRoot);
+        else
+            DestroyImmediate(visualRoot);
+    }
+
     void RemoveActiveThunderEffectAt(int index)
     {
         ActiveThunderEffect active = activeThunderEffects[index];
@@ -4597,8 +5107,7 @@ public class TestPlayController : MonoBehaviour
             if (info == null || info.Ps == null)
                 continue;
 
-            float output;
-            bool requested = burnerRequestedOutputs.TryGetValue(info.Id, out output) && output > 0f;
+            bool requested = burnerRequestedOutputs.ContainsKey(info.Id) && info.Scale > 0f;
             if (requested)
             {
                 if (!info.Ps.isPlaying)
@@ -4629,13 +5138,15 @@ public class TestPlayController : MonoBehaviour
                 continue;
 
             float output;
-            bool requested = burnerRequestedOutputs.TryGetValue(info.Id, out output) && output > 0f && info.Scale > 0f;
-            float outputScale = Mathf.Max(0f, output);
-            float length = Mathf.Max(0f, info.Scale * burnerLengthMultiplier * outputScale);
+            bool requested = burnerRequestedOutputs.TryGetValue(info.Id, out output);
+            // Windom_Data/TestPlay currently loads Robo data; CShip has a separate
+            // original constructor and speed-scaled draw path.
+            TestPlayOriginalBurnerDrawParameters originalDraw =
+                TestPlayPresentationCore.CreateOriginalNormalBurnerDrawParameters(requested, info.Scale, output);
+            float length = Mathf.Max(0f, originalDraw.primaryLengthArgument * burnerLengthMultiplier);
             float radius = Mathf.Max(0.001f, length * burnerRadiusRatio);
             Color outputColor = burnerConeColor;
-            outputColor.a *= Mathf.Clamp01(outputScale);
-            cone.SetTarget(requested, length, radius, outputColor, burnerFadeSpeed);
+            cone.SetTarget(originalDraw.requested && info.Scale > 0f, length, radius, outputColor, burnerFadeSpeed);
         }
 
         foreach (var kv in burnerCones)
@@ -4873,7 +5384,6 @@ public class TestPlayController : MonoBehaviour
         frameIndex = 0;
         frameTime = 0f;
         tick = 0;
-        initFired = false;
         ResetScriptRepeatState();
         abortScriptExecution = false;
         animeLoop = false;
@@ -4984,6 +5494,8 @@ public class TestPlayController : MonoBehaviour
         activeSwordBeams.Clear();
         managedSwordBeam = null;
         activeThunderEffects.Clear();
+        activeHinokoEffects.Clear();
+        activeMagicShieldEffects.Clear();
         for (int i = 0; i < spawnedTransientObjects.Count; i++)
         {
             GameObject transient = spawnedTransientObjects[i];

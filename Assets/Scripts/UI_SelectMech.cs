@@ -25,6 +25,7 @@ public class UI_SelectMech : MonoBehaviour
 {
     public Dropdown RoboDD;
     List<string> list = new List<string>();
+    public GameObject MaskScreen;
     public Image selectImage;
     public Material selectMaterial;
     public bool enableTool = true;
@@ -164,6 +165,7 @@ public class UI_SelectMech : MonoBehaviour
             {
             // ローディング表示を終了 (例: ローディングUIを非アクティブにする)
             loadingUI.SetActive(false);
+            MaskScreen.SetActive(false);
             }
 
         }
@@ -361,7 +363,7 @@ public class UI_SelectMech : MonoBehaviour
             new TaskCompletionSource<LegacyAniLoadChoice>();
         string message = UILocalization.Get(
             "ani.legacy_conversion.prompt",
-            "読み込もうとしているファイルは旧ANI形式です。AN2へ変換して読み込みますか？\n\nOK: 元の旧ANIを変更せず「{0}」へAN2変換コピーを作成して読み込みます。旧ANI固有の未解析末尾データはAN2コピーには含まれません。\nキャンセル: 旧ANIのまま読み込みます。",
+            "読み込もうとしているファイルは旧ANI形式です。\n\nOKの場合は元の旧ANIを変更せず「{0}」へAN2変換コピーを作成して読み込みます。旧ANI固有の未解析末尾データはAN2コピーには含まれません。キャンセルの場合は旧ANIのまま読み込みます。",
             Path.GetFileName(destinationPath));
 
         bool restoreLoading = loadingUI != null && loadingUI.activeSelf;

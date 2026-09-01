@@ -143,8 +143,121 @@ public static class TestPlayPhase4Verification
             true, Values(0f, 62f, 28f, 7f), TestPlayPresentationAdapterKind.None);
         Require(special.procType == 62 && special.subtype == 7,
             "type 62 retains its subtype", ref assertions);
-        Require(special.evidence == TestPlayPresentationEvidence.IncompleteInference,
-            "incomplete type 62 parameter meanings remain inferred", ref assertions);
+        Require(special.evidence == TestPlayPresentationEvidence.OriginalExecutableConfirmed,
+            "type 62 subtype 0..11 dispatch is classified from FUN_004fa830 without inferring argument meanings",
+            ref assertions);
+        TestPlayPresentationEvent unknownSpecial = TestPlayPresentationCore.CreateProc(
+            true, Values(0f, 62f, 28f, 12f), TestPlayPresentationAdapterKind.None);
+        Require(unknownSpecial.evidence == TestPlayPresentationEvidence.IncompleteInference,
+            "type 62 values outside the confirmed subtype table remain inferred", ref assertions);
+
+        Require(TestPlayPresentationCore.TryCreateOriginalHinokoParameters(
+                true,
+                Values(0f, 62f, 20f, 6f, 5f, 300f, 15f, 15f, 15f, 0f, 0f, 0f),
+                out TestPlayHinokoParameters hinoko) &&
+                hinoko.weaponPointId == 20 && Mathf.Approximately(hinoko.size, 0.05f) &&
+                Mathf.Approximately(hinoko.signedForwardInput, 0.03f) &&
+                Mathf.Approximately(hinoko.scatterX, 0.15f) &&
+                Mathf.Approximately(hinoko.scatterY, 0.15f) &&
+                Mathf.Approximately(hinoko.scatterZ, 0.15f) &&
+                hinoko.unusedP9 == 0 && hinoko.unusedP10 == 0 && hinoko.unusedP11 == 0,
+            "type 62 subtype 6 maps the real TR-1 BB_Hinoko size, signed direction, scatter, and unread tail",
+            ref assertions);
+        Require(TestPlayPresentationCore.TryCreateOriginalHinokoParameters(
+                true,
+                Values(0f, 62f, 13f, 6f, 5f, -300f, 15f, 15f, 15f, 0f, 0f, 0f),
+                out TestPlayHinokoParameters reverseHinoko) &&
+                reverseHinoko.weaponPointId == 13 &&
+                Mathf.Approximately(reverseHinoko.signedForwardInput, -0.03f),
+            "type 62 subtype 6 preserves the real ELS_QT negative p5 direction",
+            ref assertions);
+        Require(!TestPlayPresentationCore.TryCreateOriginalHinokoParameters(
+                false,
+                Values(0f, 62f, 20f, 6f, 5f, 300f, 15f, 15f, 15f, 0f, 0f, 0f),
+                out hinoko) &&
+                !TestPlayPresentationCore.TryCreateOriginalHinokoParameters(
+                    true,
+                    Values(0f, 62f, 20f, 6f),
+                    out hinoko),
+            "subtype 6 requires RunProc2 and the complete original argument record", ref assertions);
+
+        TestPlayHinokoState hinokoState = TestPlayPresentationCore.CreateOriginalHinokoState();
+        bool hinokoAlive = true;
+        for (int i = 0; i < 30; i++)
+            hinokoAlive &= TestPlayPresentationCore.AdvanceOriginalHinoko(ref hinokoState);
+        Require(hinokoAlive && hinokoState.elapsedTicks == 30 && hinokoState.alphaByte == 255 &&
+                Mathf.Approximately(hinokoState.accumulatedDrawDegrees, 150f),
+            "BB_Hinoko keeps alpha 255 through update 30 while accumulating five draw degrees per update",
+            ref assertions);
+        Require(TestPlayPresentationCore.AdvanceOriginalHinoko(ref hinokoState) &&
+                hinokoState.elapsedTicks == 31 && hinokoState.alphaByte == 251 &&
+                Mathf.Approximately(hinokoState.accumulatedDrawDegrees, 155f),
+            "BB_Hinoko starts its four-alpha fade on update 31", ref assertions);
+        for (int tick = 32; tick <= 93; tick++)
+            hinokoAlive &= TestPlayPresentationCore.AdvanceOriginalHinoko(ref hinokoState);
+        Require(hinokoAlive && hinokoState.elapsedTicks == 93 && hinokoState.alphaByte == 3,
+            "BB_Hinoko remains alive with alpha three after update 93", ref assertions);
+        Require(!TestPlayPresentationCore.AdvanceOriginalHinoko(ref hinokoState) &&
+                hinokoState.elapsedTicks == 94 && hinokoState.alphaByte == 0,
+            "BB_Hinoko clamps alpha to zero and expires on update 94", ref assertions);
+
+        Require(TestPlayPresentationCore.TryCreateOriginalMagicShieldParameters(
+                true,
+                Values(0f, 62f, 25f, 8f, 1f, 0f, 10f, 5f, 2f, 0f, 2f, 0f),
+                out TestPlayMagicShieldParameters magicShield) &&
+                magicShield.weaponPointId == 25 && magicShield.modelSlotIndex == 1 &&
+                magicShield.releaseGateValue == 0 && magicShield.activeTicks == 10 &&
+                magicShield.followWeaponPoint && magicShield.unusedP7 == 5 &&
+                magicShield.unusedP8 == 2 && magicShield.unusedP9 == 0 &&
+                magicShield.unusedP10 == 2 && magicShield.unusedP11 == 0,
+            "type 62 subtype 8 preserves its confirmed WEAPONPOINT, model slot, gate/countdown, and unread tail",
+            ref assertions);
+        Require(!TestPlayPresentationCore.TryCreateOriginalMagicShieldParameters(
+                false,
+                Values(0f, 62f, 25f, 8f, 1f, 0f, 10f, 5f, 2f, 0f, 2f, 0f),
+                out magicShield) &&
+                !TestPlayPresentationCore.TryCreateOriginalMagicShieldParameters(
+                    true,
+                    Values(0f, 62f, 25f, 8f),
+                    out magicShield),
+            "subtype 8 requires RunProc2 and the complete original argument record", ref assertions);
+
+        TestPlayPresentationCore.TryCreateOriginalMagicShieldParameters(
+            true,
+            Values(0f, 62f, 25f, 8f, 1f, 0f, 10f, 5f, 2f, 0f, 2f, 0f),
+            out magicShield);
+        TestPlayMagicShieldState magicShieldState =
+            TestPlayPresentationCore.CreateOriginalMagicShieldState(magicShield);
+        Require(magicShieldState.phase == TestPlayMagicShieldPhase.Grow &&
+                Mathf.Approximately(magicShieldState.scale, 0.1f) &&
+                Mathf.Approximately(magicShieldState.opacity, 0f) &&
+                magicShieldState.remainingActiveTicks == 10,
+            "LZ_MagicShieldEffect starts at scale 0.1, opacity zero, and the raw p6 countdown",
+            ref assertions);
+        for (int i = 0; i < 8; i++)
+            Require(TestPlayPresentationCore.AdvanceOriginalMagicShield(
+                magicShield, ref magicShieldState), "magic shield grow tick " + i, ref assertions);
+        Require(magicShieldState.phase == TestPlayMagicShieldPhase.Active &&
+                Mathf.Approximately(magicShieldState.scale, 0.9f) &&
+                Mathf.Approximately(magicShieldState.opacity, 0.8f),
+            "LZ_MagicShieldEffect switches to active at the original 0.9 scale boundary",
+            ref assertions);
+        Require(TestPlayPresentationCore.AdvanceOriginalMagicShield(
+                    magicShield, ref magicShieldState) &&
+                magicShieldState.phase == TestPlayMagicShieldPhase.Fade &&
+                magicShieldState.remainingActiveTicks == 9 &&
+                Mathf.Approximately(magicShieldState.opacity, 0.9f),
+            "a non-positive p5 gate decrements p6 once and enters fade on the first active update",
+            ref assertions);
+        int fadeTicks = 0;
+        while (TestPlayPresentationCore.AdvanceOriginalMagicShield(
+            magicShield, ref magicShieldState))
+            fadeTicks++;
+        Require(fadeTicks == 8 && magicShieldState.phase == TestPlayMagicShieldPhase.Expired &&
+                magicShieldState.opacity < 0.0001f &&
+                magicShieldState.scale > 0.9f,
+            "LZ_MagicShieldEffect fades by 0.1 and expands by 0.05 until its removal callback",
+            ref assertions);
 
         TestPlayPresentationEvent texture = TestPlayPresentationCore.CreateTexture(
             "RunProc2:55", 13, "line.png", TestPlayPresentationAdapterKind.OriginalTextureQuad);

@@ -92,6 +92,9 @@ public static class TestPlayGoldenTraceVerification
         public bool shotExitedToRecovery;
         public bool shotReturnedToIdle;
         public bool shotScriptBundleSemanticsValid = true;
+        public bool shotType1CoreSemanticsValid = true;
+        public bool shotType1MuzzleSemanticsValid = true;
+        public bool shotType1EnergySemanticsValid = true;
         public bool shotCooldownDecayValid = true;
         public bool shotCooldownTracking;
         public int previousShotCooldown;
@@ -360,6 +363,7 @@ public static class TestPlayGoldenTraceVerification
         GameObject host = new GameObject("TestPlayGolden_" + definition.id);
         GameObject root = new GameObject("TestPlayGoldenRoot");
         GameObject targetObject = new GameObject("TestPlayGoldenTarget");
+        GameObject type1Muzzle = null;
         try
         {
             RoboStructure robo = host.AddComponent<RoboStructure>();
@@ -371,6 +375,13 @@ public static class TestPlayGoldenTraceVerification
 
             UI_SPT spt = host.AddComponent<UI_SPT>();
             spt.robo = robo;
+            if (definition.id == "GT-007" &&
+                sptData.WeaponPoints.TryGetValue(0, out WeaponPointInfo type1WeaponPoint))
+            {
+                type1Muzzle = new GameObject("TestPlayGoldenWeaponPoint0");
+                type1Muzzle.transform.SetParent(root.transform, false);
+                type1WeaponPoint.BoneTr = type1Muzzle.transform;
+            }
             PropertyInfo property = typeof(UI_SPT).GetProperty(
                 "LastSptData", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
             property.SetValue(spt, sptData, null);
@@ -408,6 +419,7 @@ public static class TestPlayGoldenTraceVerification
             for (int i = 0; i < frames.Length; i++)
             {
                 float energyBeforeTick = controller.currentEnergy;
+                float auxiliaryEnergyBeforeTick = controller.currentAuxiliaryEnergy;
                 Vector3 positionBeforeTick = root.transform.position;
                 Quaternion rotationBeforeTick = root.transform.rotation;
                 string tickTrace = controller.SimulateDeterministicTraceTick(frames[i]);
@@ -421,6 +433,7 @@ public static class TestPlayGoldenTraceVerification
                     frames[i],
                     i + 1,
                     energyBeforeTick,
+                    auxiliaryEnergyBeforeTick,
                     positionBeforeTick,
                     root.transform.position,
                     rotationBeforeTick,
@@ -433,6 +446,8 @@ public static class TestPlayGoldenTraceVerification
         finally
         {
             UnityEngine.Object.DestroyImmediate(targetObject);
+            if (type1Muzzle != null)
+                UnityEngine.Object.DestroyImmediate(type1Muzzle);
             UnityEngine.Object.DestroyImmediate(root);
             UnityEngine.Object.DestroyImmediate(host);
         }
@@ -474,6 +489,7 @@ public static class TestPlayGoldenTraceVerification
         TestPlayGoldenInputFrame input,
         int traceTick,
         float energyBeforeTick,
+        float auxiliaryEnergyBeforeTick,
         Vector3 positionBeforeTick,
         Vector3 positionAfterTick,
         Quaternion rotationBeforeTick,
@@ -540,6 +556,7 @@ public static class TestPlayGoldenTraceVerification
         }
 
         float energyDelta = energyBeforeTick - controller.currentEnergy;
+        float auxiliaryEnergyDelta = auxiliaryEnergyBeforeTick - controller.currentAuxiliaryEnergy;
         Vector3 horizontalDelta = positionAfterTick - positionBeforeTick;
         horizontalDelta.y = 0f;
 
@@ -561,7 +578,8 @@ public static class TestPlayGoldenTraceVerification
         else if (scenarioId == "GT-007")
         {
             CaptureShotScenarioState(
-                capture, controller, input, traceTick, logicalAction, tickTrace);
+                capture, controller, input, traceTick, logicalAction,
+                energyDelta, auxiliaryEnergyDelta, tickTrace);
         }
         else if (scenarioId == "GT-008")
         {
@@ -690,6 +708,8 @@ public static class TestPlayGoldenTraceVerification
         TestPlayGoldenInputFrame input,
         int traceTick,
         int logicalAction,
+        float movementEnergyDelta,
+        float auxiliaryEnergyDelta,
         string tickTrace)
     {
         bool wasShot = capture.lastLogicalAction == controller.shotAction;
@@ -736,6 +756,36 @@ public static class TestPlayGoldenTraceVerification
         if (attackFlagEvent) capture.shotAttackFlagEvents++;
         if (projectileEvent) capture.shotProjectileEvents++;
         if (procTypeOneEvent) capture.shotProcTypeOneEvents++;
+
+        if (projectileEvent)
+        {
+            FieldInfo transientField = typeof(TestPlayController).GetField(
+                "spawnedTransientObjects",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            List<GameObject> transients = transientField != null
+                ? transientField.GetValue(controller) as List<GameObject>
+                : null;
+            GameObject projectileObject = transients != null && transients.Count > 0
+                ? transients[transients.Count - 1]
+                : null;
+            TestPlayProjectile projectile = projectileObject != null
+                ? projectileObject.GetComponent<TestPlayProjectile>()
+                : null;
+            capture.shotType1CoreSemanticsValid &= projectile != null &&
+                projectile.useOriginalType1Core &&
+                projectile.weaponPointId == 0 &&
+                projectile.remainingActiveTicks == TestPlayCombatCore.OriginalType1ActiveTicks &&
+                projectile.trailPointCount == 30 &&
+                NearlyEqual(projectile.distancePerTick, 1f) &&
+                NearlyEqual(projectile.visualWidth, 0.1f) &&
+                projectile.collisionKind == TestPlayAttackCollisionKind.OriginalType1;
+            capture.shotType1MuzzleSemanticsValid &= projectileObject != null &&
+                controller.robo != null && controller.robo.root != null &&
+                VectorsNearlyEqual(projectileObject.transform.position, controller.robo.root.transform.position);
+            capture.shotType1EnergySemanticsValid &=
+                NearlyEqual(movementEnergyDelta, 0f) &&
+                NearlyEqual(auxiliaryEnergyDelta, 200f);
+        }
 
         if (cooldownEvent || profileEvent || attackFlagEvent || projectileEvent || procTypeOneEvent)
         {
@@ -1468,6 +1518,9 @@ public static class TestPlayGoldenTraceVerification
                 capture.shotProjectileEvents != 1 ||
                 capture.shotProcTypeOneEvents != 1 ||
                 !capture.shotScriptBundleSemanticsValid ||
+                !capture.shotType1CoreSemanticsValid ||
+                !capture.shotType1MuzzleSemanticsValid ||
+                !capture.shotType1EnergySemanticsValid ||
                 !capture.shotCooldownDecayValid ||
                 capture.shotCooldownZeroTick != 118 ||
                 !capture.shotExitedToRecovery ||
@@ -1480,7 +1533,8 @@ public static class TestPlayGoldenTraceVerification
                     "GT-007 must accept one X press edge at tick 3, run shot action 100 once for " +
                     "39 ticks, and execute the representative real ANI bundle at tick 18: " +
                     "AttackDelay(0,100), ATTACK(100,200,0.4,0), AttackFlag=2, and one RunProc2 " +
-                    "type-1 projectile using OriginalScriptProfile. Cooldown slot 0 must decay " +
+                    "type-1 projectile using its WEAPONPOINT, p0 energy charge, p2/100 movement, " +
+                    "p1 trail count, fixed 300-tick Core, and OriginalScriptProfile. Cooldown slot 0 must decay " +
                     "once per 60 Hz tick to zero at tick 118, while the action exits through " +
                     "grounded recovery action 6 at tick 42 and returns to idle 0 at tick 76. " +
                     "inputTicks=" + capture.shotInputTicks +
@@ -1495,6 +1549,9 @@ public static class TestPlayGoldenTraceVerification
                     " projectileEvents=" + capture.shotProjectileEvents +
                     " procTypeOneEvents=" + capture.shotProcTypeOneEvents +
                     " bundleValid=" + capture.shotScriptBundleSemanticsValid +
+                    " type1CoreValid=" + capture.shotType1CoreSemanticsValid +
+                    " type1MuzzleValid=" + capture.shotType1MuzzleSemanticsValid +
+                    " type1EnergyValid=" + capture.shotType1EnergySemanticsValid +
                     " cooldownValid=" + capture.shotCooldownDecayValid +
                     " cooldownZeroTick=" + capture.shotCooldownZeroTick +
                     " recoveryTick=" + capture.shotRecoveryEntryTick +
@@ -1689,8 +1746,7 @@ public static class TestPlayGoldenTraceVerification
             return false;
         animation candidate = data.animations[actionId];
         return candidate != null &&
-               (!string.IsNullOrWhiteSpace(candidate.squirrelInit) ||
-                (candidate.scripts != null && candidate.scripts.Count > 0) ||
+               ((candidate.scripts != null && candidate.scripts.Count > 0) ||
                 (candidate.frames != null && candidate.frames.Count > 0));
     }
 
@@ -1707,9 +1763,6 @@ public static class TestPlayGoldenTraceVerification
             animation candidate = data.animations[actionId];
             if (candidate == null)
                 continue;
-            if (!string.IsNullOrEmpty(candidate.squirrelInit) &&
-                candidate.squirrelInit.IndexOf(command, StringComparison.OrdinalIgnoreCase) >= 0)
-                return true;
             if (candidate.scripts == null)
                 continue;
             for (int scriptIndex = 0; scriptIndex < candidate.scripts.Count; scriptIndex++)

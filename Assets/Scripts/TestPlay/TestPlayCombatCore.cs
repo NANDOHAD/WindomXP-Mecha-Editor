@@ -162,32 +162,105 @@ public struct TestPlayProjectileTickResult
 }
 
 /// <summary>
+/// 原作RunProc2 type 1 / LZ_Beamへ渡される確定済み引数。
+/// FUN_004e8310 -> FUN_004600c0。描画幅とtexture/trailModeは表示Adapter用に保持する。
+/// </summary>
+public struct TestPlayType1ProjectileParameters
+{
+    public int weaponPointId;
+    public int energyCost;
+    public int trailPointCount;
+    public float distancePerTick;
+    public float visualWidth;
+    public int homingPercent;
+    public int textureId;
+    public int trailMode;
+    public int activeTicks;
+}
+
+public struct TestPlayType1ProjectileTickInput
+{
+    public Vector3 position;
+    public Quaternion rotation;
+    public int remainingActiveTicks;
+    public float distancePerTick;
+    public float maximumHomingTurnDegrees;
+    public bool targetLinked;
+    public bool targetAlive;
+    public Vector3 targetPosition;
+}
+
+public struct TestPlayType1ProjectileTickResult
+{
+    public Vector3 previousPosition;
+    public Vector3 position;
+    public Quaternion rotation;
+    public int remainingActiveTicks;
+    public bool targetLinked;
+    public bool expired;
+}
+
+/// <summary>
 /// 原作RunProc2 type 57が生成する1個の格闘判定。
 /// FUN_004fa150 / FUN_00502e60でATTACK値を生成時に複製し、p8 tick存続する。
+/// p2は攻防双方のhit-stop、p3は対象別命中履歴の存続tickとして使われる。
 /// </summary>
 public sealed class TestPlayMeleeAttackState
 {
     public int weaponPointId;
     public float length;
     public int remainingTicks;
-    public int originalP2;
-    public int originalP3;
+    public int originalP2; // RunProc2第6引数: attacker/defender hit-stop tick
+    public int originalP3; // RunProc2第7引数: per-target re-hit interval tick
     public string source;
     public TestPlayProjectilePayload payload;
     public Vector3 previousOrigin;
     public Vector3 previousTip;
 
-    readonly System.Collections.Generic.HashSet<int> hitTargetIds =
-        new System.Collections.Generic.HashSet<int>();
+    readonly System.Collections.Generic.Dictionary<int, int> hitTargetCooldownTicks =
+        new System.Collections.Generic.Dictionary<int, int>();
+    readonly System.Collections.Generic.List<int> hitTargetIdScratch =
+        new System.Collections.Generic.List<int>();
+
+    public int HitStopTicks => originalP2;
+    public int PerTargetRehitTicks => originalP3;
 
     public bool HasHitTarget(int targetId)
     {
-        return hitTargetIds.Contains(targetId);
+        return hitTargetCooldownTicks.ContainsKey(targetId);
+    }
+
+    public int GetTargetRehitCooldownTicks(int targetId)
+    {
+        return hitTargetCooldownTicks.TryGetValue(targetId, out int ticks) ? ticks : 0;
     }
 
     internal bool TryMarkTargetHit(int targetId)
     {
-        return hitTargetIds.Add(targetId);
+        if (hitTargetCooldownTicks.ContainsKey(targetId))
+            return false;
+        hitTargetCooldownTicks.Add(targetId, originalP3);
+        return true;
+    }
+
+    internal void TickTargetRehitCooldowns()
+    {
+        if (hitTargetCooldownTicks.Count == 0)
+            return;
+
+        hitTargetIdScratch.Clear();
+        foreach (System.Collections.Generic.KeyValuePair<int, int> pair in hitTargetCooldownTicks)
+            hitTargetIdScratch.Add(pair.Key);
+
+        for (int i = 0; i < hitTargetIdScratch.Count; i++)
+        {
+            int targetId = hitTargetIdScratch[i];
+            int remainingTicks = hitTargetCooldownTicks[targetId] - 1;
+            if (remainingTicks < 1)
+                hitTargetCooldownTicks.Remove(targetId);
+            else
+                hitTargetCooldownTicks[targetId] = remainingTicks;
+        }
     }
 }
 
@@ -224,6 +297,10 @@ public struct TestPlayShotActionDecision
 /// </summary>
 public static class TestPlayCombatCore
 {
+    public const int OriginalType1ActiveTicks = 300;
+    public const float OriginalType1InitialAimConeDegrees = 20f;
+    public const float OriginalType1HomingDistance = 100f;
+    public const float OriginalType1BaseHomingTurnDegrees = 0.4f;
     public const int AttackCooldownSlotCount = 5;
     public const float OriginalShotForwardDotThreshold = 0.707f;
     public const float OriginalShotRearDotThreshold = -0.1f;
@@ -233,9 +310,9 @@ public static class TestPlayCombatCore
     public const int OriginalGuardHitTimerTicks = 20;
 
     /// <summary>
-    /// FUN_004b27a0のAttackFlag・ShildGuard・c40/c44/c50分岐だけを
-    /// Scene非依存で評価する。LaserReflect(b54)と反射率b68の設定元は未確定のため、
-    /// 反射率とrollは呼出側が明示した場合に限って判定する。
+    /// FUN_004b27a0のAttackFlag・ShildGuard・c40/c44/c50分岐をScene非依存で評価する。
+    /// LaserReflectはScr_LaserReflectが機体+0xB68の1 byteへ書き、type 11はそれを
+    /// signed charとして0..99 rollと厳密な&lt;で比較する。rollは呼出側の明示入力とする。
     /// </summary>
     public static TestPlayDefenseHitResult ResolveDefenseHit(TestPlayDefenseHitInput input)
     {
@@ -275,10 +352,11 @@ public static class TestPlayCombatCore
             return result;
         }
 
+        int laserReflectValue = NormalizeOriginalLaserReflectValue(
+            input.reflectionProbabilityPercent);
         if (input.collisionKind == TestPlayAttackCollisionKind.OriginalType11 &&
             (input.attackFlag & 0x02) != 0 &&
-            Mathf.Clamp(input.reflectionRoll, 0, 99) <
-            Mathf.Clamp(input.reflectionProbabilityPercent, 0, 100))
+            Mathf.Clamp(input.reflectionRoll, 0, 99) < laserReflectValue)
         {
             result.decision = TestPlayCombatHitDecision.Reflected;
             result.guardHitTimerTicks = OriginalGuardHitTimerTicks;
@@ -295,6 +373,15 @@ public static class TestPlayCombatCore
             result.attackerHitStopTicks = hitStopTicks;
         }
         return result;
+    }
+
+    /// <summary>
+    /// Scr_LaserReflectの1 byte格納とFUN_004b27a0のsigned char読取りを再現する。
+    /// 0..100は百分率と同義だが、128..255は負値となり反射を成立させない。
+    /// </summary>
+    public static int NormalizeOriginalLaserReflectValue(int value)
+    {
+        return unchecked((sbyte)(byte)value);
     }
 
     public static int ResolveHitReactionState(int attackFlag)
@@ -732,7 +819,8 @@ public static class TestPlayCombatCore
 
     /// <summary>
     /// 原作BB_SwordBeamAtkの現在線分と前tick線分から作る掃引四辺形を、
-    /// Unity TestPlayの球形targetへ照合する。1生成物につき同じtargetは一度だけ命中する。
+    /// Unity TestPlayの球形targetへ照合する。命中targetはp3 tickだけ履歴に残り、
+    /// 履歴削除後は同じ生成物から再命中できる。
     /// </summary>
     public static TestPlayMeleeTickResult TickMeleeAttack(
         TestPlayMeleeAttackState state,
@@ -747,6 +835,8 @@ public static class TestPlayCombatCore
         Vector3 currentOrigin = input.origin;
         Vector3 currentTip = currentOrigin + direction * Mathf.Max(0f, state.length);
         bool active = state.remainingTicks > 0;
+        if (active)
+            state.TickTargetRehitCooldowns();
         bool hit = active && input.targetAlive && !state.HasHitTarget(input.targetId) &&
                    IntersectsSweptSegmentSphere(
                        state.previousOrigin,
@@ -863,6 +953,127 @@ public static class TestPlayCombatCore
         float faceW = vc * denominatorFace;
         Vector3 closest = a + ab * faceV + ac * faceW;
         return (point - closest).sqrMagnitude;
+    }
+
+    public static TestPlayType1ProjectileParameters CreateOriginalType1Parameters(
+        int weaponPointId,
+        int energyCost,
+        int trailPointCount,
+        int distancePerTickTimes100,
+        int visualWidthTimes100,
+        int homingPercent,
+        int textureId,
+        int trailMode)
+    {
+        return new TestPlayType1ProjectileParameters
+        {
+            weaponPointId = weaponPointId,
+            energyCost = Mathf.Max(0, energyCost),
+            trailPointCount = Mathf.Max(1, trailPointCount),
+            distancePerTick = Mathf.Max(0, distancePerTickTimes100) / 100f,
+            visualWidth = Mathf.Max(0, visualWidthTimes100) / 100f,
+            homingPercent = homingPercent,
+            textureId = textureId,
+            trailMode = trailMode,
+            activeTicks = OriginalType1ActiveTicks
+        };
+    }
+
+    /// <summary>
+    /// FUN_004e8310: 100以内のtargetにだけ距離反比例の基礎旋回値を与え、
+    /// p4を百分率補正として加える。戻り値は1 original tick当たりの最大角度。
+    /// </summary>
+    public static float ResolveOriginalType1HomingTurnDegrees(float targetDistance, int homingPercent)
+    {
+        if (targetDistance >= OriginalType1HomingDistance)
+            return 0f;
+        float distanceFactor = 1f - Mathf.Clamp01(targetDistance / OriginalType1HomingDistance);
+        float percentFactor = 1f + homingPercent / 100f;
+        return Mathf.Max(0f, OriginalType1BaseHomingTurnDegrees * distanceFactor * percentFactor);
+    }
+
+    /// <summary>FUN_004e8310 / FUN_0055fb50の20度以内target初期照準。</summary>
+    public static Quaternion ResolveOriginalType1InitialRotation(
+        Quaternion muzzleRotation,
+        Vector3 muzzlePosition,
+        bool targetAlive,
+        Vector3 targetPosition)
+    {
+        if (!targetAlive)
+            return muzzleRotation;
+        Vector3 direction = targetPosition - muzzlePosition;
+        if (direction.sqrMagnitude <= 0.000001f ||
+            Vector3.Angle(muzzleRotation * Vector3.forward, direction) >= OriginalType1InitialAimConeDegrees)
+            return muzzleRotation;
+        Vector3 up = muzzleRotation * Vector3.up;
+        return Quaternion.LookRotation(direction.normalized, up);
+    }
+
+    /// <summary>
+    /// FUN_00460200の順序どおり、ローカルZ+へ移動してからtarget方向へ最大角度だけ旋回する。
+    /// </summary>
+    public static TestPlayType1ProjectileTickResult TickOriginalType1Projectile(
+        TestPlayType1ProjectileTickInput input)
+    {
+        TestPlayType1ProjectileTickResult result = new TestPlayType1ProjectileTickResult
+        {
+            previousPosition = input.position,
+            position = input.position,
+            rotation = input.rotation,
+            remainingActiveTicks = input.remainingActiveTicks,
+            targetLinked = input.targetLinked
+        };
+        if (result.remainingActiveTicks <= 0)
+        {
+            result.expired = true;
+            return result;
+        }
+
+        result.position += result.rotation * Vector3.forward * Mathf.Max(0f, input.distancePerTick);
+        if (result.targetLinked && input.targetAlive)
+        {
+            Vector3 targetDirection = input.targetPosition - result.position;
+            Vector3 forward = result.rotation * Vector3.forward;
+            if (targetDirection.sqrMagnitude > 0.000001f)
+            {
+                if (Vector3.Dot(forward, targetDirection) < 0f)
+                {
+                    result.targetLinked = false;
+                }
+                else if (input.maximumHomingTurnDegrees > 0f)
+                {
+                    Quaternion desired = Quaternion.LookRotation(
+                        targetDirection.normalized,
+                        result.rotation * Vector3.up);
+                    result.rotation = Quaternion.RotateTowards(
+                        result.rotation,
+                        desired,
+                        input.maximumHomingTurnDegrees);
+                }
+            }
+        }
+        else if (!input.targetAlive)
+        {
+            result.targetLinked = false;
+        }
+
+        result.remainingActiveTicks--;
+        result.expired = result.remainingActiveTicks <= 0;
+        return result;
+    }
+
+    /// <summary>
+    /// 原作はtarget側の複合形状をtrail線分へ照合する。Unity TestPlayでは単一球形targetを
+    /// 明示的Adapterとして使うため、この関数は線分対球だけを担当する。
+    /// </summary>
+    public static bool IntersectsType1TrailSegmentSphere(
+        Vector3 segmentStart,
+        Vector3 segmentEnd,
+        Vector3 sphereCenter,
+        float sphereRadius)
+    {
+        float radius = Mathf.Max(0f, sphereRadius);
+        return PointSegmentDistanceSquared(sphereCenter, segmentStart, segmentEnd) <= radius * radius;
     }
 
     public static TestPlayProjectileTickResult TickProjectile(TestPlayProjectileTickInput input)

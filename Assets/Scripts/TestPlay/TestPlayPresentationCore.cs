@@ -80,6 +80,88 @@ public struct TestPlayThunderEffectParameters
     public int unusedP11;
 }
 
+public struct TestPlayHinokoParameters
+{
+    public int weaponPointId;
+    public float size;
+    public float signedForwardInput;
+    public float scatterX;
+    public float scatterY;
+    public float scatterZ;
+    public int unusedP9;
+    public int unusedP10;
+    public int unusedP11;
+}
+
+public struct TestPlayHinokoState
+{
+    public int elapsedTicks;
+    public int alphaByte;
+    public float accumulatedDrawDegrees;
+}
+
+public struct TestPlayMagicShieldParameters
+{
+    public int weaponPointId;
+    public int modelSlotIndex;
+    public int releaseGateValue;
+    public int activeTicks;
+    public bool followWeaponPoint;
+    public int unusedP7;
+    public int unusedP8;
+    public int unusedP9;
+    public int unusedP10;
+    public int unusedP11;
+}
+
+public enum TestPlayMagicShieldPhase
+{
+    Grow,
+    Active,
+    Fade,
+    Expired
+}
+
+public struct TestPlayMagicShieldState
+{
+    public TestPlayMagicShieldPhase phase;
+    public float scale;
+    public float opacity;
+    public int remainingActiveTicks;
+}
+
+public struct TestPlayOriginalBurnerDrawParameters
+{
+    public TestPlayOriginalBurnerOwnerKind ownerKind;
+    public bool requested;
+    public float aniOutput;
+    public float drawValue;
+    public float primarySizeArgument;
+    public float primaryLengthArgument;
+    public float secondarySizeArgument;
+    public float secondaryLocalZArgument;
+}
+
+public enum TestPlayOriginalBurnerOwnerKind
+{
+    NormalRobot,
+    Ship
+}
+
+public struct TestPlayOriginalBurnerPrimaryUpdateResult
+{
+    public int updateCount;
+    public float matrixAdjustmentArgument;
+    public bool expiredAfterUpdate;
+}
+
+public struct TestPlayOriginalBurnerBallUpdateResult
+{
+    public int remainingCounter;
+    public float matrixBasisMultiplier;
+    public bool expiredAfterUpdate;
+}
+
 public static class TestPlayPresentationCore
 {
     public const int MinimumBurnerId = 0;
@@ -96,6 +178,22 @@ public static class TestPlayPresentationCore
     public const int OriginalSwordBeamInfiniteLifetime = 999999999;
     public const int ThunderEffectProcType = 60;
     public const int OriginalThunderFadeTicks = 10;
+    public const int SpecialEffectProcType = 62;
+    public const int HinokoSubtype = 6;
+    public const int OriginalHinokoTextureId = 40;
+    public const int OriginalHinokoInitialAlphaByte = 255;
+    public const int OriginalHinokoFadeDelayTicks = 30;
+    public const int OriginalHinokoAlphaFadePerTick = 4;
+    public const float OriginalHinokoDrawDegreesPerTick = 5f;
+    public const int MagicShieldSubtype = 8;
+    public const float OriginalMagicShieldInitialScale = 0.1f;
+    public const float OriginalMagicShieldGrowPerTick = 0.1f;
+    public const float OriginalMagicShieldActiveScaleThreshold = 0.9f;
+    public const float OriginalMagicShieldOpacityPerTick = 0.1f;
+    public const float OriginalMagicShieldFadeScalePerTick = 0.05f;
+    public const int OriginalBurnerPrimaryExpiryUpdate = 11;
+    public const int OriginalBurnerBallInitialCounter = 4;
+    public const float OriginalBurnerBallMatrixBasisMultiplier = 0.95f;
 
     public static TestPlayPresentationEvent CreateSound(
         IReadOnlyList<TestPlayScriptValue> arguments,
@@ -161,6 +259,108 @@ public static class TestPlayPresentationCore
         return true;
     }
 
+    public static TestPlayOriginalBurnerDrawParameters CreateOriginalNormalBurnerDrawParameters(
+        bool requested,
+        float configuredSptValue,
+        float aniOutput)
+    {
+        // Scr_BunerOut stores ANI output separately, but CRobot_Normal's draw call
+        // gates on the request byte and passes the BURNERSET third value unchanged.
+        return CreateOriginalBurnerDrawParameters(
+            TestPlayOriginalBurnerOwnerKind.NormalRobot,
+            requested,
+            configuredSptValue,
+            aniOutput);
+    }
+
+    public static TestPlayOriginalBurnerDrawParameters CreateOriginalShipBurnerDrawParameters(
+        float configuredSptValue,
+        float speed)
+    {
+        // FUN_0049c790 constructs CShip. Its observed draw site has no ANI request gate.
+        float drawValue = configuredSptValue * Math.Max(speed * 10f, 0f);
+        return CreateOriginalBurnerDrawParameters(
+            TestPlayOriginalBurnerOwnerKind.Ship,
+            true,
+            drawValue,
+            0f);
+    }
+
+    // Compatibility alias retained for callers added before U-009c identified CShip.
+    public static TestPlayOriginalBurnerDrawParameters CreateOriginalFlightBurnerDrawParameters(
+        float configuredSptValue,
+        float speed)
+    {
+        return CreateOriginalShipBurnerDrawParameters(configuredSptValue, speed);
+    }
+
+    public static TestPlayOriginalBurnerPrimaryUpdateResult AdvanceOriginalBurnerPrimary(
+        bool ownerMarkedForDeletion,
+        float primarySizeArgument,
+        int currentUpdateCount)
+    {
+        if (ownerMarkedForDeletion)
+        {
+            return new TestPlayOriginalBurnerPrimaryUpdateResult
+            {
+                updateCount = currentUpdateCount,
+                matrixAdjustmentArgument = 0f,
+                expiredAfterUpdate = true
+            };
+        }
+
+        int nextUpdateCount = currentUpdateCount + 1;
+        return new TestPlayOriginalBurnerPrimaryUpdateResult
+        {
+            updateCount = nextUpdateCount,
+            // FUN_00491580 passes this value to both float arguments of FUN_004905d0.
+            matrixAdjustmentArgument = -primarySizeArgument / 15f,
+            expiredAfterUpdate = nextUpdateCount >= OriginalBurnerPrimaryExpiryUpdate
+        };
+    }
+
+    public static TestPlayOriginalBurnerBallUpdateResult AdvanceOriginalBurnerBall(
+        bool ownerMarkedForDeletion,
+        int currentRemainingCounter)
+    {
+        if (ownerMarkedForDeletion)
+        {
+            return new TestPlayOriginalBurnerBallUpdateResult
+            {
+                remainingCounter = currentRemainingCounter,
+                matrixBasisMultiplier = 1f,
+                expiredAfterUpdate = true
+            };
+        }
+
+        int nextRemainingCounter = currentRemainingCounter - 1;
+        return new TestPlayOriginalBurnerBallUpdateResult
+        {
+            remainingCounter = nextRemainingCounter,
+            matrixBasisMultiplier = OriginalBurnerBallMatrixBasisMultiplier,
+            expiredAfterUpdate = nextRemainingCounter < 0
+        };
+    }
+
+    static TestPlayOriginalBurnerDrawParameters CreateOriginalBurnerDrawParameters(
+        TestPlayOriginalBurnerOwnerKind ownerKind,
+        bool requested,
+        float drawValue,
+        float aniOutput)
+    {
+        return new TestPlayOriginalBurnerDrawParameters
+        {
+            ownerKind = ownerKind,
+            requested = requested,
+            aniOutput = aniOutput,
+            drawValue = drawValue,
+            primarySizeArgument = drawValue / 2f,
+            primaryLengthArgument = drawValue,
+            secondarySizeArgument = drawValue / 3f,
+            secondaryLocalZArgument = drawValue / 8f
+        };
+    }
+
     public static TestPlayPresentationEvent CreateUnsupported(
         string command,
         IReadOnlyList<TestPlayScriptValue> arguments,
@@ -206,7 +406,8 @@ public static class TestPlayPresentationCore
             arguments,
             IsOriginalWindProc(extended, procType) ||
             IsOriginalSwordBeamProc(extended, procType) ||
-            IsOriginalThunderEffectProc(extended, procType)
+            IsOriginalThunderEffectProc(extended, procType) ||
+            IsOriginalSpecialEffectProc(extended, procType, GetInt(arguments, 3, -1))
                 ? TestPlayPresentationEvidence.OriginalExecutableConfirmed
                 : procType == 57
                     ? TestPlayPresentationEvidence.OriginalDataObserved
@@ -216,6 +417,167 @@ public static class TestPlayPresentationCore
         value.procType = procType;
         value.subtype = procType == 62 ? GetInt(arguments, 3, -1) : -1;
         return value;
+    }
+
+    public static bool IsOriginalSpecialEffectProc(bool extended, int procType, int subtype)
+    {
+        // FUN_004b74a0 type 62 dispatches to FUN_004fa830. The handler has
+        // explicit branches for subtype 0..11; this confirms the dispatch
+        // boundary without assigning meanings to every forwarded argument.
+        return extended && procType == SpecialEffectProcType && subtype >= 0 && subtype <= 11;
+    }
+
+    public static bool IsOriginalMagicShieldProc(bool extended, int procType, int subtype)
+    {
+        return IsOriginalSpecialEffectProc(extended, procType, subtype) &&
+               subtype == MagicShieldSubtype;
+    }
+
+    public static bool IsOriginalHinokoProc(bool extended, int procType, int subtype)
+    {
+        return IsOriginalSpecialEffectProc(extended, procType, subtype) &&
+               subtype == HinokoSubtype;
+    }
+
+    public static bool TryCreateOriginalHinokoParameters(
+        bool extended,
+        IReadOnlyList<TestPlayScriptValue> arguments,
+        out TestPlayHinokoParameters value)
+    {
+        value = default(TestPlayHinokoParameters);
+        if (!IsOriginalHinokoProc(
+                extended,
+                GetInt(arguments, 1, -1),
+                GetInt(arguments, 3, -1)) ||
+            arguments == null || arguments.Count < 12)
+            return false;
+
+        // FUN_004fa830 resolves p2 as WEAPONPOINT, passes p4/100 as the
+        // BB_Hinoko size, uses p5/10000 along the WEAPONPOINT Z basis, and
+        // applies independent +/-p6..p8/100 spawn scatter. p9-p11 are unread.
+        value = new TestPlayHinokoParameters
+        {
+            weaponPointId = GetInt(arguments, 2, -1),
+            size = GetInt(arguments, 4, 0) / 100f,
+            signedForwardInput = GetInt(arguments, 5, 0) / 10000f,
+            scatterX = GetInt(arguments, 6, 0) / 100f,
+            scatterY = GetInt(arguments, 7, 0) / 100f,
+            scatterZ = GetInt(arguments, 8, 0) / 100f,
+            unusedP9 = GetInt(arguments, 9, 0),
+            unusedP10 = GetInt(arguments, 10, 0),
+            unusedP11 = GetInt(arguments, 11, 0)
+        };
+        return true;
+    }
+
+    public static TestPlayHinokoState CreateOriginalHinokoState()
+    {
+        // FUN_005036e0 initializes elapsed/angle to zero and alpha to 255.
+        return new TestPlayHinokoState
+        {
+            elapsedTicks = 0,
+            alphaByte = OriginalHinokoInitialAlphaByte,
+            accumulatedDrawDegrees = 0f
+        };
+    }
+
+    public static bool AdvanceOriginalHinoko(ref TestPlayHinokoState state)
+    {
+        // FUN_0048e0b0 advances the draw angle and elapsed counter first.
+        // Fade begins when the incremented counter is greater than 30; alpha
+        // falls by four and the object is removed on update 94.
+        state.accumulatedDrawDegrees += OriginalHinokoDrawDegreesPerTick;
+        state.elapsedTicks++;
+        if (state.elapsedTicks > OriginalHinokoFadeDelayTicks)
+            state.alphaByte = Math.Max(0, state.alphaByte - OriginalHinokoAlphaFadePerTick);
+        return state.alphaByte > 0;
+    }
+
+    public static bool TryCreateOriginalMagicShieldParameters(
+        bool extended,
+        IReadOnlyList<TestPlayScriptValue> arguments,
+        out TestPlayMagicShieldParameters value)
+    {
+        value = default(TestPlayMagicShieldParameters);
+        if (!IsOriginalMagicShieldProc(
+                extended,
+                GetInt(arguments, 1, -1),
+                GetInt(arguments, 3, -1)) ||
+            arguments == null || arguments.Count < 12)
+            return false;
+
+        // FUN_004fa830 resolves p2 as WEAPONPOINT, p4 as the 0xAC-byte model
+        // slot, stores the low 16 bits of p5 as the active-stage release gate,
+        // and uses p6 both to enable WEAPONPOINT-matrix following and as the
+        // countdown. p7-p11 are not read by the subtype-8 branch.
+        value = new TestPlayMagicShieldParameters
+        {
+            weaponPointId = GetInt(arguments, 2, -1),
+            modelSlotIndex = GetInt(arguments, 4, -1),
+            releaseGateValue = unchecked((short)GetInt(arguments, 5, 0)),
+            activeTicks = GetInt(arguments, 6, 0),
+            followWeaponPoint = GetInt(arguments, 6, 0) != 0,
+            unusedP7 = GetInt(arguments, 7, 0),
+            unusedP8 = GetInt(arguments, 8, 0),
+            unusedP9 = GetInt(arguments, 9, 0),
+            unusedP10 = GetInt(arguments, 10, 0),
+            unusedP11 = GetInt(arguments, 11, 0)
+        };
+        return true;
+    }
+
+    public static TestPlayMagicShieldState CreateOriginalMagicShieldState(
+        TestPlayMagicShieldParameters parameters)
+    {
+        // FUN_00479120 initializes +0x12C to 0.1 and +0x144 to zero.
+        return new TestPlayMagicShieldState
+        {
+            phase = TestPlayMagicShieldPhase.Grow,
+            scale = OriginalMagicShieldInitialScale,
+            opacity = 0f,
+            remainingActiveTicks = parameters.activeTicks
+        };
+    }
+
+    public static bool AdvanceOriginalMagicShield(
+        TestPlayMagicShieldParameters parameters,
+        ref TestPlayMagicShieldState state)
+    {
+        switch (state.phase)
+        {
+            case TestPlayMagicShieldPhase.Grow:
+                // FUN_00479370 grows scale and opacity together, then switches
+                // callback as soon as scale reaches 0.9.
+                state.scale = Math.Min(1f, state.scale + OriginalMagicShieldGrowPerTick);
+                state.opacity = Math.Min(1f, state.opacity + OriginalMagicShieldOpacityPerTick);
+                if (state.scale >= OriginalMagicShieldActiveScaleThreshold)
+                    state.phase = TestPlayMagicShieldPhase.Active;
+                return true;
+
+            case TestPlayMagicShieldPhase.Active:
+                // FUN_00479560 decrements before testing the p6 boundary. A
+                // non-positive low-16 p5 gate enters fade on this first update.
+                state.opacity = Math.Min(1f, state.opacity + OriginalMagicShieldOpacityPerTick);
+                state.remainingActiveTicks--;
+                if (parameters.releaseGateValue < 1 || state.remainingActiveTicks < 0)
+                    state.phase = TestPlayMagicShieldPhase.Fade;
+                return true;
+
+            case TestPlayMagicShieldPhase.Fade:
+                // FUN_00479740 removes 0.1 opacity first. It expands by 0.05
+                // only while the remaining opacity is at least 0.0001.
+                state.opacity = Math.Max(0f, state.opacity - OriginalMagicShieldOpacityPerTick);
+                if (state.opacity < 0.0001f)
+                {
+                    state.phase = TestPlayMagicShieldPhase.Expired;
+                    return false;
+                }
+                state.scale += OriginalMagicShieldFadeScalePerTick;
+                return true;
+
+            default:
+                return false;
+        }
     }
 
     public static bool IsOriginalWindProc(bool extended, int procType)

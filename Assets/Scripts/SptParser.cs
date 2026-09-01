@@ -5,9 +5,10 @@ using UnityEngine;
 
 /// <summary>
 /// Script.spt の BURNERSET / WEAPONPOINT などを解析してランタイムデータを構築するパーサー。
-/// エフェクト方向は「エフェクトが原点からZ軸方向に吹き出す」仕様に基づく。
-/// 実SPT/HODではUP/DOWN双方のOutputボーン姿勢に外向き基準が含まれるため、
-/// Unity表示Adapterではどちらも追加回転なしのローカルZ+として扱う。
+/// 原作EXEのBURNERSETパーサーは第4トークンを必須として読み取るが、保存も参照もしない。
+/// Unity側では既存MOD互換の既知方向トークンだけを表示Adapterへ投影する。
+/// 実SPT/HODのUP/DOWNはOutputボーン姿勢に外向き基準が含まれるため、
+/// どちらも追加回転なしのローカルZ+として扱う。
 /// </summary>
 public enum SptDirection { UP, DOWN, FORWARD, BACK, LEFT, RIGHT }
 
@@ -23,8 +24,17 @@ public class BurnerSetInfo
     /// <summary>エフェクトの大きさ（スケール）。0 の場合は非表示扱い。</summary>
     public float Scale;
 
-    /// <summary>SPTの方向指定。UP/DOWNはOutputボーンのローカルZ+をそのまま使う。</summary>
+    /// <summary>
+    /// 第4トークンを既存Unity表示Adapterへ投影した値。
+    /// 原作EXEは第4トークンを保存せず、UP/DOWNはOutputボーンのローカルZ+をそのまま使う。
+    /// </summary>
     public SptDirection Direction;
+
+    /// <summary>
+    /// Script.sptに記述された第4トークンの原文。
+    /// 原作EXEは任意の文字列を受理して破棄するため、未知値も失わず保持する。
+    /// </summary>
+    public string FourthToken;
 
     /// <summary>
     /// Unity 上のボーン Transform。
@@ -63,7 +73,11 @@ public class WeaponPointInfo
         : (Direction == SptDirection.DOWN ? -BoneTr.forward : BoneTr.forward);
 }
 
-/// <summary>SPTでIDとフレーム名を結び付ける機体階層定義。</summary>
+/// <summary>
+/// SPTでIDと読込済みHODフレーム名を結び付ける機体階層定義。
+/// GUNFILENAME / SWORDFILENAME も外部ファイルを読み込まず、原作は
+/// FUN_00499d50 から FUN_00571230 を呼んで既存ノードを名前検索する。
+/// </summary>
 public class SptFrameBindingInfo
 {
     public int Id;
@@ -88,7 +102,7 @@ public class SptRuntimeData
     // ---- WEAPONPOINT ----
     public readonly Dictionary<int, WeaponPointInfo> WeaponPoints = new Dictionary<int, WeaponPointInfo>();
 
-    // ---- ATTACKARMSET / weapon model visibility ----
+    // ---- ATTACKARMSET / already-loaded HOD node visibility ----
     public readonly Dictionary<int, SptFrameBindingInfo> AttackArms = new Dictionary<int, SptFrameBindingInfo>();
     public readonly Dictionary<int, SptFrameBindingInfo> GunModels = new Dictionary<int, SptFrameBindingInfo>();
     public readonly Dictionary<int, SptFrameBindingInfo> SwordModels = new Dictionary<int, SptFrameBindingInfo>();
@@ -125,9 +139,11 @@ public static class SptParser
     static Material defaultBurnerParticleMaterial;
     static Texture2D defaultBurnerParticleTexture;
 
-    // BURNERSET(id, frameName, scale, direction)
+    // BURNERSET(id, frameName, scale, fourthToken)
+    // Original EXE accepts any string token here and discards it. Preserve the
+    // raw token; known direction names remain a Unity preview compatibility aid.
     static readonly Regex RxBurnerSet = new Regex(
-        @"BURNERSET\s*\(\s*(\d+)\s*,\s*([^,]+?)\s*,\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*,\s*(UP|DOWN|FORWARD|BACK|LEFT|RIGHT)\s*\)",
+        @"BURNERSET\s*\(\s*(\d+)\s*,\s*([^,]+?)\s*,\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*,\s*([^,\)]+?)\s*\)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     // WEAPONPOINT(id, frameName, UP|DOWN)
@@ -175,6 +191,7 @@ public static class SptParser
                     FrameName = mBurner.Groups[2].Value.Trim().Replace(".x", "").Replace(".X", ""),
                     Scale     = float.Parse(mBurner.Groups[3].Value,
                                     System.Globalization.CultureInfo.InvariantCulture),
+                    FourthToken = mBurner.Groups[4].Value.Trim(),
                     Direction = ParseDirection(mBurner.Groups[4].Value)
                 };
                 data.BurnerSets[info.Id] = info;
@@ -463,7 +480,8 @@ public static class SptParser
 
     /// <summary>
     /// エフェクトは「ローカルZ軸の正方向」に吹き出す。
-    /// UP/DOWN = Outputボーン姿勢をそのまま使用 (ローカルZ+)
+    /// 原作EXEはBURNERSET第4トークンを破棄する。UP/DOWNおよび未知値は
+    /// Outputボーン姿勢をそのまま使用し、その他の既知値だけをUnity互換拡張として回転する。
     /// </summary>
     static Quaternion DirectionToRotation(SptDirection dir)
     {

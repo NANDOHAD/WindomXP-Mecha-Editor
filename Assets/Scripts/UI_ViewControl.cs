@@ -10,6 +10,7 @@ public class UI_ViewControl : MonoBehaviour
     public GameObject EditPanel;
     public GameObject EditMenu;
     public GameObject ModeSelectDD;
+    public GameObject Handle3D;
     public GameObject SelectPanel;
     public RoboStructure robo;
     public UI_EditAni ea;
@@ -54,25 +55,31 @@ public class UI_ViewControl : MonoBehaviour
                 if (PrevPanel != null)
                     PreviewMode(false);
                 SelectMode(false);
+                Handle3D.SetActive(true);
+                ModeSelectDD.SetActive(true);
                 break;
             case 1:
                 EditMode(false);
                 if (PrevPanel != null)
                     PreviewMode(true);
                 SelectMode(false);
+                Handle3D.SetActive(false);
+                ModeSelectDD.SetActive(true);
                 break;
             case 2:
                 EditMode(false);
-                
                 if (PrevPanel != null)
                     PreviewMode(false);
                 SelectMode(false);
+                Handle3D.SetActive(false);
+                ModeSelectDD.SetActive(true);
                 break;
             case 3:
                 EditMode(false);
                 if (PrevPanel != null)
                     PreviewMode(false);
-                ModeSelectDD.SetActive(false);
+                Handle3D.SetActive(false);
+                ModeSelectDD.SetActive(false);                
                 SelectMode(true);
                 break;
         }

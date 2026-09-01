@@ -21,6 +21,7 @@ public class AniScriptRuntime : MonoBehaviour
     public float attackForceY;        // Scr_AttackForceY
     public int attackDownF;           // Scr_AttackDownF
     public bool shieldGuard;          // Scr_ShildGuard
+    public int laserReflectValue;     // Scr_LaserReflect: orig +0xB68 signed-char read
     public float shotTurnAng;         // Scr_ShotTurnAng
     public float turnMoveAng;         // Scr_TurnMoveAng
     public float addExGaugeValue;     // Scr_AddExGauge (orig: float, stored at +0xC8)
@@ -323,7 +324,11 @@ public class AniScriptRuntime : MonoBehaviour
         // TODO: 攻撃判定のON/OFF切り替え
     }
 
-    void Cmd_LaserReflect(scriptVar[] v) { /* TODO: ビーム反射設定 */ }
+    void Cmd_LaserReflect(scriptVar[] v)
+    {
+        laserReflectValue = TestPlayCombatCore.NormalizeOriginalLaserReflectValue(
+            v.Length >= 1 ? AsInt(v[0]) : 0);
+    }
     void Cmd_SwordCancel(scriptVar[] v) { /* TODO: ヒット時派生先アクションIDの登録 */ }
     void Cmd_BoostDashMode(scriptVar[] v) { /* TODO: ブーストダッシュ状態への移行 */ }
     void Cmd_AttackDelay(scriptVar[] v) { /* TODO: 攻撃発生のディレイ処理 */ }

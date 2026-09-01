@@ -20,11 +20,13 @@ public static class TestPlayRuntimeVerification
     {
         int assertions = 0;
         VerifyParserAndState(ref assertions);
+        VerifyOriginalAnimationInitialScriptBoundary(ref assertions);
         VerifySptStatusInitialization(ref assertions);
         VerifyNestedIf(ref assertions);
         VerifyFlowInterruption(ref assertions);
         VerifyRepeatInterval(ref assertions);
         VerifyOriginalAttackAndBurnerArguments(ref assertions);
+        VerifyOriginalBurnerDrawPath(ref assertions);
         VerifyOriginalDefenseSemantics(ref assertions);
         VerifyOriginalNormalAttackFlow(ref assertions);
         VerifyOriginalBasicAniChannelsAndJump(ref assertions);
@@ -64,6 +66,102 @@ public static class TestPlayRuntimeVerification
         vm.Execute("@int[200]=99;");
         Require(state.GetInt(200) == 0, "script variables are limited to 0..199", ref assertions);
         Require(fallbackAssignments == 1, "out-of-range reference is diagnosed as unsupported", ref assertions);
+    }
+
+    static void VerifyOriginalAnimationInitialScriptBoundary(ref int assertions)
+    {
+        GameObject controllerObject = new GameObject("TestPlayVerification_InitialScriptController");
+        GameObject rootObject = new GameObject("TestPlayVerification_InitialScriptRoot");
+        try
+        {
+            TestPlayController controller = controllerObject.AddComponent<TestPlayController>();
+            RoboStructure robo = controllerObject.AddComponent<RoboStructure>();
+            robo.root = rootObject;
+            robo.ani = new ani2 { animations = new List<animation>() };
+            for (int i = 0; i < 100; i++)
+            {
+                robo.ani.animations.Add(new animation
+                {
+                    name = "InitialBoundaryAction" + i,
+                    frames = new List<hod2v1>(),
+                    scripts = new List<script>()
+                });
+            }
+
+            animation baseAction = robo.ani.animations[0];
+            baseAction.squirrelInit = "@int[42]+=100;";
+            baseAction.scripts.Add(new script { unk = 5, time = 0f, squirrel = "@int[42]+=1;" });
+
+            animation swordPose = robo.ani.animations[50];
+            swordPose.squirrelInit = "@int[42]+=1000;";
+            swordPose.frames.Add(new hod2v1("InitialBoundarySwordPose") { parts = new List<hod2v1_Part>() });
+
+            animation transitionAction = robo.ani.animations[1];
+            transitionAction.squirrelInit = "@int[42]+=10000;";
+            transitionAction.scripts.Add(new script { unk = 5, time = 0f, squirrel = "@int[42]+=10;" });
+
+            // An init-only +50 entry is neither an executable script source nor
+            // a usable pose in the original record layout.
+            robo.ani.animations[51].squirrelInit = "@int[42]+=100000;";
+
+            controller.robo = robo;
+            controller.state.ResetDefaults();
+
+            MethodInfo awake = typeof(TestPlayController).GetMethod("Awake", InstancePrivate);
+            MethodInfo setWeapon = typeof(TestPlayController).GetMethod("SetHeldWeapon", InstancePrivate);
+            MethodInfo resolveSelection = typeof(TestPlayController).GetMethod("ResolveActionSelection", InstancePrivate);
+            MethodInfo tickAnimation = typeof(TestPlayController).GetMethod("TickAnimation", InstancePrivate);
+            MethodInfo restartAnimation = typeof(TestPlayController).GetMethod(
+                "ChangeAnimation",
+                InstancePrivate,
+                null,
+                new[] { typeof(int), typeof(bool) },
+                null);
+            Require(awake != null && setWeapon != null && resolveSelection != null &&
+                    tickAnimation != null && restartAnimation != null,
+                "initial-script boundary helpers are available", ref assertions);
+
+            awake.Invoke(controller, null);
+            setWeapon.Invoke(controller, new object[] { "SWORD" });
+
+            TestPlayActionSelection fallback = (TestPlayActionSelection)resolveSelection.Invoke(
+                controller,
+                new object[] { 0 });
+            Require(fallback.poseActionId == 50 && fallback.scriptActionId == 0,
+                "+50 pose keeps the base timed blocks even when both AN2 init texts are non-empty",
+                ref assertions);
+
+            controller.state.SetInt(42, 0);
+            controller.ChangeAnimation(0);
+            tickAnimation.Invoke(controller, null);
+            Require(controller.state.GetInt(42) == 2,
+                "first action entry executes the timed block on both original channels without executing script-index -1 text",
+                ref assertions);
+
+            restartAnimation.Invoke(controller, new object[] { 0, true });
+            tickAnimation.Invoke(controller, null);
+            Require(controller.state.GetInt(42) == 4,
+                "same-action re-entry executes both timed channels without script-index -1 text",
+                ref assertions);
+
+            TestPlayActionSelection initOnlyVariant = (TestPlayActionSelection)resolveSelection.Invoke(
+                controller,
+                new object[] { 1 });
+            Require(initOnlyVariant.poseActionId == 1 && initOnlyVariant.scriptActionId == 1,
+                "an init-only +50 entry is not selected as an executable action",
+                ref assertions);
+
+            controller.ChangeAnimation(1);
+            tickAnimation.Invoke(controller, null);
+            Require(controller.state.GetInt(42) == 24,
+                "action transition executes only the destination timed block on both original channels",
+                ref assertions);
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(rootObject);
+            UnityEngine.Object.DestroyImmediate(controllerObject);
+        }
     }
 
     static void VerifyOriginalDefenseSemantics(ref int assertions)
@@ -155,6 +253,18 @@ public static class TestPlayRuntimeVerification
         Require(TestPlayCombatCore.ResolveDefenseHit(input).decision == TestPlayCombatHitDecision.Damaged,
             "AttackFlag bit 0x02 uses a strict roll-less-than-probability boundary",
             ref assertions);
+        input.reflectionProbabilityPercent = 128;
+        input.reflectionRoll = 0;
+        Require(TestPlayCombatCore.ResolveDefenseHit(input).decision == TestPlayCombatHitDecision.Damaged,
+            "LaserReflect preserves the original signed-char read for byte values 128..255",
+            ref assertions);
+        input.reflectionProbabilityPercent = 276;
+        input.reflectionRoll = 19;
+        Require(TestPlayCombatCore.ResolveDefenseHit(input).decision == TestPlayCombatHitDecision.Reflected &&
+                TestPlayCombatCore.NormalizeOriginalLaserReflectValue(276) == 20,
+            "LaserReflect stores the low byte before the type 11 probability comparison",
+            ref assertions);
+        input.reflectionProbabilityPercent = 50;
         input.reflectionRoll = 0;
         input.shieldGuardValue = 1;
         input.defenderForwardDotToAttacker = 1f;
@@ -224,6 +334,76 @@ public static class TestPlayRuntimeVerification
         }
     }
 
+    static void VerifyOriginalBurnerDrawPath(ref int assertions)
+    {
+        TestPlayOriginalBurnerDrawParameters normal =
+            TestPlayPresentationCore.CreateOriginalNormalBurnerDrawParameters(true, 2f, 0.25f);
+        Require(normal.ownerKind == TestPlayOriginalBurnerOwnerKind.NormalRobot &&
+                normal.requested && Mathf.Approximately(normal.aniOutput, 0.25f) &&
+                Mathf.Approximately(normal.drawValue, 2f),
+            "normal-robot BURNER draw value uses the configured SPT value without ANI output multiplication",
+            ref assertions);
+        Require(Mathf.Approximately(normal.primarySizeArgument, 1f) &&
+                Mathf.Approximately(normal.primaryLengthArgument, 2f) &&
+                Mathf.Approximately(normal.secondarySizeArgument, 2f / 3f) &&
+                Mathf.Approximately(normal.secondaryLocalZArgument, 0.25f),
+            "normal BURNER derives the original 1/2, 1, 1/3, and 1/8 draw arguments",
+            ref assertions);
+
+        TestPlayOriginalBurnerDrawParameters zeroOutput =
+            TestPlayPresentationCore.CreateOriginalNormalBurnerDrawParameters(true, 2f, 0f);
+        Require(zeroOutput.requested && Mathf.Approximately(zeroOutput.drawValue, 2f),
+            "ANI output zero does not clear the original BURNER request byte or SPT draw value",
+            ref assertions);
+
+        TestPlayOriginalBurnerDrawParameters ship =
+            TestPlayPresentationCore.CreateOriginalShipBurnerDrawParameters(2f, 0.3f);
+        TestPlayOriginalBurnerDrawParameters reverseShip =
+            TestPlayPresentationCore.CreateOriginalShipBurnerDrawParameters(2f, -0.3f);
+        Require(ship.ownerKind == TestPlayOriginalBurnerOwnerKind.Ship &&
+                Mathf.Approximately(ship.drawValue, 6f) &&
+                Mathf.Approximately(reverseShip.drawValue, 0f),
+            "CShip-only BURNER path applies configured value times max speed times ten",
+            ref assertions);
+
+        TestPlayOriginalBurnerPrimaryUpdateResult primary = default;
+        for (int i = 0; i < TestPlayPresentationCore.OriginalBurnerPrimaryExpiryUpdate - 1; i++)
+            primary = TestPlayPresentationCore.AdvanceOriginalBurnerPrimary(false, 1f, primary.updateCount);
+        Require(!primary.expiredAfterUpdate && primary.updateCount == 10 &&
+                Mathf.Approximately(primary.matrixAdjustmentArgument, -1f / 15f),
+            "BB_Burner remains active through update ten and forwards the confirmed matrix adjustment argument",
+            ref assertions);
+        primary = TestPlayPresentationCore.AdvanceOriginalBurnerPrimary(false, 1f, primary.updateCount);
+        Require(primary.expiredAfterUpdate && primary.updateCount == 11,
+            "BB_Burner expires when its update counter reaches eleven",
+            ref assertions);
+        TestPlayOriginalBurnerPrimaryUpdateResult detachedPrimary =
+            TestPlayPresentationCore.AdvanceOriginalBurnerPrimary(true, 1f, 3);
+        Require(detachedPrimary.expiredAfterUpdate && detachedPrimary.updateCount == 3 &&
+                Mathf.Approximately(detachedPrimary.matrixAdjustmentArgument, 0f),
+            "BB_Burner expires without another matrix update when its owner is marked for deletion",
+            ref assertions);
+
+        TestPlayOriginalBurnerBallUpdateResult ball = default;
+        ball.remainingCounter = TestPlayPresentationCore.OriginalBurnerBallInitialCounter;
+        for (int i = 0; i < 4; i++)
+            ball = TestPlayPresentationCore.AdvanceOriginalBurnerBall(false, ball.remainingCounter);
+        Require(!ball.expiredAfterUpdate && ball.remainingCounter == 0 &&
+                Mathf.Approximately(ball.matrixBasisMultiplier, 0.95f),
+            "BB_BurnerBall applies the confirmed 0.95 matrix multiplier and remains active at counter zero",
+            ref assertions);
+        ball = TestPlayPresentationCore.AdvanceOriginalBurnerBall(false, ball.remainingCounter);
+        Require(ball.expiredAfterUpdate && ball.remainingCounter == -1,
+            "BB_BurnerBall expires on its fifth update after the counter becomes negative",
+            ref assertions);
+        TestPlayOriginalBurnerBallUpdateResult detachedBall =
+            TestPlayPresentationCore.AdvanceOriginalBurnerBall(true, 4);
+        Require(detachedBall.expiredAfterUpdate && detachedBall.remainingCounter == 4 &&
+                Mathf.Approximately(detachedBall.matrixBasisMultiplier, 1f),
+            "BB_BurnerBall expires without matrix scaling when its owner is marked for deletion",
+            ref assertions);
+    }
+
     static void VerifySptStatusInitialization(ref int assertions)
     {
         SptRuntimeData data = SptParser.Parse(
@@ -278,12 +458,19 @@ public static class TestPlayRuntimeVerification
             attackArmObject.transform.SetParent(sptObject.transform, false);
             GameObject gunObject = new GameObject("Gun.x");
             gunObject.transform.SetParent(sptObject.transform, false);
+            MeshRenderer gunRenderer = gunObject.AddComponent<MeshRenderer>();
+            GameObject gunChildObject = new GameObject("GunChild");
+            gunChildObject.transform.SetParent(gunObject.transform, false);
+            MeshRenderer gunChildRenderer = gunChildObject.AddComponent<MeshRenderer>();
             GameObject swordDummyObject = new GameObject("Sword_dammy.x");
             swordDummyObject.transform.SetParent(sptObject.transform, false);
+            MeshRenderer swordDummyRenderer = swordDummyObject.AddComponent<MeshRenderer>();
             GameObject swordObject = new GameObject("Sword.x");
             swordObject.transform.SetParent(sptObject.transform, false);
+            MeshRenderer swordRenderer = swordObject.AddComponent<MeshRenderer>();
             GameObject gunDummyObject = new GameObject("Gun_dammy.x");
             gunDummyObject.transform.SetParent(sptObject.transform, false);
+            MeshRenderer gunDummyRenderer = gunDummyObject.AddComponent<MeshRenderer>();
             GameObject inspectorArmObject = new GameObject("InspectorArm");
             inspectorArmObject.transform.SetParent(sptObject.transform, false);
             SptParser.BindTransforms(sptObject.transform, data);
@@ -323,17 +510,17 @@ public static class TestPlayRuntimeVerification
                     ReferenceEquals(resolveArm.Invoke(controller, new object[] { 0, inspectorArmObject.transform }), inspectorArmObject.transform),
                 "LockArm uses the Inspector reference first and SPT ATTACKARMSET only as fallback", ref assertions);
 
-            gunObject.SetActive(true);
-            swordDummyObject.SetActive(true);
-            swordObject.SetActive(true);
-            gunDummyObject.SetActive(true);
             spawnRunProc.Invoke(controller, new object[] { Values(0f, 51f), false });
-            Require(gunObject.activeSelf && swordDummyObject.activeSelf &&
-                    !swordObject.activeSelf && !gunDummyObject.activeSelf,
+            Require(gunRenderer.enabled && gunChildRenderer.enabled && swordDummyRenderer.enabled &&
+                    !swordRenderer.enabled && !gunDummyRenderer.enabled,
                 "original proc type 51 shows Gun and Sword_dammy for gun mode", ref assertions);
-            spawnRunProc.Invoke(controller, new object[] { Values(0f, 52f), false });
-            Require(!gunObject.activeSelf && !swordDummyObject.activeSelf &&
+            Require(gunObject.activeSelf && gunChildObject.activeSelf && swordDummyObject.activeSelf &&
                     swordObject.activeSelf && gunDummyObject.activeSelf,
+                "weapon visibility changes preserve the bound HOD hierarchy and runtime components",
+                ref assertions);
+            spawnRunProc.Invoke(controller, new object[] { Values(0f, 52f), false });
+            Require(!gunRenderer.enabled && !gunChildRenderer.enabled && !swordDummyRenderer.enabled &&
+                    swordRenderer.enabled && gunDummyRenderer.enabled,
                 "original proc type 52 shows Sword and Gun_dammy for sword mode", ref assertions);
             handleCommand.Invoke(controller, new object[]
             {
@@ -341,8 +528,8 @@ public static class TestPlayRuntimeVerification
                 new List<TestPlayScriptValue> { TestPlayScriptValue.Symbol("GUN") },
                 "ChangeWeapon(GUN);"
             });
-            Require(controller.state.GetInt(152) == 0 && gunObject.activeSelf && swordDummyObject.activeSelf &&
-                    !swordObject.activeSelf && !gunDummyObject.activeSelf,
+            Require(controller.state.GetInt(152) == 0 && gunRenderer.enabled && gunChildRenderer.enabled &&
+                    swordDummyRenderer.enabled && !swordRenderer.enabled && !gunDummyRenderer.enabled,
                 "ChangeWeapon(GUN) uses the same four-model visibility as proc type 51", ref assertions);
             handleCommand.Invoke(controller, new object[]
             {
@@ -350,8 +537,8 @@ public static class TestPlayRuntimeVerification
                 new List<TestPlayScriptValue> { TestPlayScriptValue.Symbol("SWORD") },
                 "ChangeWeapon(SWORD);"
             });
-            Require(controller.state.GetInt(152) == 1 && !gunObject.activeSelf && !swordDummyObject.activeSelf &&
-                    swordObject.activeSelf && gunDummyObject.activeSelf,
+            Require(controller.state.GetInt(152) == 1 && !gunRenderer.enabled && !gunChildRenderer.enabled &&
+                    !swordDummyRenderer.enabled && swordRenderer.enabled && gunDummyRenderer.enabled,
                 "ChangeWeapon(SWORD) uses the same four-model visibility as proc type 52", ref assertions);
             Require(controller.state.GetInt(100) == 3600 && controller.state.GetInt(101) == 3600 &&
                     controller.state.GetInt(102) == 1700 && controller.state.GetInt(103) == 1700,
@@ -579,6 +766,7 @@ public static class TestPlayRuntimeVerification
         GameObject targetObject = new GameObject("TestPlayVerification_NormalAttackTarget");
         GameObject weaponPointObject = new GameObject("Weapon_point2.x");
         GameObject spawnedProjectile = null;
+        GameObject spawnedType1Projectile = null;
         try
         {
             TestPlayController controller = controllerObject.AddComponent<TestPlayController>();
@@ -678,6 +866,8 @@ public static class TestPlayRuntimeVerification
                 "Assets/Generated/TestPlay/OriginalTextures/12_sabel_line.png");
             Texture2D thunderTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(
                 "Assets/Generated/TestPlay/OriginalTextures/06_laser2.bmp");
+            Texture2D hinokoTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(
+                "Assets/Generated/TestPlay/OriginalTextures/39_hinoko.png");
             presentation.originalTextures.Add(new TestPlayTextureBinding
             {
                 loadSequence = 11,
@@ -699,9 +889,26 @@ public static class TestPlayRuntimeVerification
                 originalFileName = "laser2.bmp",
                 texture = thunderTexture
             });
+            presentation.originalTextures.Add(new TestPlayTextureBinding
+            {
+                loadSequence = 39,
+                scriptTextureId = 40,
+                originalFileName = "hinoko.png",
+                texture = hinokoTexture
+            });
+            GameObject magicShieldPrefab = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            magicShieldPrefab.name = "TestPlayVerification_MagicShieldModelSlot1";
+            magicShieldPrefab.transform.SetParent(controllerObject.transform, false);
+            magicShieldPrefab.SetActive(false);
+            presentation.effects.Add(new TestPlayEffectBinding
+            {
+                key = "RunProc2:62:8:ModelSlot1",
+                prefab = magicShieldPrefab
+            });
             controller.presentationRuntime = presentation;
             UI_SPT spt = controllerObject.AddComponent<UI_SPT>();
-            SptRuntimeData meleeSptData = SptParser.Parse("WEAPONPOINT(1,Weapon_point2.x,UP);");
+            SptRuntimeData meleeSptData = SptParser.Parse(
+                "WEAPONPOINT(0,Weapon_point2.x,UP);\nWEAPONPOINT(1,Weapon_point2.x,UP);");
             SptParser.BindTransforms(rootObject.transform, meleeSptData);
             SetField(spt, "<LastSptData>k__BackingField", meleeSptData);
             controller.sptSource = spt;
@@ -718,10 +925,13 @@ public static class TestPlayRuntimeVerification
             MethodInfo resolveWeaponAction = typeof(TestPlayController).GetMethod("ResolveActionForWeaponMode", InstancePrivate);
             MethodInfo handle = typeof(TestPlayController).GetMethod("HandleCommand", InstancePrivate);
             MethodInfo handleAssignment = typeof(TestPlayController).GetMethod("HandleAssignment", InstancePrivate);
+            MethodInfo resetBlock = typeof(TestPlayController).GetMethod("ResetOriginalBlockState", InstancePrivate);
             MethodInfo spawnRunProc = typeof(TestPlayController).GetMethod("SpawnRunProc", InstancePrivate);
             MethodInfo tickMeleeAttacks = typeof(TestPlayController).GetMethod("TickActiveMeleeAttacks", InstancePrivate);
             MethodInfo tickSwordBeams = typeof(TestPlayController).GetMethod("TickActiveSwordBeams", InstancePrivate);
             MethodInfo tickThunderEffects = typeof(TestPlayController).GetMethod("TickActiveThunderEffects", InstancePrivate);
+            MethodInfo tickHinokoEffects = typeof(TestPlayController).GetMethod("TickActiveHinokoEffects", InstancePrivate);
+            MethodInfo tickMagicShieldEffects = typeof(TestPlayController).GetMethod("TickActiveMagicShieldEffects", InstancePrivate);
             MethodInfo updateCombatTimers = typeof(TestPlayController).GetMethod("UpdateOriginalCombatTimers", InstancePrivate);
             MethodInfo updateCooldowns = typeof(TestPlayController).GetMethod("UpdateOriginalAttackCooldowns", InstancePrivate);
             MethodInfo updateAttack = typeof(TestPlayController).GetMethod("TryUpdateNormalAttackSequence", InstancePrivate);
@@ -742,7 +952,8 @@ public static class TestPlayRuntimeVerification
             Require(setWeapon != null && resolveShot != null && resolveShotSelection != null &&
                     resolveMelee != null && resolveWeaponAction != null &&
                     handle != null && handleAssignment != null && spawnRunProc != null && tickMeleeAttacks != null &&
-                    tickSwordBeams != null && tickThunderEffects != null &&
+                    tickSwordBeams != null && tickThunderEffects != null && tickHinokoEffects != null &&
+                    tickMagicShieldEffects != null &&
                     updateCombatTimers != null &&
                     updateCooldowns != null && updateAttack != null &&
                     updateInput != null && awake != null && tickAnimation != null && startGroundRecovery != null &&
@@ -751,8 +962,8 @@ public static class TestPlayRuntimeVerification
                 "original normal-attack runtime helpers are available", ref assertions);
 
             Require(presentation.originalEffectShader != null && swordTexture != null && swordLineTexture != null &&
-                    thunderTexture != null,
-                "original sword-beam and thunder textures are available", ref assertions);
+                    thunderTexture != null && hinokoTexture != null,
+                "original sword-beam, thunder, and hinoko textures are available", ref assertions);
             awake.Invoke(controller, null);
             controller.SetAirborneFlag(false);
             Require(controller.state.GetInt(150) == 0,
@@ -1133,6 +1344,167 @@ public static class TestPlayRuntimeVerification
                 "RunProc2 type 60 p8=10 expires after the active phase and ten-step scalar fade",
                 ref assertions);
 
+            SetField(controller, "velocity", Vector3.zero);
+            weaponPointObject.transform.SetPositionAndRotation(
+                new Vector3(2f, 3f, 4f),
+                Quaternion.identity);
+            int hinokoStart = windTransients.Count;
+            spawnRunProc.Invoke(controller, new object[]
+            {
+                Values(0f, 62f, 1f, 6f, 5f, 300f, 15f, 15f, 15f, 0f, 0f, 0f), true
+            });
+            GameObject hinokoObject = windTransients.Count == hinokoStart + 1
+                ? windTransients[hinokoStart]
+                : null;
+            TestPlayOriginalEffect hinokoEffect = hinokoObject != null
+                ? hinokoObject.GetComponent<TestPlayOriginalEffect>()
+                : null;
+            Vector3 hinokoSpawnPosition = hinokoObject != null
+                ? hinokoObject.transform.position
+                : Vector3.zero;
+            Require(hinokoEffect != null && hinokoEffect.sourceTexture == hinokoTexture &&
+                    !hinokoEffect.billboard &&
+                    hinokoEffect.displaySize == new Vector2(0.05f, 0.025f) &&
+                    Vector3.Distance(hinokoSpawnPosition, weaponPointObject.transform.position) <=
+                        Mathf.Sqrt(3f) * 0.15f + 0.0001f &&
+                    hinokoObject.GetComponent<TestPlayProjectile>() == null &&
+                    ((System.Collections.ICollection)GetField(controller, "activeHinokoEffects")).Count == 1 &&
+                    Mathf.Approximately(target.hp, 1000f),
+                "RunProc2 type 62 subtype 6 creates a scattered non-combat BB_Hinoko quad from real p4/p6-p8",
+                ref assertions);
+
+            tickHinokoEffects.Invoke(controller, null);
+            Require(hinokoObject != null &&
+                    Mathf.Abs(Vector3.Distance(hinokoObject.transform.position, hinokoSpawnPosition) - 0.03f) < 0.0001f &&
+                    Mathf.Approximately(hinokoEffect.CurrentTint.a, 1f),
+                "subtype 6 advances by the p5-derived copied-matrix step and keeps alpha 255 on its first update",
+                ref assertions);
+
+            int procHinokoEvents = 0;
+            int visualHinokoEvents = 0;
+            for (int i = 0; i < windPresentationEvents.Count; i++)
+            {
+                TestPlayPresentationEvent presentationEvent = windPresentationEvents[i];
+                if (presentationEvent.type == TestPlayPresentationEventType.Proc &&
+                    presentationEvent.procType == 62 && presentationEvent.subtype == 6 &&
+                    presentationEvent.evidence == TestPlayPresentationEvidence.OriginalExecutableConfirmed &&
+                    presentationEvent.adapter == TestPlayPresentationAdapterKind.OriginalTextureQuad)
+                    procHinokoEvents++;
+                if (presentationEvent.type == TestPlayPresentationEventType.Visual &&
+                    presentationEvent.source == "RunProc2:62:6" &&
+                    presentationEvent.textureId == TestPlayPresentationCore.OriginalHinokoTextureId &&
+                    presentationEvent.evidence == TestPlayPresentationEvidence.OriginalExecutableConfirmed &&
+                    presentationEvent.adapter == TestPlayPresentationAdapterKind.OriginalTextureQuad &&
+                    presentationEvent.diagnostic ==
+                        "OriginalParametersAndLifecycleWithDeterministicUnitySharedRngAdapter")
+                    visualHinokoEvents++;
+            }
+            Require(procHinokoEvents == 1 && visualHinokoEvents == 1,
+                "subtype 6 trace separates confirmed BB_Hinoko semantics from its deterministic Unity RNG Adapter",
+                ref assertions);
+
+            for (int i = 1; i < 30; i++)
+                tickHinokoEffects.Invoke(controller, null);
+            Require(hinokoObject != null && Mathf.Approximately(hinokoEffect.CurrentTint.a, 1f),
+                "subtype 6 retains alpha 255 through update 30", ref assertions);
+            tickHinokoEffects.Invoke(controller, null);
+            Require(hinokoObject != null &&
+                    Mathf.Approximately(hinokoEffect.CurrentTint.a, 251f / 255f),
+                "subtype 6 starts the original four-alpha fade on update 31", ref assertions);
+            for (int tickIndex = 32; tickIndex <= 93; tickIndex++)
+                tickHinokoEffects.Invoke(controller, null);
+            Require(hinokoObject != null &&
+                    Mathf.Approximately(hinokoEffect.CurrentTint.a, 3f / 255f) &&
+                    ((System.Collections.ICollection)GetField(controller, "activeHinokoEffects")).Count == 1,
+                "subtype 6 remains alive at alpha three through update 93", ref assertions);
+            tickHinokoEffects.Invoke(controller, null);
+            Require(hinokoObject == null &&
+                    ((System.Collections.ICollection)GetField(controller, "activeHinokoEffects")).Count == 0 &&
+                    windTransients.Count == hinokoStart,
+                "subtype 6 expires and cleans up on original update 94", ref assertions);
+
+            weaponPointObject.transform.SetPositionAndRotation(
+                new Vector3(3f, 4f, 5f),
+                Quaternion.Euler(0f, 60f, 0f));
+            int magicShieldStart = windTransients.Count;
+            spawnRunProc.Invoke(controller, new object[]
+            {
+                Values(0f, 62f, 1f, 8f, 1f, 0f, 10f, 5f, 2f, 0f, 2f, 0f), true
+            });
+            GameObject magicShieldObject = windTransients.Count == magicShieldStart + 1
+                ? windTransients[magicShieldStart]
+                : null;
+            Require(magicShieldObject != null &&
+                    magicShieldObject.name.Contains("ModelSlot1_WEAPONPOINT1") &&
+                    magicShieldObject.GetComponent<TestPlayProjectile>() == null &&
+                    magicShieldObject.transform.position == weaponPointObject.transform.position &&
+                    magicShieldObject.transform.rotation == weaponPointObject.transform.rotation &&
+                    magicShieldObject.transform.localScale == Vector3.one * 0.1f &&
+                    ((System.Collections.ICollection)GetField(controller, "activeMagicShieldEffects")).Count == 1 &&
+                    Mathf.Approximately(target.hp, 1000f),
+                "RunProc2 type 62 subtype 8 creates a non-combat mapped LZ_MagicShieldEffect state at WEAPONPOINT p2",
+                ref assertions);
+
+            weaponPointObject.transform.SetPositionAndRotation(
+                new Vector3(6f, 7f, 8f),
+                Quaternion.Euler(0f, 90f, 0f));
+            tickMagicShieldEffects.Invoke(controller, null);
+            Require(magicShieldObject != null &&
+                    magicShieldObject.transform.position == weaponPointObject.transform.position &&
+                    magicShieldObject.transform.rotation == weaponPointObject.transform.rotation &&
+                    magicShieldObject.transform.localScale == Vector3.one * 0.2f,
+                "subtype 8 follows its WEAPONPOINT matrix when p6 is nonzero and grows by 0.1 per tick",
+                ref assertions);
+
+            int proc62Events = 0;
+            int visual62Events = 0;
+            for (int i = 0; i < windPresentationEvents.Count; i++)
+            {
+                TestPlayPresentationEvent presentationEvent = windPresentationEvents[i];
+                if (presentationEvent.type == TestPlayPresentationEventType.Proc &&
+                    presentationEvent.procType == 62 && presentationEvent.subtype == 8 &&
+                    presentationEvent.evidence == TestPlayPresentationEvidence.OriginalExecutableConfirmed &&
+                    presentationEvent.adapter == TestPlayPresentationAdapterKind.MappedPrefab)
+                    proc62Events++;
+                if (presentationEvent.type == TestPlayPresentationEventType.Visual &&
+                    presentationEvent.source == "RunProc2:62:8" &&
+                    presentationEvent.evidence == TestPlayPresentationEvidence.OriginalExecutableConfirmed &&
+                    presentationEvent.adapter == TestPlayPresentationAdapterKind.MappedPrefab &&
+                    presentationEvent.diagnostic == "OriginalLifecycleWithMappedModelSlotPrefab")
+                    visual62Events++;
+            }
+            Require(proc62Events == 1 && visual62Events == 1,
+                "subtype 8 trace separates the confirmed lifecycle from its configured Unity model-slot Prefab",
+                ref assertions);
+
+            for (int i = 1; i < 18; i++)
+                tickMagicShieldEffects.Invoke(controller, null);
+            Require(magicShieldObject == null &&
+                    ((System.Collections.ICollection)GetField(controller, "activeMagicShieldEffects")).Count == 0 &&
+                    windTransients.Count == magicShieldStart,
+                "real-data subtype 8 p5=0 follows the confirmed grow, one active update, fade, and removal boundary",
+                ref assertions);
+
+            weaponPointObject.transform.position = new Vector3(1f, 2f, 3f);
+            spawnRunProc.Invoke(controller, new object[]
+            {
+                Values(0f, 62f, 1f, 8f, 1f, 50f, 0f, 0f, 0f, 0f, 0f, 0f), true
+            });
+            GameObject snapshotMagicShield = windTransients.Count == magicShieldStart + 1
+                ? windTransients[magicShieldStart]
+                : null;
+            weaponPointObject.transform.position = new Vector3(9f, 8f, 7f);
+            tickMagicShieldEffects.Invoke(controller, null);
+            Require(snapshotMagicShield != null &&
+                    snapshotMagicShield.transform.position == new Vector3(1f, 2f, 3f),
+                "subtype 8 keeps its spawn matrix snapshot when p6 is zero",
+                ref assertions);
+            for (int i = 1; i < 18; i++)
+                tickMagicShieldEffects.Invoke(controller, null);
+            Require(snapshotMagicShield == null && windTransients.Count == magicShieldStart,
+                "p6 zero still completes subtype 8 cleanup without a persistent invisible state",
+                ref assertions);
+
             int missingThunderTransientCount = windTransients.Count;
             spawnRunProc.Invoke(controller, new object[]
             {
@@ -1169,11 +1541,32 @@ public static class TestPlayRuntimeVerification
                 "RunProc2 type 57 applies p2 hit-stop to attacker and defender", ref assertions);
             tickMeleeAttacks.Invoke(controller, null);
             Require(Mathf.Approximately(target.hp, 963f),
-                "one type 57 judgment hits the same target only once during its lifetime", ref assertions);
-            for (int i = 0; i < 7; i++)
+                "type 57 p3 keeps the target in its hit history before the re-hit interval", ref assertions);
+            for (int i = 0; i < 3; i++)
+                tickMeleeAttacks.Invoke(controller, null);
+            Require(Mathf.Approximately(target.hp, 963f),
+                "type 57 p3 blocks the same target for the complete cooldown window", ref assertions);
+            tickMeleeAttacks.Invoke(controller, null);
+            Require(Mathf.Approximately(target.hp, 926f),
+                "type 57 can hit the same target again when its p3 hit record expires", ref assertions);
+            for (int i = 0; i < 3; i++)
                 tickMeleeAttacks.Invoke(controller, null);
             Require(((List<TestPlayMeleeAttackState>)GetField(controller, "activeMeleeAttacks")).Count == 0,
                 "RunProc2 type 57 expires after its p8 tick lifetime", ref assertions);
+
+            handle.Invoke(controller, new object[]
+            {
+                "ATTACK", Values(37f, 44f, 2f, 3f), "ATTACK(37,44,2,3);"
+            });
+            spawnRunProc.Invoke(controller, new object[]
+            {
+                Values(1f, 57f, 1f, 200f, 0f, 2f, 0f, 0f, 0f, 0f, 0f, 3f), true
+            });
+            tickMeleeAttacks.Invoke(controller, null);
+            tickMeleeAttacks.Invoke(controller, null);
+            Require(Mathf.Approximately(target.hp, 852f),
+                "type 57 p3=0 removes its hit record before the next tick and permits consecutive hits",
+                ref assertions);
 
             Require(TestPlayCombatCore.IntersectsSweptSegmentSphere(
                         Vector3.zero, Vector3.forward * 2f,
@@ -1188,9 +1581,70 @@ public static class TestPlayRuntimeVerification
             handle.Invoke(controller, new object[] { "ATTACK", Values(37f, 44f, 2f, 3f), "ATTACK(37,44,2,3);" });
             handleAssignment.Invoke(controller, new object[] { "AttackFlag", "=", Values(2f), "AttackFlag=2;" });
 
+            controller.maximumAuxiliaryEnergy = 500f;
+            controller.currentAuxiliaryEnergy = 500f;
+            controller.state.SetInt(103, 500);
+            controller.state.SetFloat(103, 500f);
+            float movementEnergyBeforeType1 = controller.currentEnergy;
+            spawnRunProc.Invoke(controller, new object[]
+            {
+                Values(0f, 1f, 0f, 200f, 30f, 100f, 10f, 0f, 7f, 0f, 0f, 0f), true
+            });
+            List<GameObject> transients = (List<GameObject>)GetField(controller, "spawnedTransientObjects");
+            spawnedType1Projectile = transients[transients.Count - 1];
+            TestPlayProjectile type1Projectile = spawnedType1Projectile.GetComponent<TestPlayProjectile>();
+            Require(type1Projectile != null && type1Projectile.useOriginalType1Core &&
+                    type1Projectile.weaponPointId == 0 &&
+                    type1Projectile.remainingActiveTicks == TestPlayCombatCore.OriginalType1ActiveTicks &&
+                    type1Projectile.trailPointCount == 30 &&
+                    Mathf.Approximately(type1Projectile.distancePerTick, 1f) &&
+                    Mathf.Approximately(type1Projectile.visualWidth, 0.1f) &&
+                    type1Projectile.textureId == 7 &&
+                    spawnedType1Projectile.transform.position == weaponPointObject.transform.position &&
+                    Mathf.Approximately(controller.currentAuxiliaryEnergy, 300f) &&
+                    Mathf.Approximately(controller.currentEnergy, movementEnergyBeforeType1),
+                "RunProc2 type 1 maps p0..p6, snapshots WEAPONPOINT, charges p0 from the Script.spt Energy gauge without consuming Generator, and starts a fixed 300-tick LZ_Beam",
+                ref assertions);
+            float type1HpBefore = target.hp;
+            Require(type1Projectile.OriginalType1TrailCount == 1 &&
+                    !type1Projectile.SimulateOriginalTick(1f / 60f) &&
+                    type1Projectile.remainingActiveTicks == 299 &&
+                    type1Projectile.OriginalType1TrailCount == 2 &&
+                    spawnedType1Projectile.transform.position == Vector3.forward &&
+                    Mathf.Approximately(target.hp, type1HpBefore - 37f) &&
+                    target.lastDownValue == 44 && target.lastAttackFlag == 2,
+                "type 1 moves p2/100 on the first 60 Hz tick and applies its spawn-time ATTACK/AttackFlag snapshot through the trail segment",
+                ref assertions);
+            float hpAfterType1Hit = target.hp;
+            Require(!type1Projectile.SimulateOriginalTick(1f / 60f) &&
+                    Mathf.Approximately(target.hp, hpAfterType1Hit),
+                "one type 1 LZ_Beam hits the same target only once and continues after the hit",
+                ref assertions);
+
+            TestPlayType1ProjectileTickResult type1Lifetime = default;
+            TestPlayType1ProjectileTickInput type1LifetimeInput = new TestPlayType1ProjectileTickInput
+            {
+                position = Vector3.zero,
+                rotation = Quaternion.identity,
+                remainingActiveTicks = TestPlayCombatCore.OriginalType1ActiveTicks,
+                distancePerTick = 1f
+            };
+            for (int i = 0; i < TestPlayCombatCore.OriginalType1ActiveTicks; i++)
+            {
+                type1Lifetime = TestPlayCombatCore.TickOriginalType1Projectile(type1LifetimeInput);
+                type1LifetimeInput.position = type1Lifetime.position;
+                type1LifetimeInput.rotation = type1Lifetime.rotation;
+                type1LifetimeInput.remainingActiveTicks = type1Lifetime.remainingActiveTicks;
+            }
+            Require(type1Lifetime.expired && type1Lifetime.remainingActiveTicks == 0 &&
+                    type1Lifetime.position == Vector3.forward * 300f,
+                "type 1 Core remains active for exactly 300 movement ticks",
+                ref assertions);
+
+            handle.Invoke(controller, new object[] { "ATTACK", Values(37f, 44f, 2f, 3f), "ATTACK(37,44,2,3);" });
+            handleAssignment.Invoke(controller, new object[] { "AttackFlag", "=", Values(2f), "AttackFlag=2;" });
             spawnProjectile.Invoke(controller, new object[] { "VerificationShot", 37f, 20f, false });
             handleAssignment.Invoke(controller, new object[] { "AttackFlag", "=", Values(0f), "AttackFlag=0;" });
-            List<GameObject> transients = (List<GameObject>)GetField(controller, "spawnedTransientObjects");
             spawnedProjectile = transients[transients.Count - 1];
             TestPlayProjectile projectile = spawnedProjectile.GetComponent<TestPlayProjectile>();
             Require(projectile != null && projectile.downValue == 44 &&
@@ -1202,6 +1656,15 @@ public static class TestPlayRuntimeVerification
             handleAssignment.Invoke(controller, new object[] { "ShildGuard", "=", Values(2f), "ShildGuard=2;" });
             Require((int)GetField(controller, "shieldGuard") == 2,
                 "ShildGuard retains real ANI value 2 instead of collapsing it to bool", ref assertions);
+            handleAssignment.Invoke(controller, new object[] { "LaserReflect", "=", Values(20f), "LaserReflect=20;" });
+            Require(controller.CurrentLaserReflectValue == 20,
+                "LaserReflect assignment stores the confirmed defender-side +0xB68 value", ref assertions);
+            handleAssignment.Invoke(controller, new object[] { "LaserReflect", "=", Values(276f), "LaserReflect=276;" });
+            Require(controller.CurrentLaserReflectValue == 20,
+                "LaserReflect assignment preserves the original low-byte storage", ref assertions);
+            resetBlock.Invoke(controller, null);
+            Require(controller.CurrentLaserReflectValue == 0,
+                "LaserReflect resets at the original ANI block boundary", ref assertions);
             controller.state.SetInt(157, 2);
             controller.state.SetInt(158, 2);
             target.guardHitTimerTicks = 2;
@@ -1321,6 +1784,8 @@ public static class TestPlayRuntimeVerification
         }
         finally
         {
+            if (spawnedType1Projectile != null)
+                UnityEngine.Object.DestroyImmediate(spawnedType1Projectile);
             if (spawnedProjectile != null)
                 UnityEngine.Object.DestroyImmediate(spawnedProjectile);
             UnityEngine.Object.DestroyImmediate(targetObject);
@@ -1558,6 +2023,23 @@ public static class TestPlayRuntimeVerification
             Vector3.Dot(sptUp * Vector3.forward, testPlayUp * Vector3.forward) > 0.999f &&
             Vector3.Dot(sptDown * Vector3.forward, testPlayDown * Vector3.forward) > 0.999f,
             "SPT preview and TestPlay use the same burner direction convention", ref assertions);
+
+        SptRuntimeData fourthTokenData = SptParser.Parse(
+            "BURNERSET(0,Output01.x,1.0,UP);\n" +
+            "BURNERSET(1,Output02.x,1.0,LEGACY_CUSTOM_TOKEN);");
+        Require(
+            fourthTokenData.BurnerSets.Count == 2 &&
+            fourthTokenData.BurnerSets[0].FourthToken == "UP" &&
+            fourthTokenData.BurnerSets[1].FourthToken == "LEGACY_CUSTOM_TOKEN",
+            "BURNERSET preserves the required fourth token, including values unknown to the Unity adapter",
+            ref assertions);
+        Require(
+            fourthTokenData.BurnerSets[1].Direction == SptDirection.UP &&
+            Vector3.Dot(
+                (Quaternion)sptRotation.Invoke(null, new object[] { fourthTokenData.BurnerSets[1].Direction }) * Vector3.forward,
+                Vector3.forward) > 0.999f,
+            "unknown BURNERSET fourth tokens use the original-compatible no-rotation fallback",
+            ref assertions);
 
         Texture2D burnerTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(
             "Assets/Generated/TestPlay/OriginalTextures/07_burner.png");
