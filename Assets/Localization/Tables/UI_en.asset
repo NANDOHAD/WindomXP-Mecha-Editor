@@ -1280,15 +1280,11 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 9756767775875072
-    m_Localized: 'The selected file uses the legacy ANI format. Convert it to AN2
-      before loading?
+    m_Localized: 'The file you are trying to open is in the old ANI format.
 
-
-      OK: Create and load an AN2 copy named "{0}" without
-      changing the original legacy ANI. Unparsed legacy-only trailing data is not
-      included in the AN2 copy.
-
-      Cancel: Load the legacy ANI unchanged.'
+      If
+      you add, delete, or rename parts, the script may be corrupted. Do you want
+      to open it?'
     m_Metadata:
       m_Items: []
   - m_Id: 9756767830401024
@@ -1302,9 +1298,11 @@ MonoBehaviour:
     m_Localized: 'The legacy ANI was converted to AN2 and the converted file was
       loaded.
 
-      Saved to: {0}
-
-      The original legacy ANI was not changed.'
+      Saved to: {0}'
+    m_Metadata:
+      m_Items: []
+  - m_Id: 10611999460286464
+    m_Localized: Save Script.ani. Do you want to overwrite it?
     m_Metadata:
       m_Items: []
   references:

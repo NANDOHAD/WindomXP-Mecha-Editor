@@ -37,6 +37,7 @@ public class TestPlayProjectile : MonoBehaviour
     float simulationAccumulator;
     bool originalType1TargetLinked;
     bool originalType1TargetHit;
+    TestPlayType1TrailEffect originalType1TrailEffect;
     readonly List<Vector3> originalType1Trail = new List<Vector3>();
 
     public int OriginalType1TrailCount => originalType1Trail.Count;
@@ -60,6 +61,8 @@ public class TestPlayProjectile : MonoBehaviour
         originalType1TargetHit = false;
         originalType1Trail.Clear();
         originalType1Trail.Add(transform.position);
+        originalType1TrailEffect = GetComponent<TestPlayType1TrailEffect>();
+        originalType1TrailEffect?.SetTrail(originalType1Trail);
     }
 
     void Update()
@@ -138,6 +141,7 @@ public class TestPlayProjectile : MonoBehaviour
         originalType1Trail.Add(result.position);
         while (originalType1Trail.Count > Mathf.Max(1, trailPointCount))
             originalType1Trail.RemoveAt(0);
+        originalType1TrailEffect?.SetTrail(originalType1Trail);
 
         if (!originalType1TargetHit && targetAlive)
         {

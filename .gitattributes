@@ -1,0 +1,2 @@
+# Approved baseline hashes cover exact bytes, including line endings.
+/Verification/Baselines/** -text

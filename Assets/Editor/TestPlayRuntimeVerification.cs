@@ -12,8 +12,7 @@ public static class TestPlayRuntimeVerification
     [MenuItem("Tools/WindomXP/Test Play/Run Runtime Verification")]
     public static void RunFromMenu()
     {
-        int assertions = RunAll();
-        Debug.Log("[TestPlayVerification] Passed " + assertions + " assertions.");
+        WindomVerificationRunner.StartVerification(WindomVerificationSelection.Runtime);
     }
 
     public static int RunAll()
@@ -402,6 +401,54 @@ public static class TestPlayRuntimeVerification
                 Mathf.Approximately(detachedBall.matrixBasisMultiplier, 1f),
             "BB_BurnerBall expires without matrix scaling when its owner is marked for deletion",
             ref assertions);
+
+        List<TestPlayScriptValue> variant0Arguments =
+            Values(0f, 62f, 0f, 3f, 350f, 350f, 0f, 0f, 0f, 0f, 0f, 0f);
+        Require(TestPlayPresentationCore.TryCreateOriginalBurnerBurstParameters(
+                    true,
+                    variant0Arguments,
+                    out TestPlayBurnerBurstParameters burst) &&
+                burst.weaponPointId == 0 && burst.variant == 0 &&
+                Mathf.Approximately(burst.primarySize, 3.5f) &&
+                Mathf.Approximately(burst.primaryLength, 3.5f) &&
+                Mathf.Approximately(burst.secondarySize, 1.75f) &&
+                Mathf.Approximately(burst.secondaryLocalZ, 0.4375f) &&
+                burst.primaryTextureId == 8 && burst.secondaryTextureId == 9,
+            "type 62 subtype 3 variant zero resolves the confirmed dimensions and texture pair",
+            ref assertions);
+        Require(TestPlayPresentationCore.TryCreateOriginalBurnerBurstParameters(
+                    true,
+                    Values(0f, 62f, 28f, 3f, 300f, 300f, 1f, 7f, 8f, 9f, 10f, 11f),
+                    out TestPlayBurnerBurstParameters alternateBurst) &&
+                alternateBurst.weaponPointId == 28 && alternateBurst.variant == 1 &&
+                alternateBurst.primaryTextureId == 43 && alternateBurst.secondaryTextureId == 44 &&
+                alternateBurst.unusedP7 == 7 && alternateBurst.unusedP11 == 11,
+            "type 62 subtype 3 variant one resolves texture pair 43/44 and preserves unread p7-p11",
+            ref assertions);
+        Require(!TestPlayPresentationCore.TryCreateOriginalBurnerBurstParameters(
+                    true,
+                    Values(0f, 62f, 0f, 3f, 350f, 350f, 2f, 0f, 0f, 0f, 0f, 0f),
+                    out _),
+            "type 62 subtype 3 rejects an unobserved variant instead of guessing a texture pair",
+            ref assertions);
+
+        TestPlayBurnerBurstState burstState =
+            TestPlayPresentationCore.CreateOriginalBurnerBurstState();
+        for (int i = 0; i < 5; i++)
+            TestPlayPresentationCore.AdvanceOriginalBurnerBurst(false, burst, ref burstState);
+        Require(burstState.primaryAlive && !burstState.secondaryAlive &&
+                burstState.primaryUpdateCount == 5 && burstState.secondaryRemainingCounter == -1 &&
+                Mathf.Approximately(burstState.primaryExpansionPerSide, 3.5f / 3f) &&
+                Mathf.Approximately(burstState.secondaryBasisScale, Mathf.Pow(0.95f, 5f)),
+            "subtype 3 keeps BB_Burner after BB_BurnerBall independently expires on update five",
+            ref assertions);
+        bool burstAlive = true;
+        for (int i = 5; i < 11; i++)
+            burstAlive = TestPlayPresentationCore.AdvanceOriginalBurnerBurst(false, burst, ref burstState);
+        Require(!burstAlive && !burstState.primaryAlive && burstState.primaryUpdateCount == 11 &&
+                Mathf.Approximately(burstState.primaryExpansionPerSide, 3.5f * 11f / 15f),
+            "subtype 3 removes its remaining BB_Burner on update eleven",
+            ref assertions);
     }
 
     static void VerifySptStatusInitialization(ref int assertions)
@@ -763,6 +810,7 @@ public static class TestPlayRuntimeVerification
     {
         GameObject controllerObject = new GameObject("TestPlayVerification_NormalAttackController");
         GameObject rootObject = new GameObject("TestPlayVerification_NormalAttackRoot");
+        GameObject posePartObject = new GameObject("TestPlayVerification_NormalAttackPosePart");
         GameObject targetObject = new GameObject("TestPlayVerification_NormalAttackTarget");
         GameObject weaponPointObject = new GameObject("Weapon_point2.x");
         GameObject spawnedProjectile = null;
@@ -774,9 +822,12 @@ public static class TestPlayRuntimeVerification
             TestPlayTargetDummy target = targetObject.AddComponent<TestPlayTargetDummy>();
             target.logHits = false;
             rootObject.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            posePartObject.transform.SetParent(rootObject.transform, false);
             weaponPointObject.transform.SetParent(rootObject.transform, false);
             targetObject.transform.position = Vector3.forward * 2f;
             robo.root = rootObject;
+            robo.parts.Add(rootObject);
+            robo.parts.Add(posePartObject);
             robo.ani = new ani2 { animations = new List<animation>() };
             for (int i = 0; i < 200; i++)
             {
@@ -827,9 +878,35 @@ public static class TestPlayRuntimeVerification
                 new hod2v1("ComboEnd2") { parts = new List<hod2v1_Part>() }
             };
             int swordRecoveryAction = controller.stepLandingAction + 50;
+            hod2v1_Part rootPose = new hod2v1_Part
+            {
+                rotation = Quaternion.identity,
+                scale = Vector3.one,
+                position = Vector3.zero
+            };
+            hod2v1_Part standingPose = new hod2v1_Part
+            {
+                rotation = Quaternion.identity,
+                scale = Vector3.one,
+                position = new Vector3(0f, 1f, 0f)
+            };
+            hod2v1_Part recoveryPose = new hod2v1_Part
+            {
+                rotation = Quaternion.identity,
+                scale = Vector3.one,
+                position = new Vector3(0f, -1f, 0f)
+            };
+            robo.ani.animations[controller.idleAction].frames = new List<hod2v1>
+            {
+                new hod2v1("Standing") { parts = new List<hod2v1_Part> { rootPose, standingPose } }
+            };
             robo.ani.animations[controller.stepLandingAction].scripts = new List<script>
             {
                 new script { unk = 2, time = 0.5f, squirrel = "" }
+            };
+            robo.ani.animations[controller.stepLandingAction].frames = new List<hod2v1>
+            {
+                new hod2v1("Recovery") { parts = new List<hod2v1_Part> { rootPose, recoveryPose } }
             };
             robo.ani.animations[swordRecoveryAction].scripts = new List<script>();
             robo.ani.animations[swordRecoveryAction].frames = new List<hod2v1>
@@ -858,6 +935,7 @@ public static class TestPlayRuntimeVerification
             controller.target = target;
             TestPlayPresentationRuntime presentation = controllerObject.AddComponent<TestPlayPresentationRuntime>();
             presentation.controller = controller;
+            presentation.logMissingAudio = false;
             presentation.originalEffectShader = AssetDatabase.LoadAssetAtPath<Shader>(
                 "Assets/TestPlayOriginalEffect.shader");
             Texture2D swordTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(
@@ -866,8 +944,14 @@ public static class TestPlayRuntimeVerification
                 "Assets/Generated/TestPlay/OriginalTextures/12_sabel_line.png");
             Texture2D thunderTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(
                 "Assets/Generated/TestPlay/OriginalTextures/06_laser2.bmp");
+            Texture2D windRingTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(
+                "Assets/Generated/TestPlay/OriginalTextures/19_WindRing.png");
             Texture2D hinokoTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(
                 "Assets/Generated/TestPlay/OriginalTextures/39_hinoko.png");
+            Texture2D burnerTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(
+                "Assets/Generated/TestPlay/OriginalTextures/07_burner.png");
+            Texture2D burner2Texture = AssetDatabase.LoadAssetAtPath<Texture2D>(
+                "Assets/Generated/TestPlay/OriginalTextures/08_burner2.png");
             presentation.originalTextures.Add(new TestPlayTextureBinding
             {
                 loadSequence = 11,
@@ -891,10 +975,31 @@ public static class TestPlayRuntimeVerification
             });
             presentation.originalTextures.Add(new TestPlayTextureBinding
             {
+                loadSequence = 19,
+                scriptTextureId = TestPlayPresentationCore.OriginalWindRingTextureId,
+                originalFileName = TestPlayPresentationCore.OriginalWindRingTextureFileName,
+                texture = windRingTexture
+            });
+            presentation.originalTextures.Add(new TestPlayTextureBinding
+            {
                 loadSequence = 39,
                 scriptTextureId = 40,
                 originalFileName = "hinoko.png",
                 texture = hinokoTexture
+            });
+            presentation.originalTextures.Add(new TestPlayTextureBinding
+            {
+                loadSequence = 7,
+                scriptTextureId = 8,
+                originalFileName = "burner.png",
+                texture = burnerTexture
+            });
+            presentation.originalTextures.Add(new TestPlayTextureBinding
+            {
+                loadSequence = 8,
+                scriptTextureId = 9,
+                originalFileName = "burner2.png",
+                texture = burner2Texture
             });
             GameObject magicShieldPrefab = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             magicShieldPrefab.name = "TestPlayVerification_MagicShieldModelSlot1";
@@ -930,6 +1035,8 @@ public static class TestPlayRuntimeVerification
             MethodInfo tickMeleeAttacks = typeof(TestPlayController).GetMethod("TickActiveMeleeAttacks", InstancePrivate);
             MethodInfo tickSwordBeams = typeof(TestPlayController).GetMethod("TickActiveSwordBeams", InstancePrivate);
             MethodInfo tickThunderEffects = typeof(TestPlayController).GetMethod("TickActiveThunderEffects", InstancePrivate);
+            MethodInfo tickWindRingSpecialEffects = typeof(TestPlayController).GetMethod("TickActiveWindRingSpecialEffects", InstancePrivate);
+            MethodInfo tickBurnerBurstEffects = typeof(TestPlayController).GetMethod("TickActiveBurnerBurstEffects", InstancePrivate);
             MethodInfo tickHinokoEffects = typeof(TestPlayController).GetMethod("TickActiveHinokoEffects", InstancePrivate);
             MethodInfo tickMagicShieldEffects = typeof(TestPlayController).GetMethod("TickActiveMagicShieldEffects", InstancePrivate);
             MethodInfo updateCombatTimers = typeof(TestPlayController).GetMethod("UpdateOriginalCombatTimers", InstancePrivate);
@@ -939,6 +1046,10 @@ public static class TestPlayRuntimeVerification
             MethodInfo awake = typeof(TestPlayController).GetMethod("Awake", InstancePrivate);
             MethodInfo tickAnimation = typeof(TestPlayController).GetMethod("TickAnimation", InstancePrivate);
             MethodInfo startGroundRecovery = typeof(TestPlayController).GetMethod("StartGroundRecoverySequence", InstancePrivate);
+            MethodInfo startNormalAttack = typeof(TestPlayController).GetMethod("StartNormalAttackAction", InstancePrivate);
+            MethodInfo finishNormalAttack = typeof(TestPlayController).GetMethod("FinishNormalAttackSequence", InstancePrivate);
+            MethodInfo completeGroundRecovery = typeof(TestPlayController).GetMethod("CompleteGroundRecoverySequence", InstancePrivate);
+            MethodInfo applyPose = typeof(TestPlayController).GetMethod("ApplyPose", InstancePrivate);
             MethodInfo applyRootMotion = typeof(TestPlayController).GetMethod("ApplyRootMotion", InstancePrivate);
             MethodInfo getOneShot = typeof(TestPlayController).GetMethod("GetOneShotActionFromInput", InstancePrivate);
             MethodInfo applyShotSteering = typeof(TestPlayController).GetMethod("ApplyOriginalShotSteering", InstancePrivate);
@@ -953,17 +1064,22 @@ public static class TestPlayRuntimeVerification
                     resolveMelee != null && resolveWeaponAction != null &&
                     handle != null && handleAssignment != null && spawnRunProc != null && tickMeleeAttacks != null &&
                     tickSwordBeams != null && tickThunderEffects != null && tickHinokoEffects != null &&
+                    tickWindRingSpecialEffects != null &&
+                    tickBurnerBurstEffects != null &&
                     tickMagicShieldEffects != null &&
                     updateCombatTimers != null &&
                     updateCooldowns != null && updateAttack != null &&
                     updateInput != null && awake != null && tickAnimation != null && startGroundRecovery != null &&
+                    startNormalAttack != null &&
+                    finishNormalAttack != null && completeGroundRecovery != null && applyPose != null &&
                     applyRootMotion != null && getOneShot != null && applyShotSteering != null &&
                     energyTick != null && spawnProjectile != null,
                 "original normal-attack runtime helpers are available", ref assertions);
 
             Require(presentation.originalEffectShader != null && swordTexture != null && swordLineTexture != null &&
-                    thunderTexture != null && hinokoTexture != null,
-                "original sword-beam, thunder, and hinoko textures are available", ref assertions);
+                    thunderTexture != null && windRingTexture != null && hinokoTexture != null &&
+                    burnerTexture != null && burner2Texture != null,
+                "original sword-beam, thunder, WindRing, hinoko, and burner-pair textures are available", ref assertions);
             awake.Invoke(controller, null);
             controller.SetAirborneFlag(false);
             Require(controller.state.GetInt(150) == 0,
@@ -1067,6 +1183,50 @@ public static class TestPlayRuntimeVerification
                 "holding X keeps its script state but does not auto-repeat the attack", ref assertions);
             SetField(controller, "sampledShotKeyHeld", false);
             updateInput.Invoke(controller, null);
+
+            controller.blendActionTransitions = false;
+            controller.ChangeAnimation(controller.idleAction);
+            controller.SetAirborneFlag(false);
+            controller.state.SetInt(190, 0);
+            startNormalAttack.Invoke(controller, new object[] { controller.shotAction });
+            finishNormalAttack.Invoke(controller, null);
+            Require(controller.currentAnimationIndex == controller.stepLandingAction &&
+                    controller.CurrentActionSelection.logicalActionId == controller.stepLandingAction &&
+                    (bool)GetField(controller, "presentStandingPoseDuringGroundedShotRecovery"),
+                "grounded action-100 completion keeps logical action 6 while presenting the standing pose",
+                ref assertions);
+            applyPose.Invoke(controller, null);
+            Require(posePartObject.transform.localPosition == standingPose.position &&
+                    posePartObject.transform.localPosition != recoveryPose.position,
+                "grounded action-100 recovery applies the standing HOD instead of the action-6 landing HOD",
+                ref assertions);
+            int suppressedLandingSounds = presentation.SuppressedSoundPlaybackCount;
+            handle.Invoke(controller, new object[] { "Snd", Values(2f), "Snd(2);" });
+            Require(presentation.SuppressedSoundPlaybackCount == suppressedLandingSounds + 1,
+                "grounded stationary action-100 recovery suppresses action-6 Snd(2) playback",
+                ref assertions);
+            completeGroundRecovery.Invoke(controller, null);
+            Require(controller.currentAnimationIndex == controller.idleAction &&
+                    !(bool)GetField(controller, "presentStandingPoseDuringGroundedShotRecovery"),
+                "grounded shot recovery clears its standing-pose presentation adapter on idle entry",
+                ref assertions);
+
+            controller.ChangeAnimation(controller.moveAction);
+            controller.state.SetInt(190, 8);
+            startNormalAttack.Invoke(controller, new object[] { controller.shotAction });
+            finishNormalAttack.Invoke(controller, null);
+            Require(controller.currentAnimationIndex == controller.stepLandingAction &&
+                    !(bool)GetField(controller, "presentStandingPoseDuringGroundedShotRecovery"),
+                "a grounded action-100 shot started from movement keeps the normal action-6 recovery pose",
+                ref assertions);
+            suppressedLandingSounds = presentation.SuppressedSoundPlaybackCount;
+            handle.Invoke(controller, new object[] { "Snd", Values(2f), "Snd(2);" });
+            Require(presentation.SuppressedSoundPlaybackCount == suppressedLandingSounds,
+                "ordinary action-6 recovery keeps Snd(2) playback enabled",
+                ref assertions);
+            completeGroundRecovery.Invoke(controller, null);
+            controller.state.SetInt(190, 0);
+            controller.blendActionTransitions = true;
 
             controller.currentAnimationIndex = controller.boostAction;
             SetField(controller, "boostMotionActive", true);
@@ -1344,6 +1504,215 @@ public static class TestPlayRuntimeVerification
                 "RunProc2 type 60 p8=10 expires after the active phase and ten-step scalar fade",
                 ref assertions);
 
+            weaponPointObject.transform.SetPositionAndRotation(
+                new Vector3(2f, 3f, 4f),
+                Quaternion.Euler(15f, 30f, 45f));
+            int windRingSpecialStart = windTransients.Count;
+            List<TestPlayScriptValue> windRingSpecialArguments =
+                Values(0f, 62f, 1f, 2f, 200f, 0f, 0f, 0f, 0f, 0f, 0f, 0f);
+            Require(TestPlayPresentationCore.TryCreateOriginalWindRingSpecialParameters(
+                        true,
+                        windRingSpecialArguments,
+                        out TestPlayWindRingSpecialParameters windRingSpecialParameters) &&
+                    windRingSpecialParameters.weaponPointId == 1 &&
+                    windRingSpecialParameters.unusedP4 == 200,
+                "subtype 2 parameter extraction keeps p2 as WEAPONPOINT and records the unread p4 value",
+                ref assertions);
+            TestPlayWindRingSpecialState windRingSpecialCoreState =
+                TestPlayPresentationCore.CreateOriginalWindRingSpecialState();
+            bool windRingSpecialCoreAlive = true;
+            for (int i = 1; i <= 11; i++)
+                windRingSpecialCoreAlive =
+                    TestPlayPresentationCore.AdvanceOriginalWindRingSpecial(ref windRingSpecialCoreState);
+            Require(!windRingSpecialCoreAlive && windRingSpecialCoreState.elapsedTicks == 11 &&
+                    Mathf.Approximately(windRingSpecialCoreState.size, 4.3f) &&
+                    windRingSpecialCoreState.alphaByte == 15,
+                "subtype 2 Core grows on update eleven before rejecting candidate alpha -9",
+                ref assertions);
+            spawnRunProc.Invoke(controller, new object[]
+            {
+                windRingSpecialArguments, true
+            });
+            GameObject windRingSpecialObject = windTransients.Count == windRingSpecialStart + 1
+                ? windTransients[windRingSpecialStart]
+                : null;
+            TestPlayOriginalEffect windRingSpecialEffect = windRingSpecialObject != null
+                ? windRingSpecialObject.GetComponent<TestPlayOriginalEffect>()
+                : null;
+            Require(windRingSpecialEffect != null &&
+                    windRingSpecialEffect.sourceTexture == windRingTexture &&
+                    !windRingSpecialEffect.billboard &&
+                    windRingSpecialEffect.displaySize == Vector2.one &&
+                    windRingSpecialObject.transform.position == new Vector3(2f, 3f, 4f) &&
+                    windRingSpecialObject.transform.rotation == Quaternion.identity &&
+                    windRingSpecialObject.GetComponent<TestPlayProjectile>() == null &&
+                    ((System.Collections.ICollection)GetField(controller, "activeWindRingSpecialEffects")).Count == 1 &&
+                    Mathf.Approximately(target.hp, 1000f),
+                "RunProc2 type 62 subtype 2 creates a translation-snapshot non-combat BB_WindRing quad",
+                ref assertions);
+
+            weaponPointObject.transform.SetPositionAndRotation(
+                new Vector3(8f, 9f, 10f),
+                Quaternion.Euler(60f, 90f, 120f));
+            tickWindRingSpecialEffects.Invoke(controller, null);
+            Require(windRingSpecialObject != null &&
+                    windRingSpecialObject.transform.position == new Vector3(2f, 3f, 4f) &&
+                    windRingSpecialObject.transform.rotation == Quaternion.identity &&
+                    Mathf.Approximately(windRingSpecialEffect.displaySize.x, 1.3f) &&
+                    Mathf.Approximately(windRingSpecialEffect.displaySize.y, 1.3f) &&
+                    Mathf.Approximately(windRingSpecialEffect.CurrentTint.a, 231f / 255f),
+                "subtype 2 copies only WEAPONPOINT translation and grows before applying -24 alpha on update one",
+                ref assertions);
+
+            spawnRunProc.Invoke(controller, new object[]
+            {
+                Values(0f, 62f, 1f, 2f, 999f, 88f, 77f, 66f, 55f, 44f, 33f, 22f), true
+            });
+            GameObject secondWindRingSpecialObject = windTransients.Count == windRingSpecialStart + 2
+                ? windTransients[windRingSpecialStart + 1]
+                : null;
+            TestPlayOriginalEffect secondWindRingSpecialEffect = secondWindRingSpecialObject != null
+                ? secondWindRingSpecialObject.GetComponent<TestPlayOriginalEffect>()
+                : null;
+            Require(secondWindRingSpecialEffect != null &&
+                    secondWindRingSpecialEffect.displaySize == Vector2.one &&
+                    secondWindRingSpecialObject.transform.position == new Vector3(8f, 9f, 10f) &&
+                    ((System.Collections.ICollection)GetField(controller, "activeWindRingSpecialEffects")).Count == 2,
+                "subtype 2 instances are independent and p4-p11 do not replace its fixed BB_WindRing parameters",
+                ref assertions);
+
+            int procWindRingSpecialEvents = 0;
+            int visualWindRingSpecialEvents = 0;
+            for (int i = 0; i < windPresentationEvents.Count; i++)
+            {
+                TestPlayPresentationEvent presentationEvent = windPresentationEvents[i];
+                if (presentationEvent.type == TestPlayPresentationEventType.Proc &&
+                    presentationEvent.procType == 62 && presentationEvent.subtype == 2 &&
+                    presentationEvent.evidence == TestPlayPresentationEvidence.OriginalExecutableConfirmed &&
+                    presentationEvent.adapter == TestPlayPresentationAdapterKind.OriginalTextureQuad)
+                    procWindRingSpecialEvents++;
+                if (presentationEvent.type == TestPlayPresentationEventType.Visual &&
+                    presentationEvent.source == "RunProc2:62:2" &&
+                    presentationEvent.textureId == TestPlayPresentationCore.OriginalWindRingTextureId &&
+                    presentationEvent.evidence == TestPlayPresentationEvidence.OriginalExecutableConfirmed &&
+                    presentationEvent.adapter == TestPlayPresentationAdapterKind.OriginalTextureQuad &&
+                    presentationEvent.diagnostic ==
+                        "OriginalBBWindRingParametersAndLifecycleWithUnityQuadAdapter")
+                    visualWindRingSpecialEvents++;
+            }
+            Require(procWindRingSpecialEvents == 2 && visualWindRingSpecialEvents == 2,
+                "subtype 2 trace records confirmed BB_WindRing semantics and the named-texture Unity quad Adapter",
+                ref assertions);
+
+            for (int i = 2; i <= 10; i++)
+                tickWindRingSpecialEffects.Invoke(controller, null);
+            Require(windRingSpecialObject != null && secondWindRingSpecialObject != null &&
+                    Mathf.Approximately(windRingSpecialEffect.displaySize.x, 4f) &&
+                    Mathf.Approximately(windRingSpecialEffect.displaySize.y, 4f) &&
+                    Mathf.Approximately(windRingSpecialEffect.CurrentTint.a, 15f / 255f) &&
+                    Mathf.Approximately(secondWindRingSpecialEffect.displaySize.x, 3.7f) &&
+                    Mathf.Approximately(secondWindRingSpecialEffect.displaySize.y, 3.7f) &&
+                    Mathf.Approximately(secondWindRingSpecialEffect.CurrentTint.a, 39f / 255f),
+                "subtype 2 remains alive through update ten with exact size and alpha state",
+                ref assertions);
+            tickWindRingSpecialEffects.Invoke(controller, null);
+            Require(windRingSpecialObject == null && secondWindRingSpecialObject != null &&
+                    Mathf.Approximately(secondWindRingSpecialEffect.displaySize.x, 4f) &&
+                    Mathf.Approximately(secondWindRingSpecialEffect.displaySize.y, 4f) &&
+                    Mathf.Approximately(secondWindRingSpecialEffect.CurrentTint.a, 15f / 255f) &&
+                    ((System.Collections.ICollection)GetField(controller, "activeWindRingSpecialEffects")).Count == 1,
+                "the first subtype 2 instance expires on update eleven without affecting the second instance",
+                ref assertions);
+            tickWindRingSpecialEffects.Invoke(controller, null);
+            Require(secondWindRingSpecialObject == null &&
+                    ((System.Collections.ICollection)GetField(controller, "activeWindRingSpecialEffects")).Count == 0 &&
+                    windTransients.Count == windRingSpecialStart,
+                "the second subtype 2 instance independently expires and cleans up on update eleven",
+                ref assertions);
+
+            weaponPointObject.transform.SetPositionAndRotation(
+                new Vector3(2f, 3f, 4f),
+                Quaternion.identity);
+            int burnerBurstStart = windTransients.Count;
+            spawnRunProc.Invoke(controller, new object[]
+            {
+                Values(0f, 62f, 1f, 3f, 350f, 350f, 0f, 0f, 0f, 0f, 0f, 0f), true
+            });
+            GameObject burnerPrimaryObject = windTransients.Count == burnerBurstStart + 2
+                ? windTransients[burnerBurstStart]
+                : null;
+            GameObject burnerBallObject = windTransients.Count == burnerBurstStart + 2
+                ? windTransients[burnerBurstStart + 1]
+                : null;
+            TestPlayOriginalEffect burnerPrimaryEffect = burnerPrimaryObject != null
+                ? burnerPrimaryObject.GetComponent<TestPlayOriginalEffect>()
+                : null;
+            TestPlayOriginalEffect burnerBallEffect = burnerBallObject != null
+                ? burnerBallObject.GetComponent<TestPlayOriginalEffect>()
+                : null;
+            Require(burnerPrimaryEffect != null && burnerBallEffect != null &&
+                    burnerPrimaryEffect.sourceTexture == burnerTexture &&
+                    burnerBallEffect.sourceTexture == burner2Texture &&
+                    burnerPrimaryEffect.displaySize == new Vector2(3.5f, 3.5f) &&
+                    burnerBallEffect.displaySize == Vector2.one * 1.75f &&
+                    Mathf.Approximately(burnerPrimaryEffect.CurrentTint.a, 128f / 255f) &&
+                    burnerPrimaryObject.GetComponent<TestPlayProjectile>() == null &&
+                    burnerBallObject.GetComponent<TestPlayProjectile>() == null &&
+                    ((System.Collections.ICollection)GetField(controller, "activeBurnerBurstEffects")).Count == 1 &&
+                    Mathf.Approximately(target.hp, 1000f),
+                "RunProc2 type 62 subtype 3 creates the non-combat BB_Burner and BB_BurnerBall texture pair",
+                ref assertions);
+
+            weaponPointObject.transform.SetPositionAndRotation(
+                new Vector3(8f, 9f, 10f),
+                Quaternion.Euler(0f, 90f, 0f));
+            tickBurnerBurstEffects.Invoke(controller, null);
+            Require(burnerPrimaryObject != null && burnerBallObject != null &&
+                    burnerPrimaryObject.transform.position == weaponPointObject.transform.position &&
+                    Vector3.Distance(
+                        burnerBallObject.transform.position,
+                        weaponPointObject.transform.TransformPoint(Vector3.forward * 0.4375f)) < 0.0001f &&
+                    Mathf.Approximately(burnerPrimaryEffect.displaySize.x, 3.5f + 7f / 15f) &&
+                    Mathf.Approximately(burnerBallEffect.displaySize.x, 1.75f * 0.95f),
+                "subtype 3 follows the WEAPONPOINT matrix and advances both confirmed update formulas",
+                ref assertions);
+
+            int procBurnerBurstEvents = 0;
+            int visualBurnerBurstEvents = 0;
+            for (int i = 0; i < windPresentationEvents.Count; i++)
+            {
+                TestPlayPresentationEvent presentationEvent = windPresentationEvents[i];
+                if (presentationEvent.type == TestPlayPresentationEventType.Proc &&
+                    presentationEvent.procType == 62 && presentationEvent.subtype == 3 &&
+                    presentationEvent.evidence == TestPlayPresentationEvidence.OriginalExecutableConfirmed &&
+                    presentationEvent.adapter == TestPlayPresentationAdapterKind.OriginalTextureQuad)
+                    procBurnerBurstEvents++;
+                if (presentationEvent.type == TestPlayPresentationEventType.Visual &&
+                    (presentationEvent.source == "RunProc2:62:3:Primary" ||
+                     presentationEvent.source == "RunProc2:62:3:Ball") &&
+                    presentationEvent.evidence == TestPlayPresentationEvidence.OriginalExecutableConfirmed &&
+                    presentationEvent.adapter == TestPlayPresentationAdapterKind.OriginalTextureQuad)
+                    visualBurnerBurstEvents++;
+            }
+            Require(procBurnerBurstEvents == 1 && visualBurnerBurstEvents == 2,
+                "subtype 3 trace records one confirmed Proc and two independently adapted original effects",
+                ref assertions);
+
+            for (int i = 1; i < 5; i++)
+                tickBurnerBurstEffects.Invoke(controller, null);
+            Require(burnerPrimaryObject != null && burnerBallObject == null &&
+                    ((System.Collections.ICollection)GetField(controller, "activeBurnerBurstEffects")).Count == 1 &&
+                    windTransients.Count == burnerBurstStart + 1,
+                "BB_BurnerBall is removed on update five while BB_Burner remains active",
+                ref assertions);
+            for (int i = 5; i < 11; i++)
+                tickBurnerBurstEffects.Invoke(controller, null);
+            Require(burnerPrimaryObject == null &&
+                    ((System.Collections.ICollection)GetField(controller, "activeBurnerBurstEffects")).Count == 0 &&
+                    windTransients.Count == burnerBurstStart,
+                "BB_Burner is independently removed on update eleven and both subtype 3 layers are cleaned up",
+                ref assertions);
+
             SetField(controller, "velocity", Vector3.zero);
             weaponPointObject.transform.SetPositionAndRotation(
                 new Vector3(2f, 3f, 4f),
@@ -1506,10 +1875,12 @@ public static class TestPlayRuntimeVerification
                 ref assertions);
 
             int missingThunderTransientCount = windTransients.Count;
-            spawnRunProc.Invoke(controller, new object[]
-            {
-                Values(0f, 60f, 49f, 1f, 4f, 0f, 7f, 10f, 10f, 0f, 0f, 0f), true
-            });
+            WindomVerificationRunner.ExpectWarning(
+                "[TestPlay] Unhandled RunProc2:60 WEAPONPOINT 49 is not bound; original LZ_ThunderEffect is not created.",
+                () => spawnRunProc.Invoke(controller, new object[]
+                {
+                    Values(0f, 60f, 49f, 1f, 4f, 0f, 7f, 10f, 10f, 0f, 0f, 0f), true
+                }));
             Require(windTransients.Count == missingThunderTransientCount &&
                     ((System.Collections.ICollection)GetField(controller, "activeThunderEffects")).Count == 0,
                 "RunProc2 type 60 creates nothing when its WEAPONPOINT is unavailable",
@@ -1593,6 +1964,8 @@ public static class TestPlayRuntimeVerification
             List<GameObject> transients = (List<GameObject>)GetField(controller, "spawnedTransientObjects");
             spawnedType1Projectile = transients[transients.Count - 1];
             TestPlayProjectile type1Projectile = spawnedType1Projectile.GetComponent<TestPlayProjectile>();
+            TestPlayType1TrailEffect type1TrailEffect =
+                spawnedType1Projectile.GetComponent<TestPlayType1TrailEffect>();
             Require(type1Projectile != null && type1Projectile.useOriginalType1Core &&
                     type1Projectile.weaponPointId == 0 &&
                     type1Projectile.remainingActiveTicks == TestPlayCombatCore.OriginalType1ActiveTicks &&
@@ -1605,11 +1978,23 @@ public static class TestPlayRuntimeVerification
                     Mathf.Approximately(controller.currentEnergy, movementEnergyBeforeType1),
                 "RunProc2 type 1 maps p0..p6, snapshots WEAPONPOINT, charges p0 from the Script.spt Energy gauge without consuming Generator, and starts a fixed 300-tick LZ_Beam",
                 ref assertions);
+            Require(type1TrailEffect != null &&
+                    type1TrailEffect.TrailRenderer != null &&
+                    type1TrailEffect.TrailRenderer.useWorldSpace &&
+                    type1TrailEffect.TrailRenderer.alignment == LineAlignment.View &&
+                    type1TrailEffect.PositionCount == 1 &&
+                    Mathf.Approximately(type1TrailEffect.displayWidth, 0.1f) &&
+                    spawnedType1Projectile.GetComponent<TestPlayOriginalEffect>() == null,
+                "type 1 presentation starts as a one-point world-space ribbon rather than a pre-extended billboard quad",
+                ref assertions);
             float type1HpBefore = target.hp;
             Require(type1Projectile.OriginalType1TrailCount == 1 &&
                     !type1Projectile.SimulateOriginalTick(1f / 60f) &&
                     type1Projectile.remainingActiveTicks == 299 &&
                     type1Projectile.OriginalType1TrailCount == 2 &&
+                    type1TrailEffect.PositionCount == 2 &&
+                    type1TrailEffect.TrailRenderer.GetPosition(0) == Vector3.zero &&
+                    type1TrailEffect.TrailRenderer.GetPosition(1) == Vector3.forward &&
                     spawnedType1Projectile.transform.position == Vector3.forward &&
                     Mathf.Approximately(target.hp, type1HpBefore - 37f) &&
                     target.lastDownValue == 44 && target.lastAttackFlag == 2,

@@ -31,7 +31,8 @@ public enum TestPlayPresentationAdapterKind
     OriginalTextureQuad,
     PrimitiveFallback,
     CameraShakeApproximation,
-    CombatOnly
+    CombatOnly,
+    OriginalTextureTrail
 }
 
 public struct TestPlayPresentationEvent
@@ -98,6 +99,53 @@ public struct TestPlayHinokoState
     public int elapsedTicks;
     public int alphaByte;
     public float accumulatedDrawDegrees;
+}
+
+public struct TestPlayWindRingSpecialParameters
+{
+    public int weaponPointId;
+    public int unusedP4;
+    public int unusedP5;
+    public int unusedP6;
+    public int unusedP7;
+    public int unusedP8;
+    public int unusedP9;
+    public int unusedP10;
+    public int unusedP11;
+}
+
+public struct TestPlayWindRingSpecialState
+{
+    public int elapsedTicks;
+    public float size;
+    public int alphaByte;
+}
+
+public struct TestPlayBurnerBurstParameters
+{
+    public int weaponPointId;
+    public float primarySize;
+    public float primaryLength;
+    public float secondarySize;
+    public float secondaryLocalZ;
+    public int variant;
+    public int primaryTextureId;
+    public int secondaryTextureId;
+    public int unusedP7;
+    public int unusedP8;
+    public int unusedP9;
+    public int unusedP10;
+    public int unusedP11;
+}
+
+public struct TestPlayBurnerBurstState
+{
+    public int primaryUpdateCount;
+    public int secondaryRemainingCounter;
+    public float primaryExpansionPerSide;
+    public float secondaryBasisScale;
+    public bool primaryAlive;
+    public bool secondaryAlive;
 }
 
 public struct TestPlayMagicShieldParameters
@@ -179,6 +227,18 @@ public static class TestPlayPresentationCore
     public const int ThunderEffectProcType = 60;
     public const int OriginalThunderFadeTicks = 10;
     public const int SpecialEffectProcType = 62;
+    public const int WindRingSpecialSubtype = 2;
+    public const int BurnerBurstSubtype = 3;
+    public const int OriginalBurnerBurstVariant0PrimaryTextureId = 8;
+    public const int OriginalBurnerBurstVariant0SecondaryTextureId = 9;
+    public const int OriginalBurnerBurstVariant1PrimaryTextureId = 43;
+    public const int OriginalBurnerBurstVariant1SecondaryTextureId = 44;
+    public const string OriginalWindRingTextureFileName = "WindRing.png";
+    public const int OriginalWindRingTextureId = 20;
+    public const float OriginalWindRingInitialSize = 1f;
+    public const float OriginalWindRingGrowthPerTick = 0.3f;
+    public const int OriginalWindRingInitialAlphaByte = 255;
+    public const int OriginalWindRingAlphaDeltaPerTick = -24;
     public const int HinokoSubtype = 6;
     public const int OriginalHinokoTextureId = 40;
     public const int OriginalHinokoInitialAlphaByte = 255;
@@ -431,6 +491,156 @@ public static class TestPlayPresentationCore
     {
         return IsOriginalSpecialEffectProc(extended, procType, subtype) &&
                subtype == MagicShieldSubtype;
+    }
+
+    public static bool IsOriginalWindRingSpecialProc(bool extended, int procType, int subtype)
+    {
+        return IsOriginalSpecialEffectProc(extended, procType, subtype) &&
+               subtype == WindRingSpecialSubtype;
+    }
+
+    public static bool IsOriginalBurnerBurstProc(bool extended, int procType, int subtype)
+    {
+        return IsOriginalSpecialEffectProc(extended, procType, subtype) &&
+               subtype == BurnerBurstSubtype;
+    }
+
+    public static bool TryCreateOriginalBurnerBurstParameters(
+        bool extended,
+        IReadOnlyList<TestPlayScriptValue> arguments,
+        out TestPlayBurnerBurstParameters value)
+    {
+        value = default(TestPlayBurnerBurstParameters);
+        if (!IsOriginalBurnerBurstProc(
+                extended,
+                GetInt(arguments, 1, -1),
+                GetInt(arguments, 3, -1)) ||
+            arguments == null || arguments.Count < 12)
+            return false;
+
+        int variant = GetInt(arguments, 6, 0);
+        if (variant != 0 && variant != 1)
+            return false;
+
+        float primarySize = GetInt(arguments, 4, 0) / 100f;
+        float primaryLength = GetInt(arguments, 5, 0) / 100f;
+        value = new TestPlayBurnerBurstParameters
+        {
+            weaponPointId = GetInt(arguments, 2, -1),
+            primarySize = primarySize,
+            primaryLength = primaryLength,
+            secondarySize = primarySize / 2f,
+            secondaryLocalZ = primaryLength / 8f,
+            variant = variant,
+            primaryTextureId = variant == 0
+                ? OriginalBurnerBurstVariant0PrimaryTextureId
+                : OriginalBurnerBurstVariant1PrimaryTextureId,
+            secondaryTextureId = variant == 0
+                ? OriginalBurnerBurstVariant0SecondaryTextureId
+                : OriginalBurnerBurstVariant1SecondaryTextureId,
+            unusedP7 = GetInt(arguments, 7, 0),
+            unusedP8 = GetInt(arguments, 8, 0),
+            unusedP9 = GetInt(arguments, 9, 0),
+            unusedP10 = GetInt(arguments, 10, 0),
+            unusedP11 = GetInt(arguments, 11, 0)
+        };
+        return true;
+    }
+
+    public static TestPlayBurnerBurstState CreateOriginalBurnerBurstState()
+    {
+        return new TestPlayBurnerBurstState
+        {
+            primaryUpdateCount = 0,
+            secondaryRemainingCounter = OriginalBurnerBallInitialCounter,
+            primaryExpansionPerSide = 0f,
+            secondaryBasisScale = 1f,
+            primaryAlive = true,
+            secondaryAlive = true
+        };
+    }
+
+    public static bool AdvanceOriginalBurnerBurst(
+        bool ownerMarkedForDeletion,
+        TestPlayBurnerBurstParameters parameters,
+        ref TestPlayBurnerBurstState state)
+    {
+        if (state.primaryAlive)
+        {
+            TestPlayOriginalBurnerPrimaryUpdateResult primary = AdvanceOriginalBurnerPrimary(
+                ownerMarkedForDeletion,
+                parameters.primarySize,
+                state.primaryUpdateCount);
+            state.primaryUpdateCount = primary.updateCount;
+            state.primaryExpansionPerSide -= primary.matrixAdjustmentArgument;
+            state.primaryAlive = !primary.expiredAfterUpdate;
+        }
+
+        if (state.secondaryAlive)
+        {
+            TestPlayOriginalBurnerBallUpdateResult secondary = AdvanceOriginalBurnerBall(
+                ownerMarkedForDeletion,
+                state.secondaryRemainingCounter);
+            state.secondaryRemainingCounter = secondary.remainingCounter;
+            state.secondaryBasisScale *= secondary.matrixBasisMultiplier;
+            state.secondaryAlive = !secondary.expiredAfterUpdate;
+        }
+
+        return state.primaryAlive || state.secondaryAlive;
+    }
+
+    public static bool TryCreateOriginalWindRingSpecialParameters(
+        bool extended,
+        IReadOnlyList<TestPlayScriptValue> arguments,
+        out TestPlayWindRingSpecialParameters value)
+    {
+        value = default(TestPlayWindRingSpecialParameters);
+        if (!IsOriginalWindRingSpecialProc(
+                extended,
+                GetInt(arguments, 1, -1),
+                GetInt(arguments, 3, -1)) ||
+            arguments == null || arguments.Count < 12)
+            return false;
+
+        // FUN_004fa830 reads p2 only. It passes fixed 1.0 size, draw mode 1,
+        // +0.3 growth and -24 alpha delta to BB_WindRing; p4-p11 are unread.
+        value = new TestPlayWindRingSpecialParameters
+        {
+            weaponPointId = GetInt(arguments, 2, -1),
+            unusedP4 = GetInt(arguments, 4, 0),
+            unusedP5 = GetInt(arguments, 5, 0),
+            unusedP6 = GetInt(arguments, 6, 0),
+            unusedP7 = GetInt(arguments, 7, 0),
+            unusedP8 = GetInt(arguments, 8, 0),
+            unusedP9 = GetInt(arguments, 9, 0),
+            unusedP10 = GetInt(arguments, 10, 0),
+            unusedP11 = GetInt(arguments, 11, 0)
+        };
+        return true;
+    }
+
+    public static TestPlayWindRingSpecialState CreateOriginalWindRingSpecialState()
+    {
+        // FUN_0048bef0 initializes a 1.0 quad with vertex alpha 255.
+        return new TestPlayWindRingSpecialState
+        {
+            elapsedTicks = 0,
+            size = OriginalWindRingInitialSize,
+            alphaByte = OriginalWindRingInitialAlphaByte
+        };
+    }
+
+    public static bool AdvanceOriginalWindRingSpecial(ref TestPlayWindRingSpecialState state)
+    {
+        // FUN_00491af0 grows the quad first, then applies signed alpha delta.
+        // The candidate alpha is not written when negative; update 11 removes it.
+        state.elapsedTicks++;
+        state.size += OriginalWindRingGrowthPerTick;
+        int nextAlpha = state.alphaByte + OriginalWindRingAlphaDeltaPerTick;
+        if (nextAlpha < 0)
+            return false;
+        state.alphaByte = nextAlpha;
+        return true;
     }
 
     public static bool IsOriginalHinokoProc(bool extended, int procType, int subtype)

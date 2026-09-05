@@ -13,7 +13,6 @@ public static class TestPlayGoldenTraceVerification
 {
     const string MechId = "ガンダムTR-1ヘイズル改";
     const string SelectedMechFolderEditorPref = "WindomXP.TestPlay.SelectedOriginalMechFolder";
-    static bool running;
 
     sealed class RunCapture
     {
@@ -112,6 +111,13 @@ public static class TestPlayGoldenTraceVerification
         public bool forwardMeleeEntryOnPress;
         public bool forwardMeleeSemanticsValid = true;
         public int forwardMeleeMovementTicks;
+        public float forwardMeleeApproachDistance;
+        public float forwardMeleeFollowupDistance;
+        public float forwardMeleeMinimumTargetDistance = float.PositiveInfinity;
+        public bool forwardMeleeEnteredTargetRadius;
+        public bool forwardMeleePassedTargetPlane;
+        public bool forwardMeleeHeadingCaptured;
+        public Vector3 forwardMeleeHeading;
         public int forwardMeleeEnergyDrainTicks;
         public float forwardMeleeEnergyConsumed;
         public int forwardMeleeFollowupEvents;
@@ -130,6 +136,14 @@ public static class TestPlayGoldenTraceVerification
         public int combo132Ticks;
         public int combo133Entries;
         public int combo133Ticks;
+        public float combo131Distance;
+        public float combo132Distance;
+        public float combo133Distance;
+        public float comboMinimumTargetDistance = float.PositiveInfinity;
+        public bool comboEnteredTargetRadius;
+        public bool comboPassedTargetPlane;
+        public bool comboHeadingCaptured;
+        public Vector3 comboHeading;
         public int comboEntryTick = -1;
         public bool comboEntryOnPress;
         public readonly List<int> comboQueueTicks = new List<int>();
@@ -164,89 +178,33 @@ public static class TestPlayGoldenTraceVerification
     }
 
     [MenuItem("Tools/WindomXP/Test Play/Run Real-Mech Golden Traces")]
-    public static async void RunFromMenu()
+    public static void RunFromMenu()
     {
-        if (running)
-        {
-            Debug.LogWarning("[TestPlayGolden] A real-mech golden trace run is already active.");
-            return;
-        }
-
-        running = true;
-        try
-        {
-            await RunAllAsync();
-        }
-        catch (Exception ex)
-        {
-            Debug.LogError("[TestPlayGolden] Failed: " + ex);
-        }
-        finally
-        {
-            running = false;
-        }
+        WindomVerificationRunner.StartVerification(WindomVerificationSelection.Golden | WindomVerificationSelection.BaselineComparison);
     }
 
     [MenuItem("Tools/WindomXP/Test Play/Run Selected-Mech GT-001 Reference Trace")]
-    public static async void RunSelectedMechGt001FromMenu()
+    public static void RunSelectedMechGt001FromMenu()
     {
-        if (running)
-        {
-            Debug.LogWarning("[TestPlayGolden] A real-mech golden trace run is already active.");
-            return;
-        }
-
-        string projectRoot = Directory.GetParent(Application.dataPath).FullName;
         string selectedFolder = EditorUtility.OpenFolderPanel(
             "原作EXEで使用する機体フォルダーを選択",
-            Path.Combine(projectRoot, "Windom_Data", "Robo"),
-            "");
-        if (string.IsNullOrEmpty(selectedFolder))
-            return;
-
+            Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Windom_Data", "Robo"), "");
+        if (string.IsNullOrEmpty(selectedFolder)) return;
+        string id = WindomVerificationRunner.StartVerification(WindomVerificationSelection.SelectedGolden, selectedFolder);
         EditorPrefs.SetString(SelectedMechFolderEditorPref, selectedFolder);
-
-        await RunSelectedMechGt001FromFolderAsync(selectedFolder);
+        Debug.Log("[TestPlayGolden] Started " + id);
     }
 
     [MenuItem("Tools/WindomXP/Test Play/Run Last Selected-Mech GT-001 Reference Trace")]
-    public static async void RunLastSelectedMechGt001FromMenu()
+    public static void RunLastSelectedMechGt001FromMenu()
     {
         string selectedFolder = EditorPrefs.GetString(SelectedMechFolderEditorPref, "");
         if (string.IsNullOrWhiteSpace(selectedFolder))
-        {
-            Debug.LogError("[TestPlayGolden] No selected-mech folder is remembered. " +
-                           "Run Selected-Mech GT-001 Reference Trace first.");
-            return;
-        }
-
-        await RunSelectedMechGt001FromFolderAsync(selectedFolder);
+            throw new InvalidOperationException("Run Selected-Mech GT-001 Reference Trace first.");
+        WindomVerificationRunner.StartVerification(WindomVerificationSelection.SelectedGolden, selectedFolder);
     }
 
-    static async Task RunSelectedMechGt001FromFolderAsync(string selectedFolder)
-    {
-        if (running)
-        {
-            Debug.LogWarning("[TestPlayGolden] A real-mech golden trace run is already active.");
-            return;
-        }
-
-        running = true;
-        try
-        {
-            await RunSelectedMechGt001Async(selectedFolder);
-        }
-        catch (Exception ex)
-        {
-            Debug.LogError("[TestPlayGolden] Selected-mech GT-001 failed: " + ex);
-        }
-        finally
-        {
-            running = false;
-        }
-    }
-
-    static async Task RunAllAsync()
+    internal static async Task<int> RunForJobAsync(string outputFolder, System.Threading.CancellationToken cancellationToken)
     {
         string projectRoot = Directory.GetParent(Application.dataPath).FullName;
         string mechFolder = Path.Combine(projectRoot, "Windom_Data", "Robo", MechId);
@@ -268,13 +226,14 @@ public static class TestPlayGoldenTraceVerification
         CypherTranscoder transcoder = new CypherTranscoder();
         string sptText = USEncoder.ToEncoding.ToUnicode(transcoder.Transcode(sptPath));
         SptRuntimeData sptData = SptParser.Parse(sptText);
-        string outputFolder = Path.Combine(projectRoot, "Logs", "TestPlayGolden");
+
         Directory.CreateDirectory(outputFolder);
 
         int passed = 0;
         IReadOnlyList<TestPlayGoldenScenarioDefinition> definitions = TestPlayGoldenScenarioCatalog.All;
         for (int i = 0; i < definitions.Count; i++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             TestPlayGoldenScenarioDefinition definition = definitions[i];
             ValidateRealDataRequirements(data, definition);
             RunCapture first = RunScenario(data, sptData, definition, aniHash, sptHash, MechId, mechFolder);
@@ -294,6 +253,7 @@ public static class TestPlayGoldenTraceVerification
                 Path.Combine(outputFolder, definition.id + ".unity-reference.jsonl"),
                 first.session.SerializeJsonLines(),
                 new UTF8Encoding(false));
+            WriteMeleeTravelDiagnostic(outputFolder, definition, first);
             Debug.Log("[TestPlayGolden] " + definition.id + " passed ticks=" +
                       first.session.TickCount + " sha256=" + firstHash);
             passed++;
@@ -302,9 +262,67 @@ public static class TestPlayGoldenTraceVerification
 
         Debug.Log("[TestPlayGolden] Passed " + passed + "/" + definitions.Count +
                   " real-mech scenarios twice with exact tick-trace equality. Output=" + outputFolder);
+        return passed;
     }
 
-    public static async Task RunSelectedMechGt001Async(string mechFolder)
+    static void WriteMeleeTravelDiagnostic(
+        string outputFolder,
+        TestPlayGoldenScenarioDefinition definition,
+        RunCapture capture)
+    {
+        if (definition.id != "GT-008" && definition.id != "GT-009")
+            return;
+
+        StringBuilder json = new StringBuilder();
+        json.AppendLine("{");
+        json.AppendLine("  \"schemaVersion\": 1,");
+        json.AppendLine("  \"evidence\": \"RealAniObserved+UnityAdapterDiagnostic\",");
+        json.AppendLine("  \"scenarioId\": \"" + definition.id + "\",");
+        json.AppendLine("  \"targetRadius\": 1.5,");
+        if (definition.id == "GT-008")
+        {
+            json.AppendLine("  \"coveredActions\": [130, 136],");
+            json.AppendLine("  \"action130Distance\": " + JsonFloat(capture.forwardMeleeApproachDistance) + ",");
+            json.AppendLine("  \"action136Distance\": " + JsonFloat(capture.forwardMeleeFollowupDistance) + ",");
+            json.AppendLine("  \"minimumTargetCenterDistance\": " + JsonFloat(capture.forwardMeleeMinimumTargetDistance) + ",");
+            json.AppendLine("  \"enteredTargetRadius\": " + JsonBool(capture.forwardMeleeEnteredTargetRadius) + ",");
+            json.AppendLine("  \"passedTargetPlane\": " + JsonBool(capture.forwardMeleePassedTargetPlane));
+        }
+        else
+        {
+            json.AppendLine("  \"coveredActions\": [131, 132, 133],");
+            json.AppendLine("  \"action131Distance\": " + JsonFloat(capture.combo131Distance) + ",");
+            json.AppendLine("  \"action132Distance\": " + JsonFloat(capture.combo132Distance) + ",");
+            json.AppendLine("  \"action133Distance\": " + JsonFloat(capture.combo133Distance) + ",");
+            json.AppendLine("  \"minimumTargetCenterDistance\": " + JsonFloat(capture.comboMinimumTargetDistance) + ",");
+            json.AppendLine("  \"enteredTargetRadius\": " + JsonBool(capture.comboEnteredTargetRadius) + ",");
+            json.AppendLine("  \"passedTargetPlane\": " + JsonBool(capture.comboPassedTargetPlane));
+        }
+        json.AppendLine("}");
+
+        string outputPath = Path.Combine(
+            outputFolder, definition.id + ".melee-travel-diagnostic.json");
+        File.WriteAllText(outputPath, json.ToString(), new UTF8Encoding(false));
+        Debug.Log("[TestPlayGolden] " + definition.id +
+                  " melee travel diagnostic written: " + outputPath);
+    }
+
+    static string JsonFloat(float value)
+    {
+        return value.ToString("R", CultureInfo.InvariantCulture);
+    }
+
+    static string JsonBool(bool value)
+    {
+        return value ? "true" : "false";
+    }
+
+    public static Task RunSelectedMechGt001Async(string mechFolder)
+    {
+        return RunSelectedMechGt001Async(mechFolder, null);
+    }
+
+    internal static async Task RunSelectedMechGt001Async(string mechFolder, string outputFolder)
     {
         string aniPath = Path.Combine(mechFolder, "Script.ani");
         string sptPath = Path.Combine(mechFolder, "Script.spt");
@@ -336,7 +354,7 @@ public static class TestPlayGoldenTraceVerification
                 StringComparison.Ordinal))
             throw new InvalidOperationException("GT-001 session hashes differ.");
 
-        string outputFolder = GetHashSpecificOutputFolder(aniHash, sptHash);
+        if (outputFolder == null) outputFolder = GetHashSpecificOutputFolder(aniHash, sptHash);
         Directory.CreateDirectory(outputFolder);
         string outputPath = Path.Combine(outputFolder, "GT-001.unity-reference.jsonl");
         File.WriteAllText(outputPath, first.session.SerializeJsonLines(), new UTF8Encoding(false));
@@ -438,6 +456,8 @@ public static class TestPlayGoldenTraceVerification
                     root.transform.position,
                     rotationBeforeTick,
                     root.transform.rotation,
+                    targetObject.transform.position,
+                    target.hitRadius,
                     tickTrace);
             }
             controller.EndDeterministicTraceSession();
@@ -494,6 +514,8 @@ public static class TestPlayGoldenTraceVerification
         Vector3 positionAfterTick,
         Quaternion rotationBeforeTick,
         Quaternion rotationAfterTick,
+        Vector3 targetPosition,
+        float targetRadius,
         string tickTrace)
     {
         int action = controller.currentAnimationIndex;
@@ -592,11 +614,33 @@ public static class TestPlayGoldenTraceVerification
                 energyDelta,
                 horizontalDelta,
                 tickTrace);
+            CaptureMeleeTravel(
+                capture,
+                logicalAction,
+                controller.meleeAction,
+                controller.meleeApproachFollowupAction,
+                -1,
+                positionBeforeTick,
+                positionAfterTick,
+                targetPosition,
+                targetRadius,
+                false);
         }
         else if (scenarioId == "GT-009")
         {
             CaptureSwordCancelComboScenarioState(
                 capture, controller, input, traceTick, logicalAction, tickTrace);
+            CaptureMeleeTravel(
+                capture,
+                logicalAction,
+                controller.neutralMeleeAction,
+                132,
+                133,
+                positionBeforeTick,
+                positionAfterTick,
+                targetPosition,
+                targetRadius,
+                true);
         }
         else if (scenarioId == "GT-010")
         {
@@ -1027,6 +1071,96 @@ public static class TestPlayGoldenTraceVerification
             capture.forwardMeleeIdleTick = traceTick;
             capture.forwardMeleeSemanticsValid &=
                 controller.CurrentActionSelection.poseActionId == controller.idleAction + 50;
+        }
+    }
+
+    static void CaptureMeleeTravel(
+        RunCapture capture,
+        int logicalAction,
+        int firstAction,
+        int secondAction,
+        int thirdAction,
+        Vector3 positionBefore,
+        Vector3 positionAfter,
+        Vector3 targetPosition,
+        float targetRadius,
+        bool combo)
+    {
+        bool isFirst = logicalAction == firstAction;
+        bool isSecond = logicalAction == secondAction;
+        bool isThird = thirdAction >= 0 && logicalAction == thirdAction;
+        if (!isFirst && !isSecond && !isThird)
+            return;
+
+        Vector3 beforeHorizontal = positionBefore;
+        Vector3 afterHorizontal = positionAfter;
+        Vector3 targetHorizontal = targetPosition;
+        beforeHorizontal.y = 0f;
+        afterHorizontal.y = 0f;
+        targetHorizontal.y = 0f;
+
+        Vector3 movement = afterHorizontal - beforeHorizontal;
+        float distance = movement.magnitude;
+        if (combo)
+        {
+            if (isFirst) capture.combo131Distance += distance;
+            else if (isSecond) capture.combo132Distance += distance;
+            else capture.combo133Distance += distance;
+        }
+        else
+        {
+            if (isFirst) capture.forwardMeleeApproachDistance += distance;
+            else capture.forwardMeleeFollowupDistance += distance;
+        }
+
+        Vector3 heading = combo ? capture.comboHeading : capture.forwardMeleeHeading;
+        bool headingCaptured = combo
+            ? capture.comboHeadingCaptured
+            : capture.forwardMeleeHeadingCaptured;
+        if (!headingCaptured)
+        {
+            heading = targetHorizontal - beforeHorizontal;
+            if (heading.sqrMagnitude > 0.00000001f)
+            {
+                heading.Normalize();
+                if (combo)
+                {
+                    capture.comboHeading = heading;
+                    capture.comboHeadingCaptured = true;
+                }
+                else
+                {
+                    capture.forwardMeleeHeading = heading;
+                    capture.forwardMeleeHeadingCaptured = true;
+                }
+                headingCaptured = true;
+            }
+        }
+
+        float targetDistance = Vector3.Distance(afterHorizontal, targetHorizontal);
+        if (combo)
+        {
+            capture.comboMinimumTargetDistance = Mathf.Min(
+                capture.comboMinimumTargetDistance, targetDistance);
+            capture.comboEnteredTargetRadius |= targetDistance <= targetRadius;
+            if (headingCaptured)
+            {
+                capture.comboPassedTargetPlane |=
+                    Vector3.Dot(targetHorizontal - beforeHorizontal, heading) > 0f &&
+                    Vector3.Dot(targetHorizontal - afterHorizontal, heading) <= 0f;
+            }
+        }
+        else
+        {
+            capture.forwardMeleeMinimumTargetDistance = Mathf.Min(
+                capture.forwardMeleeMinimumTargetDistance, targetDistance);
+            capture.forwardMeleeEnteredTargetRadius |= targetDistance <= targetRadius;
+            if (headingCaptured)
+            {
+                capture.forwardMeleePassedTargetPlane |=
+                    Vector3.Dot(targetHorizontal - beforeHorizontal, heading) > 0f &&
+                    Vector3.Dot(targetHorizontal - afterHorizontal, heading) <= 0f;
+            }
         }
     }
 
@@ -1576,7 +1710,8 @@ public static class TestPlayGoldenTraceVerification
                 capture.forwardMeleeEntryTick != 62 ||
                 !capture.forwardMeleeEntryOnPress ||
                 !capture.forwardMeleeSemanticsValid ||
-                capture.forwardMeleeMovementTicks != 6 ||
+                capture.forwardMeleeMovementTicks < 1 ||
+                capture.forwardMeleeMovementTicks > 6 ||
                 capture.forwardMeleeEnergyDrainTicks != 6 ||
                 !NearlyEqual(capture.forwardMeleeEnergyConsumed, 30f) ||
                 capture.forwardMeleeFollowupEvents != 1 ||
@@ -1587,13 +1722,16 @@ public static class TestPlayGoldenTraceVerification
                 !TicksEqual(capture.forwardMeleeProcType57Ticks, 68, 78, 83, 88, 93, 98, 103) ||
                 capture.forwardMeleeRecoveryTick != 127 ||
                 capture.forwardMeleeRecoveryTicks != 34 ||
-                capture.forwardMeleeIdleTick != 161)
+                capture.forwardMeleeIdleTick != 161 ||
+                capture.forwardMeleeMinimumTargetDistance < 1.4999f ||
+                capture.forwardMeleePassedTargetPlane)
             {
                 throw new InvalidOperationException(
                     "GT-008 must accept one C edge at tick 1, run switch action 18 once for 21 " +
                     "ticks, and return at tick 22 using sword idle pose 50. Direction 8 plus a " +
                     "second C edge at tick 62 must enter approach action 130 once for six ticks, " +
-                    "move on all six action ticks, drain 5 movement-energy units on six updates, " +
+                    "retain the six-tick real-ANI approach while its Unity Adapter stops applied " +
+                    "root movement at the target sphere, drain 5 movement-energy units on six updates, " +
                     "and transition to action 136 at tick 68. The representative real ANI must " +
                     "schedule RunProc2 type 55/57 at the recorded ticks, then recover through " +
                     "sword pose 56 at tick 127 and idle pose 50 at tick 161. Proc scheduling is " +
@@ -1618,6 +1756,10 @@ public static class TestPlayGoldenTraceVerification
                     " followupEntries=" + capture.forwardMeleeFollowupEntries +
                     " followupTicks=" + capture.forwardMeleeFollowupTicks +
                     " type57=" + FormatTicks(capture.forwardMeleeProcType57Ticks) +
+                    " approachDistance=" + capture.forwardMeleeApproachDistance.ToString("R", CultureInfo.InvariantCulture) +
+                    " followupDistance=" + capture.forwardMeleeFollowupDistance.ToString("R", CultureInfo.InvariantCulture) +
+                    " minTargetDistance=" + capture.forwardMeleeMinimumTargetDistance.ToString("R", CultureInfo.InvariantCulture) +
+                    " passedTarget=" + capture.forwardMeleePassedTargetPlane +
                     " recoveryTick=" + capture.forwardMeleeRecoveryTick +
                     " recoveryTicks=" + capture.forwardMeleeRecoveryTicks +
                     " idleTick=" + capture.forwardMeleeIdleTick);
@@ -1649,7 +1791,9 @@ public static class TestPlayGoldenTraceVerification
                 !TicksEqual(capture.comboProcType57Ticks, 1, 11, 16, 21, 22, 27, 32, 37, 58, 63) ||
                 capture.comboRecoveryTick != 92 ||
                 capture.comboRecoveryTicks != 34 ||
-                capture.comboIdleTick != 126)
+                capture.comboIdleTick != 126 ||
+                capture.comboMinimumTargetDistance < 1.4999f ||
+                capture.comboPassedTargetPlane)
             {
                 throw new InvalidOperationException(
                     "GT-009 must enter actions 131, 132, and 133 once for 21, 16, and 54 ticks. " +
@@ -1657,7 +1801,9 @@ public static class TestPlayGoldenTraceVerification
                     "SwordCancel 132/133 must appear at ticks 21/37 and transition at ticks " +
                     "22/38. Each action entry must apply its representative ATTACK and AttackFlag " +
                     "profile, while RunProc2 type 57 is scheduled at the recorded real-ANI ticks. " +
-                    "The combo must recover through sword pose 56 at tick 92 and idle pose 50 at " +
+                    "The Unity Adapter must stop applied root movement at the target sphere without " +
+                    "changing the real-ANI action sequence. The combo must recover through sword pose " +
+                    "56 at tick 92 and idle pose 50 at " +
                     "tick 126. Proc scheduling is checked as RealAniObserved; type-57 hit geometry, " +
                     "multi-hit rules, and hit success are excluded. inputs=" + capture.comboMeleeInputTicks +
                     " action131=" + capture.combo131Entries + "/" + capture.combo131Ticks +
@@ -1675,6 +1821,11 @@ public static class TestPlayGoldenTraceVerification
                     " profileValid=" + capture.comboProfileSemanticsValid +
                     " sequenceValid=" + capture.comboSequenceSemanticsValid +
                     " type57=" + FormatTicks(capture.comboProcType57Ticks) +
+                    " action131Distance=" + capture.combo131Distance.ToString("R", CultureInfo.InvariantCulture) +
+                    " action132Distance=" + capture.combo132Distance.ToString("R", CultureInfo.InvariantCulture) +
+                    " action133Distance=" + capture.combo133Distance.ToString("R", CultureInfo.InvariantCulture) +
+                    " minTargetDistance=" + capture.comboMinimumTargetDistance.ToString("R", CultureInfo.InvariantCulture) +
+                    " passedTarget=" + capture.comboPassedTargetPlane +
                     " recoveryTick=" + capture.comboRecoveryTick +
                     " recoveryTicks=" + capture.comboRecoveryTicks +
                     " idleTick=" + capture.comboIdleTick);

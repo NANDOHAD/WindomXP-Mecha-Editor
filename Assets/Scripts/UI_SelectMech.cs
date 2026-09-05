@@ -347,7 +347,7 @@ public class UI_SelectMech : MonoBehaviour
         }
         catch (Exception exception)
         {
-            Debug.LogWarning($"[UI_SelectMech] 失敗したAN2変換ファイルを削除できませんでした: {exception.Message}");
+            Debug.LogWarning($"[UI_SelectMech] 失敗した変換ファイルを削除できませんでした: {exception.Message}");
         }
     }
 
@@ -363,7 +363,7 @@ public class UI_SelectMech : MonoBehaviour
             new TaskCompletionSource<LegacyAniLoadChoice>();
         string message = UILocalization.Get(
             "ani.legacy_conversion.prompt",
-            "読み込もうとしているファイルは旧ANI形式です。\n\nOKの場合は元の旧ANIを変更せず「{0}」へAN2変換コピーを作成して読み込みます。旧ANI固有の未解析末尾データはAN2コピーには含まれません。キャンセルの場合は旧ANIのまま読み込みます。",
+            "読み込もうとしているファイルは旧ANI形式です。パーツの追加・削除や名前の変更を行った場合、スクリプトが破壊される可能性があります。開きますか？",
             Path.GetFileName(destinationPath));
 
         bool restoreLoading = loadingUI != null && loadingUI.activeSelf;
@@ -371,7 +371,6 @@ public class UI_SelectMech : MonoBehaviour
             loadingUI.SetActive(false);
         dialog.openNoTextBoxDialog(
             message,
-            ignored => completion.TrySetResult(LegacyAniLoadChoice.ConvertToAn2),
             ignored => completion.TrySetResult(LegacyAniLoadChoice.KeepLegacy));
 
         LegacyAniLoadChoice choice = await completion.Task;
