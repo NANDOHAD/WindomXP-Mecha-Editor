@@ -649,14 +649,6 @@ public class ani2
         if (!canSaveAsLegacyAni(out validationError))
             throw new InvalidDataException(validationError);
 
-        int discardedConstraintCount = CountLegacyOnlyRotationConstraintEdits();
-        if (discardedConstraintCount > 0)
-        {
-            Debug.LogWarning(
-                $"[ani2] 旧ANI形式では回転制約を保存できないため、"
-                + $"{discardedConstraintCount}件のunk1〜unk3を保存時に破棄し、rotationを保存します。");
-        }
-
         WriteAtomically(filename, bw =>
         {
             bw.Write(ASCIIEncoding.ASCII.GetBytes("ANI"));
@@ -830,37 +822,18 @@ public class ani2
                     {
                         return false;
                     }
-                    // 旧ANIのHODにはTRS行列しかなく、unk1〜unk3の回転制約欄はありません。
-                    // 保存時はrotationを行列へ書き出し、制約値は旧形式では保持しません。
+                    if (!LegacyAniSourceValues.QuaternionExactlyEquals(part.rotation, part.unk1)
+                        || !LegacyAniSourceValues.QuaternionExactlyEquals(part.rotation, part.unk2)
+                        || !LegacyAniSourceValues.QuaternionExactlyEquals(part.rotation, part.unk3))
+                    {
+                        error = $"アニメーション {animationIndex}、フレーム {frameIndex}、パーツ {partIndex} の回転制約は旧ANI形式に表現できません。";
+                        return false;
+                    }
                 }
             }
         }
 
         return true;
-    }
-
-    int CountLegacyOnlyRotationConstraintEdits()
-    {
-        int count = 0;
-        for (int animationIndex = 0; animationIndex < animations.Count; animationIndex++)
-        {
-            animation animationData = animations[animationIndex];
-            for (int frameIndex = 0; frameIndex < animationData.frames.Count; frameIndex++)
-            {
-                hod2v1 frame = animationData.frames[frameIndex];
-                for (int partIndex = 0; partIndex < frame.parts.Count; partIndex++)
-                {
-                    hod2v1_Part part = frame.parts[partIndex];
-                    if (!LegacyAniSourceValues.QuaternionExactlyEquals(part.rotation, part.unk1)
-                        || !LegacyAniSourceValues.QuaternionExactlyEquals(part.rotation, part.unk2)
-                        || !LegacyAniSourceValues.QuaternionExactlyEquals(part.rotation, part.unk3))
-                    {
-                        count++;
-                    }
-                }
-            }
-        }
-        return count;
     }
 
     void ValidateLegacyRoundTrip(string filename)

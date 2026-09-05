@@ -120,7 +120,7 @@ public sealed class UILanguageSelector : MonoBehaviour
 
         if (Matches(options, "位置", "回転", "大きさ")
             || Matches(options, "ワールド", "ローカル")
-            || Matches(options, "編集モード", "プレビューモード","テストモード"))
+            || Matches(options, "編集モード", "プレビューモード"))
         {
             japaneseOptions = options;
             return true;

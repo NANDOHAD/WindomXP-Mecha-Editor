@@ -57,7 +57,6 @@ public class TestPlayPresentationRuntime : MonoBehaviour
     public bool PropulsionActiveRequested { get; private set; }
     public bool PropulsionLoopRequested { get; private set; }
     public int PropulsionActivationCount { get; private set; }
-    public int SuppressedSoundPlaybackCount { get; private set; }
 
     readonly HashSet<string> missingAudioKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     readonly HashSet<string> missingTextureKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -239,30 +238,6 @@ public class TestPlayPresentationRuntime : MonoBehaviour
     {
         TestPlayTextureBinding binding = FindOriginalTexture(originalTextures, textureId);
         return CreateOriginalTextureEffect(binding, textureId.ToString(), position, rotation, size, life, tint, billboard);
-    }
-
-    public GameObject CreateOriginalType1TrailEffect(
-        int textureId,
-        Vector3 position,
-        float width,
-        out TestPlayType1TrailEffect trailEffect)
-    {
-        trailEffect = null;
-        TestPlayTextureBinding binding = FindOriginalTexture(originalTextures, textureId);
-        if (binding == null || binding.texture == null || originalEffectShader == null)
-        {
-            string missingKey = textureId.ToString();
-            if (logMissingTextures && missingTextureKeys.Add(missingKey))
-                Debug.LogWarning("[TestPlay][Effect] Missing original texture mapping: " + missingKey);
-            return null;
-        }
-
-        GameObject effectObject = new GameObject(
-            "TestPlayType1Trail_" + textureId + "_" + binding.texture.name);
-        effectObject.transform.position = position;
-        trailEffect = effectObject.AddComponent<TestPlayType1TrailEffect>();
-        trailEffect.Initialize(binding.texture, originalEffectShader, width, position);
-        return effectObject;
     }
 
     public GameObject CreateOriginalNamedTextureEffect(string fileName, Vector3 position, Quaternion rotation, Vector2 size, float life, Color tint, bool billboard = true)
@@ -489,11 +464,6 @@ public class TestPlayPresentationRuntime : MonoBehaviour
         switch (presentationEvent.type)
         {
             case TestPlayPresentationEventType.Sound:
-                if (controller != null && controller.ShouldSuppressPresentationSound(presentationEvent))
-                {
-                    SuppressedSoundPlaybackCount++;
-                    break;
-                }
                 PlayBinding(sounds, presentationEvent.symbol, soundSource, "Snd");
                 break;
             case TestPlayPresentationEventType.Voice:
@@ -624,12 +594,6 @@ public class TestPlayPresentationRuntime : MonoBehaviour
 
         source.transform.SetParent(sourceRoot, false);
         source.transform.localPosition = Vector3.zero;
-    }
-
-    public bool HasOriginalNamedTexture(string fileName)
-    {
-        TestPlayTextureBinding binding = FindOriginalTextureByName(originalTextures, fileName);
-        return binding != null && binding.texture != null;
     }
 
     void UpdatePropulsionFade()

@@ -1131,10 +1131,6 @@ MonoBehaviour:
     m_Key: ani.legacy_conversion.completed
     m_Metadata:
       m_Items: []
-  - m_Id: 10611999460286464
-    m_Key: fixed.7e0077a6da0cd945
-    m_Metadata:
-      m_Items: []
   m_Metadata:
     m_Items: []
   m_KeyGenerator:

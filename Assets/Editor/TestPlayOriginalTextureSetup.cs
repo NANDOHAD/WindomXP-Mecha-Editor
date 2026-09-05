@@ -71,8 +71,8 @@ public static class TestPlayOriginalTextureSetup
         new OriginalTextureSpec(39, "hinoko.png", 40),
         new OriginalTextureSpec(40, "fireAnime2.png", 41),
         new OriginalTextureSpec(41, "sabel_line3.png", 42),
-        new OriginalTextureSpec(42, "burner3.png", 43),
-        new OriginalTextureSpec(43, "burner4.png", 44)
+        new OriginalTextureSpec(42, "burner3.png"),
+        new OriginalTextureSpec(43, "burner4.png")
     };
 
     [MenuItem("Tools/WindomXP/Test Play/Rebuild Original IMG_TX Mappings")]

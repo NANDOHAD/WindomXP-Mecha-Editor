@@ -43,14 +43,6 @@ public class TestPlayOriginalEffect : MonoBehaviour
             runtimeMaterial.SetColor("_TintColor", tint);
     }
 
-    public void SetDisplaySize(Vector2 size)
-    {
-        displaySize = new Vector2(
-            Mathf.Max(0.01f, Mathf.Abs(size.x)),
-            Mathf.Max(0.01f, Mathf.Abs(size.y)));
-        transform.localScale = new Vector3(displaySize.x, displaySize.y, 1f);
-    }
-
     void LateUpdate()
     {
         if (billboard)

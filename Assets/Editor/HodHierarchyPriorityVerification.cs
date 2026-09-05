@@ -13,15 +13,10 @@ public static class HodHierarchyPriorityVerification
     public static string lastResult { get; private set; } = "未実行";
 
     [MenuItem(MenuPath)]
-    public static void Run()
-    {
-        WindomVerificationRunner.StartVerification(WindomVerificationSelection.Hod);
-    }
-
-    internal static async System.Threading.Tasks.Task<int> RunForJobAsync()
+    public static async void Run()
     {
         if (isRunning)
-            throw new InvalidOperationException("HOD verification is already running.");
+            return;
 
         isRunning = true;
         lastResult = "実行中";
@@ -58,12 +53,11 @@ public static class HodHierarchyPriorityVerification
             await TestUnknownLegacyIkDataProtection(legacyIkEditPath);
             lastResult = $"{assertions} assertions passed.";
             Debug.Log($"[HodHierarchyPriorityVerification] {lastResult}");
-            return assertions;
         }
         catch (Exception ex)
         {
             lastResult = "Failed: " + ex;
-            throw;
+            Debug.LogError($"[HodHierarchyPriorityVerification] Failed: {ex}");
         }
         finally
         {
@@ -381,12 +375,10 @@ public static class HodHierarchyPriorityVerification
         hod2v1_Part editedPart = editedAnimation.frames[0].parts[0];
         editedPart.position += new Vector3(0.25f, -0.5f, 0.75f);
         editedPart.rotation = Quaternion.Euler(5f, 10f, 15f);
-        // Leave the legacy-unrepresentable constraint values unchanged. The edited
-        // rotation itself must still be written to the legacy HOD matrix.
+        editedPart.unk1 = editedPart.rotation;
+        editedPart.unk2 = editedPart.rotation;
+        editedPart.unk3 = editedPart.rotation;
         editedAnimation.frames[0].parts[0] = editedPart;
-        Require(reloaded.canSaveAsLegacyAni(out validation),
-            "legacy rotation edit remains saveable when rotation constraints are not representable");
-        Require(validation == "", "legacy rotation-only save has no validation error");
         string editedScriptText = null;
         if (editedAnimation.scripts.Count > 0)
         {

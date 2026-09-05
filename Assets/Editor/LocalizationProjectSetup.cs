@@ -433,15 +433,15 @@ static void CreateLanguageSelector(Scene scene)
         Transform overlay = FindInScene(scene, "UI_Overlay");
         Transform prefPanel = overlay == null ? null : overlay.Find("PrefPanel");
         if (prefPanel == null && overlay != null)
-            prefPanel = overlay.Find("環境設定ウインドウ");
+            prefPanel = overlay.Find("環境設定パネル");
         if (prefPanel == null)
-            throw new InvalidOperationException("環境設定ウインドウが見つかりません。");
+            throw new InvalidOperationException("環境設定パネルが見つかりません。");
 
         Transform existingDropdown = prefPanel.Find("LanguageDropdown");
         GameObject dropdownObject;
         if (existingDropdown == null)
         {
-            Transform source = overlay.Find("メニューバー/モードセレクター/モード選択メニュー");
+            Transform source = overlay.Find("メニューバー/ModeSelect/Dropdown");
             if (source == null)
                 throw new InvalidOperationException("複製元Dropdownが見つかりません。");
 
